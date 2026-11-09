@@ -675,61 +675,113 @@ def my_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str
 
 
 def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str], only: Optional[str] = None) -> bytes:
+    """only: None = everything; 'orderbook' | 'pnl' | 'ledger' = one standalone statement.
+    (Legacy comma lists like 'orders,trades' are mapped onto these.)"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
+    if only:
+        o = only.lower()
+        only = "orderbook" if "order" in o else "ledger" if "ledger" in o else "pnl"
     rep = build_report(db, users, from_, to)
     start, end, f, t = _range(from_, to)
+    period = "All history" if not from_ else (rep["from"] if rep["from"] == rep["to"] else f"{rep['from']} to {rep['to']}")
+    who = users[0].display_name if len(users) == 1 else f"All trainees ({len(users)})"
+    gen = (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M IST")
     wb = Workbook()
     hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="365314")
+    title_font = Font(bold=True, size=14, color="365314"); bold = Font(bold=True)
+    tot_fill = PatternFill("solid", fgColor="ECFCCB")
 
-    def sheet(title, headers, rows, money_cols=()):
-        ws = wb.create_sheet(title) if wb.active.title != "Sheet" else wb.active
-        if ws.title == "Sheet":
-            ws.title = title
+    def sheet(title, headers, rows, money_cols=(), statement=None, totals=None):
+        ws = wb.active if wb.active.title == "Sheet" else wb.create_sheet(title)
+        ws.title = title
+        top = 1
+        if statement:
+            ws.append([f"limeFX — {statement}"]); ws["A1"].font = title_font
+            ws.append([f"Trainee: {who}", "", f"Period: {period}", "", f"Generated: {gen}"])
+            for c in ws[2]: c.font = Font(color="6B7280")
+            ws.append([]); top = 4
         ws.append(headers)
-        for c in ws[1]:
+        for c in ws[top]:
             c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
         for r in rows:
             ws.append(r)
+        if totals:
+            ws.append(totals)
+            for c in ws[ws.max_row]: c.font = bold; c.fill = tot_fill
         for i, h in enumerate(headers, 1):
-            ws.column_dimensions[get_column_letter(i)].width = max(12, min(40, len(str(h)) + 4))
+            ws.column_dimensions[get_column_letter(i)].width = max(12, min(44, len(str(h)) + 6))
             if i in money_cols:
-                for cell in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                for cell in ws.iter_rows(min_row=top + 1, min_col=i, max_col=i):
                     cell[0].number_format = '#,##0.00'
-        ws.freeze_panes = "A2"
+        ws.freeze_panes = f"A{top + 1}"
         return ws
 
-    want = lambda name: not only or name in only.split(",")
-    if want("summary"): sheet("Summary", ["Trainee", "Username", "Period", "Trades", "Closing trades", "Wins", "Losses", "Win rate %",
-                      "Gross profit", "Gross loss", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss",
-                      "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
-          [[u["display_name"], u["username"], f"{rep['from']} to {rep['to']}", u["trades"], u["closing_trades"], u["wins"], u["losses"],
-            u["win_rate"], u["gross_profit"], u["gross_loss"], u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"],
-            u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
-          money_cols=(9, 10, 11, 12, 13, 14, 15, 17, 18, 19))
-    # daily pivot
-    days = sorted({d for u in rep["users"] for d in u["daily"]})
-    if want("daily"): sheet("Daily P&L", ["Date"] + [u["display_name"] for u in rep["users"]] + ["Total"],
-          [[d] + [u["daily"].get(d, 0) for u in rep["users"]] + [rep["daily"].get(d, 0)] for d in days],
-          money_cols=tuple(range(2, len(rep["users"]) + 3)))
     uid2name = {u.id: u.display_name for u in users}
     ids = [u.id for u in users]
-    trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
-    orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
-    if want("orders"): sheet("Orders", ["Date", "Time (IST)", "Trainee", "Contract", "Side", "Type", "Lots", "Qty", "Limit", "Trigger", "Status", "Fill price", "Note"],
-          [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S"), uid2name.get(o.user_id, ""), o.symbol, o.side, o.order_type,
-            o.lots, o.qty, o.limit_price, o.trigger_price, o.status, o.fill_price, o.reason] for o in orders], money_cols=(9, 10, 12))
-    if want("trades"): sheet("Trades", ["Date", "Time (IST)", "Trainee", "Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
-          [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S"), uid2name.get(x.user_id, ""), x.symbol, x.exchange,
-            x.side, x.qty, x.price, x.realised_pnl] for x in trades], money_cols=(8, 9))
-    led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all() if want("ledger") else []
-    kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
-             "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction"}
-    if want("ledger"): sheet("Coin ledger", ["Date", "Time (IST)", "Trainee", "Type", "Amount", "Balance after", "Note"],
-          [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S"), uid2name.get(l.user_id, ""), kinds.get(l.kind, l.kind),
-            l.amount, l.balance_after, l.note] for l in led], money_cols=(5, 6))
+    many = len(users) != 1
+    tcol = ["Trainee"] if many else []
+    tval = (lambda uid: [uid2name.get(uid, "")]) if many else (lambda uid: [])
+    sh = lambda n: n + (1 if many else 0)   # column shift when the Trainee column is present
+
+    # ---- Order book statement -------------------------------------------------------------
+    if only in (None, "orderbook"):
+        orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
+        filled = sum(1 for o in orders if o.status == "FILLED"); rej = sum(1 for o in orders if o.status == "REJECTED")
+        sheet("Order Book", ["Date", "Time (IST)"] + tcol + ["Contract", "Side", "Type", "Lots", "Qty", "Limit price", "Trigger", "Status", "Fill price", "Note"],
+              [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S")] + tval(o.user_id) + [o.symbol, o.side, o.order_type,
+                o.lots, o.qty, o.limit_price, o.trigger_price, o.status, o.fill_price, o.reason] for o in orders],
+              money_cols=(sh(8), sh(9), sh(11)), statement="Order Book Statement",
+              totals=[f"{len(orders)} orders", f"{filled} filled, {rej} rejected"] + [""] * (sh(11) - 1))
+    # ---- P&L statement -----------------------------------------------------------------------
+    if only in (None, "pnl"):
+        trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
+        net = round(sum(x.realised_pnl or 0 for x in trades), 2)
+        gp = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) > 0), 2)
+        gl = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) < 0), 2)
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
+              [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
+                x.side, x.qty, x.price, x.realised_pnl] for x in trades],
+              money_cols=(sh(7), sh(8)), statement="Profit & Loss Statement",
+              totals=[f"{len(trades)} trades", f"Gross profit {gp:,.2f} / Gross loss {gl:,.2f}"] + [""] * (sh(5)) + ["Net P&L", net])
+        days = sorted({d for u in rep["users"] for d in u["daily"]})
+        cum = 0; rows = []
+        for d in days:
+            v = rep["daily"].get(d, 0); cum = round(cum + v, 2)
+            rows.append([d] + ([u["daily"].get(d, 0) for u in rep["users"]] if many else []) + [v, cum])
+        sheet("Daily P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative"], rows,
+              money_cols=tuple(range(2, (len(rep["users"]) if many else 0) + 4)), statement="Day-wise Profit & Loss")
+        sheet("Summary", ["Trainee", "Username", "Trades", "Closing trades", "Wins", "Losses", "Win rate %", "Gross profit", "Gross loss",
+                          "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss", "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
+              [[u["display_name"], u["username"], u["trades"], u["closing_trades"], u["wins"], u["losses"], u["win_rate"], u["gross_profit"], u["gross_loss"],
+                u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
+              money_cols=(8, 9, 10, 11, 12, 13, 14, 16, 17, 18), statement="Performance Summary")
+    # ---- Ledger statement ------------------------------------------------------------------------
+    if only in (None, "ledger"):
+        kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
+                 "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction"}
+        led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
+        rows = []
+        if not many:
+            prev = db.query(Ledger).filter(Ledger.user_id == ids[0], Ledger.created_at < start).order_by(Ledger.created_at.desc()).first()
+            rows.append([rep["from"] if from_ else "", "", "Opening balance", "", prev.balance_after if prev else 0, ""])
+        rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [kinds.get(l.kind, l.kind),
+                  l.amount, l.balance_after, l.note] for l in led]
+        cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
+        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT")), 2)
+        closing = led[-1].balance_after if (led and not many) else (rows[0][4] if rows and not many else None)
+        sheet("Ledger", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance after", "Note"], rows, money_cols=(sh(4), sh(5)),
+              statement="Coin Ledger Statement",
+              totals=[f"{len(led)} entries", f"Added {cr:,.0f} / Removed {dr:,.0f} / P&L {pnl:,.2f}"] + [""] * (sh(1)) + ["Closing balance" if not many else "", closing if not many else "", ""])
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def _stmt_tag(sheets: Optional[str]) -> str:
+    if not sheets:
+        return "AllStatements"
+    s = sheets.lower()
+    return "OrderBook" if "order" in s else "Ledger" if "ledger" in s else "PnL"
 
 
 def _xlsx_response(data: bytes, name: str):
@@ -744,16 +796,14 @@ def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[
     if user_id:
         q = q.filter_by(id=user_id)
     users = q.order_by(User.id).all()
-    tag = f"_{sheets.replace(',', '_')}" if sheets else ""
-    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}{tag}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
+    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
     return _xlsx_response(build_xlsx(db, users, from_, to, sheets), rep_name)
 
 
 @app.get("/api/export.xlsx")
 def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, sheets: Optional[str] = None,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
-    tag = f"_{sheets.replace(',', '_')}" if sheets else ""
-    return _xlsx_response(build_xlsx(db, [user], from_, to, sheets), f"limefx_{user.username}{tag}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
+    return _xlsx_response(build_xlsx(db, [user], from_, to, sheets), f"limefx_{user.username}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
 
 
 # ---- Zerodha connect -----------------------------------------------------------------------

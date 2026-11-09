@@ -118,7 +118,7 @@ a{color:var(--acc)}
         <div id="customRange" class="bar hidden"><input type="date" id="pFrom" style="width:auto;padding:7px"><span class="mut">to</span><input type="date" id="pTo" style="width:auto;padding:7px"><button class="ghost" id="pApply" style="padding:7px 12px">Apply</button></div>
         <select id="pUser" style="width:auto;padding:7px 10px;min-width:160px"><option value="">All trainees</option></select>
       </div>
-      <div class="bar" style="flex:0 0 auto"><span class="small mut">Excel:</span><button class="ghost" data-pdl="orders,trades">⬇ Order book</button><button class="ghost" data-pdl="summary,daily,trades">⬇ Profit & loss</button><button class="ghost" data-pdl="ledger">⬇ Coin ledger</button><button id="xlsBtn">⬇ Everything</button></div>
+      <div class="bar" style="flex:0 0 auto"><span class="small mut">Excel:</span><button class="ghost" data-pdl="orderbook">⬇ Order book</button><button class="ghost" data-pdl="pnl">⬇ P&L statement</button><button class="ghost" data-pdl="ledger">⬇ Ledger statement</button><button id="xlsBtn">⬇ All three</button></div>
     </div>
     <p class="small mut" id="pRangeTxt" style="margin-top:8px"></p>
   </div>
@@ -185,7 +185,7 @@ a{color:var(--acc)}
     <div class="grid" style="margin:12px 0" id="dFunds"></div>
     <div class="tabs" style="justify-content:space-between"><div style="display:flex;gap:6px;flex-wrap:wrap"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div></div>
     <div class="bar" style="margin-bottom:10px"><span class="small mut">Download:</span><select id="dRange" style="width:auto;padding:6px 8px"><option value="month">This month</option><option value="today">Today</option><option value="week">This week</option><option value="lastmonth">Last month</option><option value="all">All history</option><option value="custom">Pick dates…</option></select><span id="dCustom" class="bar hidden"><input type="date" id="dFrom" style="width:auto;padding:6px"><span class="mut">to</span><input type="date" id="dTo" style="width:auto;padding:6px"></span>
-      <button class="ghost" data-ddl="orders,trades">⬇ Order book</button><button class="ghost" data-ddl="summary,daily,trades">⬇ Profit & loss</button><button class="ghost" data-ddl="ledger">⬇ Coin ledger</button><button class="ghost" data-ddl="">⬇ Everything</button></div>
+      <button class="ghost" data-ddl="orderbook">⬇ Order book</button><button class="ghost" data-ddl="pnl">⬇ P&L statement</button><button class="ghost" data-ddl="ledger">⬇ Ledger statement</button><button class="ghost" data-ddl="">⬇ All three</button></div>
     <div style="overflow:auto"><table id="dTbl"><thead></thead><tbody></tbody></table></div>
   </div>
 </div>

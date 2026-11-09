@@ -111,34 +111,39 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div class="seg" style="margin-bottom:12px"><button id="segOpt" class="active">Options</button><button id="segFut">Futures</button></div>
 
     <div id="optView">
-      <div class="card">
-        <div class="row">
-          <select id="selUnd"></select>
-          <select id="selExp"></select>
+      <div id="undList" class="card" style="padding:0 12px"></div>
+      <div id="chainPanel" class="hidden">
+        <div class="card">
+          <div class="row" style="align-items:center">
+            <button class="ghost" id="backUnd" style="flex:0 0 auto;padding:8px 12px">‹ Scrips</button>
+            <select id="selUnd" class="hidden"></select>
+            <div style="flex:1;min-width:0"><div class="sym" id="undName" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div><div class="small mut" style="white-space:nowrap"><b id="spotLtp" class="num" style="color:var(--txt)">—</b> <span id="spotChg" class="num"></span></div></div>
+          </div>
+          <div class="row" style="margin-top:8px;align-items:center"><select id="selExp"></select><div class="small mut" style="flex:0 0 auto">Lot size <b id="lotSize" style="color:var(--txt)"></b></div></div>
         </div>
-        <div class="row" style="margin-top:8px">
-          <div><span class="mut small">Spot </span><b id="spotLtp" class="num">—</b> <span id="spotChg" class="small num"></span></div>
-          <div style="text-align:right"><span class="mut small">Lot size </span><b id="lotSize"></b></div>
+        <div class="card" id="chainWrap" style="padding:0;overflow:auto;max-height:58vh">
+          <table class="chain" id="chainTbl">
+            <thead><tr><th>CE LTP</th><th>Chg%</th><th style="text-align:center">Strike</th><th>Chg%</th><th>PE LTP</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
-      </div>
-      <div class="card" id="chainWrap" style="padding:0;overflow:auto;max-height:58vh">
-        <table class="chain" id="chainTbl">
-          <thead><tr><th>CE LTP</th><th>Chg%</th><th style="text-align:center">Strike</th><th>Chg%</th><th>PE LTP</th></tr></thead>
-          <tbody></tbody>
-        </table>
       </div>
     </div>
 
     <div id="futView" class="hidden">
-      <div class="card">
-        <select id="selUndF"></select>
-        <div class="row" style="margin-top:8px">
-          <div><span class="mut small">Spot </span><b id="spotLtpF" class="num">—</b> <span id="spotChgF" class="small num"></span></div>
+      <div id="undListF" class="card" style="padding:0 12px"></div>
+      <div id="futPanel" class="hidden">
+        <div class="card">
+          <div class="row" style="align-items:center">
+            <button class="ghost" id="backUndF" style="flex:0 0 auto;padding:8px 12px">‹ Scrips</button>
+            <select id="selUndF" class="hidden"></select>
+            <div style="flex:1"><div class="sym" id="undNameF"></div><div class="small mut"><span class="mut">Spot </span><b id="spotLtpF" class="num">—</b> <span id="spotChgF" class="num"></span></div></div>
+          </div>
         </div>
-      </div>
-      <div class="card">
-        <h3>Contracts</h3>
-        <div id="futList"></div>
+        <div class="card">
+          <h3>Contracts</h3>
+          <div id="futList"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -287,13 +292,22 @@ async function boot(){
   renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
   const idx=state.und.filter(u=>u.exchange!=='MCX'&&u.spot_token);
-  $('#ticker').innerHTML=idx.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span>`).join('');
+  $('#ticker').innerHTML=idx.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="tp${u.spot_token}">—</b> <span class="small num" id="tc${u.spot_token}"></span></span>`).join('');
   sub(idx.map(u=>u.spot_token));state.tickerTokens=idx.map(u=>u.spot_token);
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
+  const grp=u=>u.exchange==='MCX'?'MCX Commodities':'Index';
+  const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+  $('#undList').innerHTML=listHtml(true);$('#undListF').innerHTML=listHtml(false).replace(/id="p(\d+)"/g,'id="fp$1"').replace(/id="c(\d+)"/g,'id="fc$1"');
+  $$('#undList .wl-item').forEach(el=>el.onclick=()=>{$('#selUnd').value=el.dataset.und;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
+  $$('#undListF .wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;$('#undListF').classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
+  $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
+  $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');$('#undListF').classList.remove('hidden');};
+  state.tickerTokens=[...new Set([...(state.tickerTokens||[]),...state.und.map(u=>u.spot_token).filter(Boolean)])];
+  sub(state.und.map(u=>u.spot_token).filter(Boolean));
   connectWS();
   loadWatch();
-  await loadUnderlying();
   refreshAll();
   setInterval(refreshFunds,5000);
 }
@@ -336,7 +350,7 @@ function unsub(tokens){const keep=new Set([...state.positions.map(p=>p.token),..
 // ---------- market tab ----------
 $('#selUnd').onchange=loadUnderlying;$('#selExp').onchange=loadChain;
 async function loadUnderlying(){
-  const [ex,name]=$('#selUnd').value.split('|');
+  const [ex,name]=$('#selUnd').value.split('|');$('#undName').textContent=name;
   const exps=await api(`/expiries?exchange=${ex}&name=${name}`);
   $('#selExp').innerHTML=exps.map(e=>`<option>${e}</option>`).join('');
   await loadChain();
@@ -365,7 +379,7 @@ async function loadChain(){
 // ---------- futures view ----------
 $('#selUndF').onchange=loadFutures;
 async function loadFutures(){
-  const [ex,name]=$('#selUndF').value.split('|');
+  const [ex,name]=$('#selUndF').value.split('|');$('#undNameF').textContent=name+' futures';
   const old=(state.futs||[]).map(f=>f.token);
   const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
   state.spotTokenF=(state.und.find(u=>u.exchange===ex&&u.name===name)||{}).spot_token;
@@ -391,7 +405,8 @@ function onPrices(ticks){
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
-    if((state.tickerTokens||[]).includes(t.token)){const tp=document.getElementById('p'+t.token);if(tp){tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');}}
+    const fp=document.getElementById('fp'+t.token);if(fp){fp.textContent=fmt(t.ltp);flash(fp,dir);const fc=document.getElementById('fc'+t.token);if(fc&&t.change!=null){fc.textContent=(t.change>0?'+':'')+t.change+'%';fc.className='small num '+pnlCls(t.change);}}
+    const tp=document.getElementById('tp'+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById('tc'+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
     chartTick(t);

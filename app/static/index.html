@@ -360,7 +360,7 @@ function showLogin(){if(state.master){toast('Master account can only view prices
 $('#loginClose').onclick=()=>$('#loginView').classList.add('hidden');
 $('#hLogin').onclick=showLogin;
 function setGuest(g){state.guest=g;$('#hLogin').classList.toggle('hidden',!g);$('#hFunds').classList.toggle('hidden',g);$('#wsearch').parentElement.classList.toggle('hidden',g);
-  $('#wEmpty').classList.add('hidden');document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('mut',g&&b.dataset.tab!=='watch'));}
+  $('#wEmpty').classList.add('hidden');document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('mut',g&&!['watch','market'].includes(b.dataset.tab)));$('#search').parentElement.classList.toggle('hidden',g);}
 function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
   const html=list.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="tp${u.spot_token}">—</b> <span class="small num" id="tc${u.spot_token}"></span></span>`).join('');
   $('#ticker').innerHTML=html+html.replace(/id="tp/g,'id="tp2_').replace(/id="tc/g,'id="tc2_');}
@@ -370,18 +370,10 @@ async function bootGuest(){
   renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
+  try{state.und=await api('/underlyings');buildMarket();}catch(e){}
   setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());renderFeed(h.feed);}catch(e){}},10000);
 }
-async function boot(){
-  let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
-  if(!me){return bootGuest();}
-  state.me=me;
-  if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
-  setGuest(false);$('#loginView').classList.add('hidden');
-  $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
-  renderFunds(state.me.funds);renderFeed(state.me.feed);
-  state.und=await api('/underlyings');
-  try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
+function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='stock'?'Stocks (F&O)':'Index';
@@ -399,9 +391,21 @@ async function boot(){
     const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
     sub(state.und.filter(u=>u.kind===cat&&u.spot_token).map(u=>u.spot_token));
     if(sfx)list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;list.classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
-    else list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{$('#selUnd').value=el.dataset.und;list.classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
+    else list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{if(state.guest){showLogin();return;}$('#selUnd').value=el.dataset.und;list.classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
     onPrices(Object.values(state.prices));};
   $$('#catList .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,''));$$('#catListF .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,'f'));
+}
+async function boot(){
+  let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
+  if(!me){return bootGuest();}
+  state.me=me;
+  if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
+  setGuest(false);$('#loginView').classList.add('hidden');
+  $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
+  renderFunds(state.me.funds);renderFeed(state.me.feed);
+  state.und=await api('/underlyings');
+  try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
+  buildMarket();
   $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
   $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');$('#undListF').classList.remove('hidden');};
   state.tickerTokens=[...new Set([...(state.tickerTokens||[]),...state.und.map(u=>u.spot_token).filter(Boolean)])];
@@ -484,7 +488,7 @@ async function loadFutures(){
   const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
   state.spotTokenF=(state.und.find(u=>u.exchange===ex&&u.name===name)||{}).spot_token;
   $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${f.symbol}</span><div class="small mut">exp ${f.expiry} · lot ${f.lot_size}</div></span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
-  $$('#futList .wl-item').forEach(el=>el.onclick=()=>openSheet(state.futs.find(x=>x.token==el.dataset.tok)));
+  $$('#futList .wl-item').forEach(el=>el.onclick=()=>{if(state.guest){showLogin();return;}openSheet(state.futs.find(x=>x.token==el.dataset.tok));});
   unsub(old);
   const toks=futs.map(f=>f.token);if(state.spotTokenF)toks.push(state.spotTokenF);
   sub(toks);onPrices(toks.map(t=>state.prices[t]).filter(Boolean));
@@ -675,7 +679,7 @@ $$('[data-dl]').forEach(b=>b.onclick=()=>{const[f,t]=dlRange(dlPreset);if(dlPres
 
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();
-$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(state.guest&&b.dataset.tab!=='watch'){showLogin();return;}state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(state.guest&&!['watch','market'].includes(b.dataset.tab)){showLogin();return;}state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
   if(state.tab==='orders')loadTrades();if(state.tab==='account'){loadLedger();loadPerf();}if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
 

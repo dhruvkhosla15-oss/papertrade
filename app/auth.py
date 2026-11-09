@@ -56,6 +56,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return u
 
 
+def optional_user(request: Request, db: Session = Depends(get_db)) -> User | None:
+    """Like current_user but returns None for visitors instead of raising."""
+    try:
+        return current_user(request, db)
+    except HTTPException:
+        return None
+
+
 def current_admin(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(403, "Admin only")

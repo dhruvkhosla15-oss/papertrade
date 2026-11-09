@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from . import config
 from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
-from .auth import (make_pre_token, get_db, current_user, current_admin, hash_password, verify_password, make_token,
+from .auth import (make_pre_token, optional_user, get_db, current_user, current_admin, hash_password, verify_password, make_token,
                    decode_token, COOKIE)
 from .engine import Engine, EngineError
 from .feed.mock import MockFeed
@@ -306,7 +306,7 @@ def _user_dict(u: User):
 
 # ---- market data ------------------------------------------------------------------------
 @app.get("/api/underlyings")
-def underlyings(user: User = Depends(current_user)):
+def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may browse the scrip lists
     out = []
     from .feed.base import kind_of
     for exch, names in feed.underlyings().items():
@@ -335,7 +335,7 @@ def chain(exchange: str, name: str, expiry: str, user: User = Depends(current_us
 
 
 @app.get("/api/futures")
-def futures(exchange: str, name: str, user: User = Depends(current_user)):
+def futures(exchange: str, name: str, user: Optional[User] = Depends(optional_user)):   # visitors may see futures prices
     today = date.today().isoformat()
     items = sorted((i for i in feed.instruments.values()
                     if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and i.expiry >= today),
@@ -372,8 +372,20 @@ def _default_watch_instruments():
 
 
 def _public_tokens():
-    """Tokens a not-logged-in visitor may stream: the showcase spots / nearest MCX futures."""
-    return {i.token for i in _default_watch_instruments()}
+    """Tokens a not-logged-in visitor may stream: every spot and every futures contract (no option
+    chains — those, and trading, need a login). Cached per instrument load."""
+    key = len(feed.instruments)
+    if _public_tokens._cache[0] != key:
+        toks = {i.token for i in _default_watch_instruments()}
+        today = date.today().isoformat()
+        for i in feed.instruments.values():
+            if i.segment == "INDICES" or (i.instrument_type == "FUT" and i.expiry >= today):
+                toks.add(i.token)
+        _public_tokens._cache = (key, toks)
+    return _public_tokens._cache[1]
+_public_tokens._cache = (-1, set())
+
+GUEST_SUB_CEILING = 2400   # leave headroom under Zerodha's 3000-instrument socket limit for trainees
 
 
 def _ticker():
@@ -591,8 +603,12 @@ async def ws_endpoint(ws: WebSocket):
             if msg.get("type") == "subscribe":
                 toks = [int(t) for t in msg.get("tokens", [])]
                 if allowed is not None:
+                    allowed = _public_tokens()
                     toks = [t for t in toks if t in allowed]
                 new = set(toks) - c.tokens
+                if guest and len(feed._refcount) + len(new) > GUEST_SUB_CEILING:
+                    # visitors never squeeze trainees out of the Zerodha socket
+                    new = {t for t in new if t in feed._refcount}
                 feed.subscribe(list(new))
                 c.tokens |= new
                 # immediate snapshot of what we already have

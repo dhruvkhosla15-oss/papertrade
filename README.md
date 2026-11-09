@@ -85,9 +85,10 @@ If you forget, trainees see "Live prices not available" and orders are rejected 
 
 ## Public home page
 
-Visitors who are not logged in see the watchlist page with live spot prices (indices + MCX) and the
-scrolling ticker; everything else (trading, charts, depth, other tabs) asks them to log in via the
-**Log in** button top-right. The ticker and every new trainee's watchlist show the **showcase** list: Nifty, Bank Nifty, Sensex, the
+Visitors who are not logged in see the watchlist page with live spot prices and the scrolling ticker, and can
+browse the **Markets** tab (Indices / Stocks / MCX scrip lists and futures prices). Option chains, market depth,
+charts and trading ask them to log in via the **Log in** button top-right. Visitor streams are capped so they
+can never push trainees out of Zerodha's 3,000-instrument socket limit. The ticker and every new trainee's watchlist show the **showcase** list: Nifty, Bank Nifty, Sensex, the
 ten most-traded F&O stocks (Reliance, HDFC Bank, ICICI Bank, SBI, Infosys, TCS, Tata Motors, Bharti Airtel, ITC, L&T) and
 Gold, Silver, Crude Oil, Natural Gas, Copper. Trainees can edit their own list; change the showcase with `PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...`.
 

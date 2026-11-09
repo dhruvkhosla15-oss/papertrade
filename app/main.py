@@ -24,6 +24,7 @@ log = logging.getLogger("app")
 
 app = FastAPI(title="LimeFX")
 STATIC = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 if config.FEED == "kite":
     from .feed.kite import KiteFeed
@@ -191,6 +192,15 @@ def futures(exchange: str, name: str, user: User = Depends(current_user)):
                     if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and i.expiry >= today),
                    key=lambda x: x.expiry)
     return [i.to_dict() for i in items]
+
+
+@app.get("/api/candles")
+async def candles(token: int, interval: str = "5m", user: User = Depends(current_user)):
+    ins = feed.instruments.get(token)
+    if not ins or ins.segment == "INDICES":
+        raise HTTPException(404, "charts are available for options and futures only")
+    data = await asyncio.get_event_loop().run_in_executor(None, feed.candles, token, interval)
+    return {"interval": interval, "candles": data}
 
 
 @app.get("/api/search")

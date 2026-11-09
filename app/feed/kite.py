@@ -7,8 +7,9 @@ request_token -> we exchange it for an access_token (valid until ~6 AM next day)
 """
 import asyncio
 import logging
+import time
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List
 from kiteconnect import KiteConnect, KiteTicker
 
@@ -150,6 +151,39 @@ class KiteFeed(PriceFeed):
                 self.ticker.unsubscribe(tokens)
             except Exception as e:
                 log.warning("unsubscribe failed: %s", e)
+
+    # ---- historical candles (cached) -------------------------------------------
+    _INTERVALS = {"1m": "minute", "5m": "5minute", "15m": "15minute", "1h": "60minute", "1d": "day"}
+
+    def candles(self, token: int, interval: str):
+        if not self.token_valid_today():
+            return []
+        kint = self._INTERVALS.get(interval, "5minute")
+        key = (token, kint)
+        now = time.time()
+        cached = getattr(self, "_candle_cache", None)
+        if cached is None:
+            self._candle_cache = cached = {}
+        hit = cached.get(key)
+        ttl = 30 if kint == "minute" else 90
+        if hit and now - hit["ts"] < ttl:
+            return hit["data"]
+        ins = self.instruments.get(token)
+        if not ins:
+            return []
+        to_d = datetime.now()
+        # Kite caps the range per request by interval; options/futures are short-lived anyway.
+        span = {"minute": 55, "5minute": 95, "15minute": 190, "60minute": 390, "day": 1900}[kint]
+        from_d = to_d - timedelta(days=span)
+        try:
+            rows = self.kite.historical_data(token, from_d, to_d, kint, oi=True)
+        except Exception as e:
+            log.warning("historical failed %s: %s", ins.symbol, e)
+            return hit["data"] if hit else []
+        data = [{"time": int(r["date"].timestamp()), "open": r["open"], "high": r["high"], "low": r["low"],
+                 "close": r["close"], "volume": r.get("volume", 0), "oi": r.get("oi", 0)} for r in rows]
+        cached[key] = {"ts": now, "data": data}
+        return data
 
     def status(self):
         s = super().status()

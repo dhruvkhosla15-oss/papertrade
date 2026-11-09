@@ -141,6 +141,10 @@ class PriceFeed:
     def _unsubscribe(self, tokens: List[int]):
         pass
 
+    def candles(self, token: int, interval: str) -> List[dict]:
+        """Return [{time(epoch s), open, high, low, close, volume}] for the contract's life. Override."""
+        return []
+
     def status(self) -> dict:
         return {"feed": self.name, "connected": self.connected, "message": self.status_msg,
                 "instruments": len(self.instruments), "subscribed": len(self._refcount)}

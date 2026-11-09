@@ -134,6 +134,28 @@ class MockFeed(PriceFeed):
         p = max(ins.tick_size, round(p / ins.tick_size) * ins.tick_size)
         return round(p, 2)
 
+    def candles(self, token, interval):
+        ins = self.instruments.get(token)
+        if not ins:
+            return []
+        step = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}.get(interval, 300)
+        n = 300
+        now = int(time.time()) // step * step
+        p = self.ltp(token) or self._price(ins)
+        rng = random.Random(token)
+        out = []
+        # walk backwards then reverse
+        closes = [p]
+        for _ in range(n - 1):
+            closes.append(max(ins.tick_size, closes[-1] * math.exp(rng.gauss(0, 0.004 * math.sqrt(step / 300)))))
+        closes.reverse()
+        for i, c in enumerate(closes):
+            o = closes[i - 1] if i else c
+            h = max(o, c) * (1 + abs(rng.gauss(0, 0.002))); l = min(o, c) * (1 - abs(rng.gauss(0, 0.002)))
+            out.append({"time": now - (n - 1 - i) * step, "open": round(o, 2), "high": round(h, 2), "low": round(l, 2),
+                        "close": round(c, 2), "volume": rng.randint(100, 5000), "oi": 0})
+        return out
+
     async def start(self, loop):
         await super().start(loop)
         self.connected = True

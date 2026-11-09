@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
-<title>LimeFX — Master</title>
+<title>limeFX — Master</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d}
@@ -19,7 +20,7 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{font-weight:800;letter-spacing:-.02em;font-size:16px}
+.brand{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-size:22px;letter-spacing:-.04em}
 .feedlight{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}
 main{padding:16px 18px 40px;max-width:1200px;margin:0 auto}
@@ -51,14 +52,14 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 </head>
 <body>
 <div id="loginView" class="login hidden">
-  <h2><span style="color:var(--acc)">Lime</span>FX · Master login</h2>
+  <h2><span style="color:var(--acc)">lime</span>FX · Master login</h2>
   <input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
   <button id="loginBtn" style="width:100%">Log in</button><p id="loginErr" class="dn small" style="margin-top:10px"></p>
 </div>
 
 <div id="appView" class="hidden">
 <header>
-  <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX · Master</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
+  <div><div class="brand"><span style="color:var(--acc);font-weight:600">lime</span><span style="font-weight:800">FX</span> <span class="mut" style="font-weight:500">· Master</span></div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
   <div class="row" style="flex:0 0 auto"><a href="/" class="small mut" style="align-self:center">Trader view</a><button class="ghost" id="logoutBtn">Log out</button></div>
 </header>
 <main>

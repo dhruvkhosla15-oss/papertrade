@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
-<title>LimeFX</title>
+<title>limeFX</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#1d2230;--itm:#141a26;--seg:#0f1115}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
@@ -25,9 +26,11 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand{font-weight:700;letter-spacing:-.01em;font-size:26px;line-height:1.1;font-family:Georgia,'Times New Roman',serif}
-h3,.login h1,.sym{font-family:Georgia,'Times New Roman',serif;letter-spacing:0}
-h3{font-size:13px;text-transform:none;letter-spacing:.02em}
+header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05}
+header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}
+header .brand .fx,.login h1 .fx{font-weight:800}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.sym{font-weight:700;letter-spacing:-.01em}
 .marquee{overflow:hidden;white-space:nowrap;background:var(--card);border-bottom:1px solid var(--line);font-size:12px;padding:6px 0}
 .marquee .track{display:inline-flex;gap:26px;padding-left:14px;animation:scroll 70s linear infinite;will-change:transform}
 .marquee:hover .track{animation-play-state:paused}
@@ -89,7 +92,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="loginView" class="login hidden">
   <div class="box">
-    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h1 style="margin:0"><span style="color:var(--acc)">Lime</span>FX</h1><button class="ghost" id="loginClose" style="flex:0 0 auto;padding:6px 10px">✕</button></div>
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h1 style="margin:0"><span class="lm">lime</span><span class="fx">FX</span></h1><button class="ghost" id="loginClose" style="flex:0 0 auto;padding:6px 10px">✕</button></div>
     <p class="mut small" style="margin-bottom:12px">Log in with the username and password your trainer gave you.</p>
     <input id="lu" placeholder="Username" autocapitalize="none">
     <input id="lp" type="password" placeholder="Password">
@@ -100,7 +103,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
+  <div><div class="brand"><span class="lm">lime</span><span class="fx">FX</span></div><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
   <div style="display:flex;align-items:center;gap:10px"><button class="thbtn" id="thToggle" title="Light / dark">☾</button>
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <div class="funds" id="hFunds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
@@ -311,7 +314,7 @@ function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
 async function bootGuest(){
   setGuest(true);
   const home=await fetch('/api/public/home').then(r=>r.json());
-  renderFeed(home.feed);renderTicker(home.ticker);
+  renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
   setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());renderFeed(h.feed);}catch(e){}},10000);
@@ -534,10 +537,13 @@ $('#cSell').onclick=()=>{$('#chartModal').classList.add('hidden');openSheet(stat
 
 // ---------- watchlist ----------
 state.watch=[];
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthName(e){return e?MON[+e.slice(5,7)-1]:'';}
+function isNearMonth(w){const u=(state.und||[]).find(x=>x.exchange==='MCX'&&x.name===w.name);return !u||u.spot_token===w.token;}
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    <span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    <span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${w.segment==='INDICES'?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);

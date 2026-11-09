@@ -85,6 +85,9 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.fsum{padding:14px 16px}.fs3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.fs3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}.fs3 .h{font-size:11px;color:var(--mut);margin-top:3px}
+.fs3 .big{font-size:20px}.fs3.sub{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}.fs3.sub .num{font-size:15px;font-weight:600}
+@media(max-width:380px){.fs3 .big{font-size:17px}}
 .homeSeg{display:flex;width:100%;margin-bottom:12px}.homeSeg button{flex:1;padding:10px;font-size:14px;font-weight:600}.homeSeg button.active,#pPeriod button.active{background:var(--acc);color:#0f1115}
 #pPeriod{display:inline-flex;border-radius:999px}#pPeriod button{flex:0 0 auto;padding:8px 14px;font-size:13px;font-weight:600;border-radius:999px}
 .pctl{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:12px}.pctl .seg{justify-self:start}
@@ -92,7 +95,7 @@ td:first-child,th:first-child{text-align:left}
 .selwrap select{appearance:none;-webkit-appearance:none;width:100%;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:8px 32px 8px 14px;font-weight:600;font-size:13px}
 @media(max-width:480px){.pctl{grid-template-columns:1fr}.selwrap{justify-self:stretch}}
 .hero3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.hero3 .hs{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
-.hero3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}.hero3 .v{font-size:15px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .s{font-size:12px}
+.hero3 .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .v{font-size:15px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .s{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:700px){.pgrid{grid-template-columns:1fr}}
 .pcard{padding:0;overflow:hidden}.pcard h3{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;padding:12px 14px 6px;margin:0;display:flex;justify-content:space-between}.pcard h3 span{color:var(--txt);font-weight:600;text-transform:none;letter-spacing:0}
 .prow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer}.prow:hover{background:var(--strike)}
@@ -100,6 +103,11 @@ td:first-child,th:first-child{text-align:left}
 .prow .px{text-align:right;font-variant-numeric:tabular-nums}.prow .px b{display:block}.prow .px small{font-size:12px}
 .spark{width:64px;height:24px;flex:0 0 auto}.tbar{height:4px;border-radius:2px;background:var(--line);margin-top:4px;overflow:hidden}.tbar i{display:block;height:100%;background:var(--acc)}
 .pempty{padding:14px;color:var(--mut);font-size:13px;border-top:1px solid var(--line)}
+.breadth{padding:12px 14px;margin-bottom:12px}.breadth .bt{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:6px}.breadth .bb{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line)}.breadth .bb i{display:block;height:100%}
+.prow .m2{display:flex;gap:8px;font-size:11px;color:var(--mut);margin-top:4px;flex-wrap:nowrap;align-items:center;white-space:nowrap}.prow .m2 b{color:var(--txt);font-weight:600;display:inline}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--strike);color:var(--txt)}.tag.up{background:rgba(34,197,94,.15);color:var(--up)}.tag.dn{background:rgba(239,68,68,.15);color:var(--dn)}
+.rng{height:3px;background:var(--line);border-radius:2px;position:relative;flex:1;min-width:36px;max-width:120px}.rng i{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;background:var(--acc);transform:translateX(-50%)}
+@media(max-width:420px){.spark{display:none}}
 .costs>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:4px 0;border-bottom:1px dashed var(--line)}.costs>div:last-child{border:0;font-weight:600}
 .cats{display:grid;gap:10px}.cat{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;cursor:pointer}.cat:hover{background:var(--hover,var(--seg))}.cat>div:nth-child(2){flex:1}.cat b{font-size:16px}.cat-ic{font-size:26px;width:40px;text-align:center}.cat>span.mut{font-size:20px}
 .catHead{display:flex;align-items:center;gap:10px;padding:10px 0 2px}
@@ -150,11 +158,15 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
         <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option></select></div>
       </div>
+      <div class="card breadth" id="pBreadth"></div>
       <div class="hero3" id="pHero"></div>
       <div class="pgrid">
         <div class="card pcard"><h3>Top gainers <span id="pLblG"></span></h3><div id="pGain"></div></div>
         <div class="card pcard"><h3>Top losers <span id="pLblL"></span></h3><div id="pLose"></div></div>
         <div class="card pcard"><h3>Most traded <span>futures turnover · today</span></h3><div id="pTraded"></div></div>
+        <div class="card pcard"><h3>Volume shockers <span>today vs 20-day average</span></h3><div id="pShock"></div></div>
+        <div class="card pcard"><h3>OI build-up <span>futures OI change vs yesterday</span></h3><div id="pOI"></div></div>
+        <div class="card pcard"><h3>52-week watch <span>near highs / lows</span></h3><div id="p52"></div></div>
       </div>
       <p class="small mut" id="pNote" style="margin:8px 2px"></p>
     </div>
@@ -226,11 +238,17 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
   <!-- POSITIONS -->
   <section id="tab-positions" class="hidden">
-    <div class="card grid2">
-      <div><div class="mut small">Realised today</div><div class="big num" id="fReal"></div><div class="small mut">booked, after commission</div></div>
-      <div><div class="mut small">Unrealised</div><div class="big num" id="fUnreal"></div><div class="small mut">open positions, at exit price</div></div>
-      <div><div class="mut small">Balance</div><div class="num" id="fBal"></div></div>
-      <div><div class="mut small">Used margin · Available</div><div class="num"><span id="fUsed"></span> · <span id="fAvail"></span></div></div>
+    <div class="card fsum">
+      <div class="fs3">
+        <div><div class="k">Realised today</div><div class="big num" id="fReal"></div><div class="h">after commission</div></div>
+        <div><div class="k">Unrealised</div><div class="big num" id="fUnreal"></div><div class="h">at exit price</div></div>
+        <div><div class="k">Total today</div><div class="big num" id="fTot"></div><div class="h">realised + open</div></div>
+      </div>
+      <div class="fs3 sub">
+        <div><div class="k">Balance</div><div class="num" id="fBal"></div></div>
+        <div><div class="k">Used margin</div><div class="num" id="fUsed"></div></div>
+        <div><div class="k">Available</div><div class="num" id="fAvail"></div></div>
+      </div>
     </div>
     <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Open positions</h3><button class="ghost" id="exitAll" style="flex:0 0 auto;padding:8px 12px">Exit all at market</button></div>
     <div id="posList"></div>
@@ -456,7 +474,7 @@ function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);
-  $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);
+  $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);}
 async function refreshFunds(){try{const m=await api('/me');state.me=m;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
@@ -558,7 +576,7 @@ function onPrices(ticks){
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty;unreal+=u;
     const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=fmt(mk);}
-  if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
+  if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);const rt=state.funds.realised_today||0;$('#fTot').textContent=((rt+unreal)>=0?'+':'')+inr(rt+unreal);$('#fTot').className='big num '+pnlCls(rt+unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
@@ -697,17 +715,27 @@ let pulseP='today',pulseK='all',pulseTimer=null;
 function sparkSvg(v,up){if(!v||v.length<2)return '<svg class="spark"></svg>';const mn=Math.min(...v),mx=Math.max(...v),r=(mx-mn)||1;const pts=v.map((x,i)=>`${(i/(v.length-1)*64).toFixed(1)},${(22-(x-mn)/r*20).toFixed(1)}`).join(' ');return `<svg class="spark" viewBox="0 0 64 24"><polyline fill="none" stroke="${up?'var(--up)':'var(--dn)'}" stroke-width="1.5" points="${pts}"/></svg>`;}
 const fmtCr=n=>n>=1e12?'₹'+(n/1e12).toFixed(1)+' L Cr':n>=1e7?'₹'+Math.round(n/1e7).toLocaleString('en-IN')+' Cr':n>=1e5?'₹'+(n/1e5).toFixed(1)+' L':'₹'+Math.round(n).toLocaleString('en-IN');
 const pctS=p=>p==null?'—':(p>0?'+':'')+p.toFixed(2)+'%';
-function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;
-  if(mode==='traded')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}"><div class="rk">${i+1}</div><div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="tbar"><i style="width:${Math.max(4,Math.round(r.turnover/maxT*100))}%"></i></div></div><div class="px"><b>${fmtCr(r.turnover)}</b><small class="mut">${r.lots.toLocaleString('en-IN')} lots</small></div></div>`;
-  return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}"><div class="rk">${i+1}</div><div class="nm"><b>${r.name}</b><small>${r.label}</small></div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
+const rangeBar=r=>{if(r.high==null||r.low==null||r.high===r.low)return '';const pos=Math.max(0,Math.min(1,(r.ltp-r.low)/(r.high-r.low)));return `<div class="m2"><span>L <b>${fmt(r.low)}</b></span><span class="rng"><i style="left:${(pos*100).toFixed(0)}%"></i></span><span>H <b>${fmt(r.high)}</b></span></div>`;};
+function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="rk">${i+1}</div>`;
+  if(mode==='traded')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="tbar"><i style="width:${Math.max(4,Math.round(r.turnover/maxT*100))}%"></i></div></div><div class="px"><b>${fmtCr(r.turnover)}</b><small class="mut">${r.lots.toLocaleString('en-IN')} lots${r.vol_x?' · '+r.vol_x+'× avg':''}</small></div></div>`;
+  if(mode==='shock')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label} · ${r.lots.toLocaleString('en-IN')} lots</small></div><div class="px"><b>${r.vol_x}× <span class="small mut">avg vol</span></b><small class="${(r.day_pct||0)>=0?'up':'dn'}">${pctS(r.day_pct)} today</small></div></div>`;
+  if(mode==='oi')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label} · OI ${(r.oi||0).toLocaleString('en-IN')}</small></div><div class="px"><b class="${r.oi_chg>=0?'up':'dn'}">${pctS(r.oi_chg)} OI</b><small><span class="tag ${/Long build|Short cover/.test(r.buildup||'')?'up':/Short build|Long unwind/.test(r.buildup||'')?'dn':''}">${r.buildup||'—'}</span></small></div></div>`;
+  if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
+  return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
 async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
   const lbl={today:'Today',week:'This week',month:'This month'}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
   const h=d.hero;const hs=(k,r,cls,sub)=>r?`<div class="hs" data-name="${r.name}" data-ex="${r.exchange}"><div class="k">${k}</div><div class="v">${r.name}</div><div class="s ${cls}">${sub}</div></div>`:`<div class="hs"><div class="k">${k}</div><div class="v mut">—</div></div>`;
   $('#pHero').innerHTML=hs('Top gainer',h.gainer,'up',h.gainer?pctS(h.gainer.pct)+' · '+fmt(h.gainer.ltp):'')+hs('Top loser',h.loser,'dn',h.loser?pctS(h.loser.pct)+' · '+fmt(h.loser.ltp):'')+hs('Most traded',h.traded,'mut',h.traded?fmtCr(h.traded.turnover)+' turnover':'');
+  const b=d.breadth,tot=b.total||1;$('#pBreadth').innerHTML=`<div class="bt"><span><b class="up">${b.adv}</b> advancing</span><span>${b.unch} flat</span><span><b class="dn">${b.dec}</b> declining</span></div><div class="bb"><i style="width:${(b.adv/tot*100).toFixed(1)}%;background:var(--up)"></i><i style="width:${(b.unch/tot*100).toFixed(1)}%;background:var(--mut)"></i><i style="width:${(b.dec/tot*100).toFixed(1)}%;background:var(--dn)"></i></div>`;
   const maxT=d.traded[0]?.turnover||1;
   $('#pGain').innerHTML=d.gainers.map((r,i)=>pulseRow(r,i,'g')).join('')||'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>';
   $('#pLose').innerHTML=d.losers.map((r,i)=>pulseRow(r,i,'l')).join('')||'<div class="pempty">—</div>';
   $('#pTraded').innerHTML=d.traded.map((r,i)=>pulseRow(r,i,'traded',maxT)).join('')||'<div class="pempty">No volume yet today</div>';
+  const hl='<div class="pempty">History is still loading — check back in a minute</div>';
+  $('#pShock').innerHTML=d.shockers.map((r,i)=>pulseRow(r,i,'shock')).join('')||(d.history_ready?'<div class="pempty">No volume yet today</div>':hl);
+  $('#pOI').innerHTML=d.oi.map((r,i)=>pulseRow(r,i,'oi')).join('')||(d.history_ready?'<div class="pempty">No OI change yet</div>':hl);
+  const n52=[...d.near_hi.map(r=>({...r,_near:'hi'})),...d.near_lo.map(r=>({...r,_near:'lo'}))].slice(0,10);
+  $('#p52').innerHTML=n52.map((r,i)=>pulseRow(r,i,'52')).join('')||(d.history_ready?'<div class="pempty">Nothing within 3% of a 52-week high or low</div>':hl);
   $('#pNote').textContent=pulseP==='today'?'Change vs previous close · live':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago · prices live';
   $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
 function openScrip(ex,name){if(state.guest){showLogin();return;}$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}

@@ -74,18 +74,26 @@ class Pulse:
     def _build_history(self, day):
         try:
             hist = {}
+            toks = []
             for u in list(self.universe()):
-                tok = u["price_token"]
+                for t in (u["price_token"], u["fut_token"]):
+                    if t and t not in toks:
+                        toks.append(t)
+            for tok in toks:
                 try:
                     rows = self.feed.candles(tok, "1d")
                 except Exception as e:
-                    log.warning("pulse history %s: %s", u["name"], e); rows = []
-                closes = []
+                    log.warning("pulse history %s: %s", tok, e); rows = []
+                closes, highs, lows, vols, ois = [], [], [], [], []
                 for r in rows:
                     d = (datetime.utcfromtimestamp(r["time"]) + IST).date().isoformat()
                     if d < day:
-                        closes.append((d, r["close"]))
-                hist[tok] = closes[-40:]
+                        closes.append((d, r["close"])); highs.append(r["high"]); lows.append(r["low"])
+                        vols.append(r.get("volume") or 0); ois.append(r.get("oi") or 0)
+                hist[tok] = {"closes": closes[-260:], "hi52": max(highs[-250:]) if highs else None,
+                             "lo52": min(lows[-250:]) if lows else None,
+                             "avg_vol": (sum(vols[-20:]) / len(vols[-20:])) if vols[-20:] else 0,
+                             "prev_oi": ois[-1] if ois else 0}
                 time.sleep(0.35)   # stay under Kite's historical-data rate limit
             with self._hist_lock:
                 self._hist = hist; self._hist_day = day
@@ -98,6 +106,7 @@ class Pulse:
         uni = self.universe()
         self.ensure_history()
         rows = []
+        adv = dec = unch = 0
         for u in uni:
             if kind != "all" and u["kind"] != kind:
                 continue
@@ -105,7 +114,8 @@ class Pulse:
             ltp = p.get("ltp")
             if not ltp:
                 continue
-            closes = self._hist.get(u["price_token"], [])
+            h = self._hist.get(u["price_token"]) or {}
+            closes = h.get("closes", [])
             pct = None
             if period == "today":
                 pct = p.get("change")
@@ -114,20 +124,46 @@ class Pulse:
                 if len(closes) >= back:
                     ref = closes[-back][1]
                     pct = round((ltp - ref) / ref * 100, 2) if ref else None
+            dchg = p.get("change")
+            if dchg is not None:
+                adv += dchg > 0; dec += dchg < 0; unch += dchg == 0
             spark = [c for _, c in closes[-10:]] + [ltp]
-            f = self.feed.prices.get(u["fut_token"]) or {} if u["fut_token"] else {}
+            f = (self.feed.prices.get(u["fut_token"]) or {}) if u["fut_token"] else {}
+            fh = (self._hist.get(u["fut_token"]) or {}) if u["fut_token"] else {}
             vol = f.get("volume") or 0
             fltp = f.get("ltp") or ltp
             turnover = vol * fltp
+            # MCX candle volume is in lots while live volume was scaled to units -> compare like with like
+            avg_vol = fh.get("avg_vol") or 0
+            if u["kind"] == "mcx" and u["lot_size"] > 1:
+                avg_vol *= u["lot_size"]
+            vol_x = round(vol / avg_vol, 2) if avg_vol and vol else None
+            oi = f.get("oi") or 0; prev_oi = fh.get("prev_oi") or 0
+            oi_chg = round((oi - prev_oi) / prev_oi * 100, 2) if oi and prev_oi else None
+            fchg = f.get("change")
+            buildup = None
+            if oi_chg is not None and fchg is not None and abs(oi_chg) >= 0.5:
+                buildup = ("Long build-up" if fchg > 0 else "Short build-up") if oi_chg > 0 else ("Short covering" if fchg > 0 else "Long unwinding")
+            hi52, lo52 = h.get("hi52"), h.get("lo52")
+            from_hi = round((ltp - hi52) / hi52 * 100, 2) if hi52 else None
+            from_lo = round((ltp - lo52) / lo52 * 100, 2) if lo52 else None
             rows.append({"name": u["name"], "kind": u["kind"], "exchange": u["exchange"], "token": u["spot_token"] or u["price_token"],
-                         "label": u["label"], "ltp": ltp, "pct": pct, "turnover": round(turnover, 2),
-                         "lots": int(vol / u["lot_size"]) if u["lot_size"] else vol, "spark": spark})
+                         "label": u["label"], "ltp": ltp, "pct": pct, "day_pct": dchg, "high": p.get("high"), "low": p.get("low"),
+                         "prev_close": p.get("close"), "turnover": round(turnover, 2),
+                         "lots": int(vol / u["lot_size"]) if u["lot_size"] else vol, "spark": spark,
+                         "vol_x": vol_x, "oi": oi, "oi_chg": oi_chg, "buildup": buildup,
+                         "hi52": hi52, "lo52": lo52, "from_hi": from_hi, "from_lo": from_lo})
         ranked = [r for r in rows if r["pct"] is not None]
         gainers = sorted(ranked, key=lambda r: -r["pct"])[:n]
         losers = sorted(ranked, key=lambda r: r["pct"])[:n]
         traded = sorted([r for r in rows if r["turnover"] > 0], key=lambda r: -r["turnover"])[:n]
-        return {"period": period, "kind": kind, "asof": time.time(),
-                "history_ready": bool(self._hist) and self._hist_day != "",
-                "gainers": gainers, "losers": losers, "traded": traded,
+        shockers = sorted([r for r in rows if r["vol_x"]], key=lambda r: -r["vol_x"])[:n]
+        oi_rows = sorted([r for r in rows if r["oi_chg"] is not None], key=lambda r: -abs(r["oi_chg"]))[:n]
+        near_hi = sorted([r for r in rows if r["from_hi"] is not None and r["from_hi"] >= -3], key=lambda r: -r["from_hi"])[:n]
+        near_lo = sorted([r for r in rows if r["from_lo"] is not None and r["from_lo"] <= 3], key=lambda r: r["from_lo"])[:n]
+        return {"period": period, "kind": kind, "asof": time.time(), "history_ready": bool(self._hist),
+                "breadth": {"adv": adv, "dec": dec, "unch": unch, "total": len(rows)},
+                "gainers": gainers, "losers": losers, "traded": traded, "shockers": shockers, "oi": oi_rows,
+                "near_hi": near_hi, "near_lo": near_lo,
                 "hero": {"gainer": gainers[0] if gainers else None, "loser": losers[0] if losers else None,
                          "traded": traded[0] if traded else None}}

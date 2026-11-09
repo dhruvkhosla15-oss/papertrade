@@ -118,7 +118,7 @@ class LoginIn(BaseModel):
 def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
     u = db.query(User).filter_by(username=body.username.strip().lower()).first()
     if not u or not verify_password(body.password, u.password_hash):
-        raise HTTPException(401, "Invalid username or password")
+        raise HTTPException(401, "Wrong username or password")
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
     tok = make_token(u)

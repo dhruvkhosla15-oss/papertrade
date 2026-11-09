@@ -132,7 +132,7 @@ const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFracti
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';
 let users=[],detail=null,dtab='positions';
 async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
-  if(r.status===401){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('login');}
+  if(r.status===401&&p!=='/login'){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;}
 function toast(m,e){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),e?4000:2200);}
 

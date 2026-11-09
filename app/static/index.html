@@ -188,7 +188,7 @@ let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set
 
 async function api(path,opts={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
-  if(r.status===401){showLogin();throw new Error('login');}
+  if(r.status===401&&path!=='/login'){showLogin();throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.detail||r.statusText);
   return j;

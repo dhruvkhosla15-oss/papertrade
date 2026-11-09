@@ -74,8 +74,18 @@ class KiteFeed(PriceFeed):
                                         row["segment"], row["instrument_type"], exp_s,
                                         float(row["strike"] or 0), int(row["lot_size"] or 1),
                                         float(row["tick_size"] or 0.05)))
+        # Zerodha's instrument dump lists MCX *options* with lot_size=1; the real lot equals the
+        # underlying future's lot (GOLD 100, CRUDEOIL 100, NATURALGAS 1250, SILVER 30 ...).
+        fut_lot = {}
+        for i in items:
+            if i.exchange == "MCX" and i.instrument_type == "FUT" and i.lot_size > 1:
+                fut_lot[i.name] = max(fut_lot.get(i.name, 0), i.lot_size)
+        fixed = 0
+        for i in items:
+            if i.exchange == "MCX" and i.instrument_type in ("CE", "PE") and i.lot_size <= 1 and i.name in fut_lot:
+                i.lot_size = fut_lot[i.name]; fixed += 1
         self.load_instruments(items)
-        log.info("loaded %d instruments", len(items))
+        log.info("loaded %d instruments (fixed lot size on %d MCX options)", len(items), fixed)
 
     # ---- websocket ----------------------------------------------------------
     async def start(self, loop):

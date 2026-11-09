@@ -14,7 +14,8 @@
 .fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}
 .ticker{display:flex;gap:14px;overflow-x:auto;white-space:nowrap;font-size:12px;padding:6px 14px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}
 .ticker::-webkit-scrollbar{display:none}.ticker b{margin-left:4px}.ticker span{flex:0 0 auto}
-.thbtn{background:none;border:1px solid var(--line);color:var(--mut);padding:4px 8px;border-radius:8px;font-size:13px}
+.thbtn{background:none;border:1px solid var(--line);color:var(--mut);width:26px;height:26px;padding:0;border-radius:999px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
+.liverow{display:flex;align-items:center;gap:8px;margin-top:4px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);-webkit-tap-highlight-color:transparent}
 button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#0f1115;font-weight:600}
@@ -28,7 +29,7 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05;margin-bottom:8px}
 header{padding:12px 14px 10px}
-.livepill{margin-top:2px}
+.livepill{margin-top:0}
 header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}
 header .brand .fx,.login h1 .fx{font-weight:800}
 h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
@@ -118,10 +119,10 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div><div class="brand"><span class="lm">lime</span><span class="fx">FX</span></div><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
-  <div style="display:flex;align-items:center;gap:10px"><button class="thbtn" id="thToggle" title="Light / dark">☾</button>
+  <div><div class="brand"><span class="lm">lime</span><span class="fx">FX</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
+  <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
-  <div class="funds" id="hFunds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
+  <div class="funds" id="hFunds"><div class="mut">Available Balance</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
 </header>
 <div class="marquee"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>

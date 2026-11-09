@@ -81,6 +81,8 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.dlp{display:flex;flex-wrap:wrap;gap:6px}.dlp button{background:var(--seg);color:var(--mut);padding:7px 12px;font-weight:500}.dlp button.active{background:var(--acc);color:#0f1115;font-weight:600}
+.dlgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dlgrid button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px}.dlgrid button span{font-weight:400;white-space:normal}
 .perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ulist button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between}
@@ -187,7 +189,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
   <!-- ORDERS -->
   <section id="tab-orders" class="hidden">
-    <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download Excel</button></div>
+    <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download</button></div>
     <div class="card" style="padding:0;overflow:auto">
       <table id="ordTbl"><thead><tr><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
     </div>
@@ -205,10 +207,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div class="card">
       <div class="perf3" id="perfCards"></div>
       <div class="small mut" id="perfMeta" style="margin-top:8px"></div>
-      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
-        <select id="xRange" style="flex:1"><option value="today">Today</option><option value="week">This week</option><option value="month" selected>This month</option><option value="all">All time</option></select>
-        <button class="ghost" id="xlsBtn" style="flex:0 0 auto">⬇ Download Excel</button>
-      </div>
+      <button class="ghost" id="xlsBtn" style="width:100%;margin-top:10px">⬇ Download reports (Excel)</button>
     </div>
     <h3>Coin Ledger</h3>
     <div class="card" style="padding:0;overflow:auto">
@@ -230,6 +229,23 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <button data-tab="orders">Orders</button>
   <button data-tab="account">Account</button>
 </nav>
+</div>
+
+<!-- DOWNLOAD SHEET -->
+<div id="dlSheet" class="sheet hidden">
+  <div class="box">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>Download reports</b><button class="ghost small" id="dlClose" style="padding:4px 10px;flex:0 0 auto">✕</button></div>
+    <div class="small mut" style="margin-bottom:6px">Period</div>
+    <div class="dlp" id="dlPresets"><button data-p="today">Today</button><button data-p="week">This week</button><button data-p="month" class="active">This month</button><button data-p="lastmonth">Last month</button><button data-p="all">All history</button><button data-p="custom">Pick dates</button></div>
+    <div class="row hidden" id="dlCustom" style="margin-top:8px"><input type="date" id="dlFrom"><span class="mut">to</span><input type="date" id="dlTo"></div>
+    <div class="small mut" id="dlRangeTxt" style="margin:8px 0 12px"></div>
+    <div class="dlgrid">
+      <button class="ghost" data-dl="orders,trades"><b>Order book</b><span class="small mut">every order with status & fill price</span></button>
+      <button class="ghost" data-dl="summary,daily,trades"><b>Profit & loss</b><span class="small mut">day-wise P&L and every trade</span></button>
+      <button class="ghost" data-dl="ledger"><b>Coin ledger</b><span class="small mut">coins added, removed, P&L credits</span></button>
+      <button data-dl=""><b>Everything</b><span class="small">all sheets in one Excel</span></button>
+    </div>
+  </div>
 </div>
 
 <!-- ORDER SHEET -->
@@ -598,8 +614,17 @@ async function loadPerf(){try{const d=istDay();const[w]=perfRange('week'),[m]=pe
   const v=r=>r.users[0]?r.users[0].net_pnl:0,u=rm.users[0]||{};
   $('#perfCards').innerHTML=[['Today',v(rt)],['This week',v(rw)],['This month',v(rm)]].map(([k,x])=>`<div class="stat"><span class="small mut">${k}</span><b class="num ${x>0?'up':x<0?'dn':''}">${(x>0?'+':'')+inr(x)}</b></div>`).join('');
   $('#perfMeta').textContent=u.closing_trades?`This month: ${u.closing_trades} closed trades · ${u.win_rate}% winners · best ${inr(u.best)} · worst ${inr(u.worst)}`:'No closed trades this month yet.';}catch(e){}}
-$('#ordXls').onclick=()=>{location.href='/api/export.xlsx?sheets=orders,trades';toast('Preparing your order book…');};
-$('#xlsBtn').onclick=()=>{const[f,t]=perfRange($('#xRange').value);location.href=`/api/export.xlsx?from=${f}&to=${t}`;toast('Preparing your Excel…');};
+let dlPreset='month';
+function dlRange(p){const t=new Date(Date.now()+330*60000),d=istDay();
+  if(p==='lastmonth'){const f=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth()-1,1)),l=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),0));return[f.toISOString().slice(0,10),l.toISOString().slice(0,10)];}
+  if(p==='custom')return[$('#dlFrom').value,$('#dlTo').value||d];return perfRange(p);}
+function dlTxt(){const[f,t]=dlRange(dlPreset);$('#dlRangeTxt').textContent=!f&&!t?'All history':f===t?f:`${f||'start'} → ${t}`;}
+function openDl(){$('#dlSheet').classList.remove('hidden');dlTxt();}
+$('#ordXls').onclick=openDl;$('#xlsBtn').onclick=openDl;
+$('#dlClose').onclick=()=>$('#dlSheet').classList.add('hidden');$('#dlSheet').onclick=e=>{if(e.target.id==='dlSheet')$('#dlSheet').classList.add('hidden');};
+$$('#dlPresets button').forEach(b=>b.onclick=()=>{dlPreset=b.dataset.p;$$('#dlPresets button').forEach(x=>x.classList.toggle('active',x===b));$('#dlCustom').classList.toggle('hidden',dlPreset!=='custom');if(dlPreset==='custom'&&!$('#dlFrom').value){$('#dlFrom').value=perfRange('month')[0];$('#dlTo').value=istDay();}dlTxt();});
+$('#dlFrom').onchange=$('#dlTo').onchange=dlTxt;
+$$('[data-dl]').forEach(b=>b.onclick=()=>{const[f,t]=dlRange(dlPreset);if(dlPreset==='custom'&&!f)return toast('Pick a start date',1);location.href=`/api/export.xlsx?from=${f}&to=${t}${b.dataset.dl?'&sheets='+b.dataset.dl:''}`;toast('Preparing your Excel…');});
 
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();

@@ -39,7 +39,7 @@ h2{font-size:16px;margin-bottom:10px}
 h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
 .small{font-size:12px}
 code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-break:break-all}
-#tfaQr svg{width:180px;height:180px}
+#tfaQr img{width:240px;height:240px}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
 .pill.frozen{background:#7f1d1d;color:#fecaca}.pill.active{background:#14532d;color:#bbf7d0}
@@ -188,9 +188,12 @@ a{color:var(--acc)}
       <button id="tfaStart">Turn on two-factor</button>
       <div id="tfaSetup" class="hidden" style="margin-top:14px">
         <div class="bar" style="align-items:flex-start;gap:18px">
-          <div id="tfaQr" style="background:#fff;border-radius:10px;padding:8px;line-height:0"></div>
-          <div style="flex:1;min-width:220px">
-            <p class="small">1. Open your authenticator app and scan this QR code.<br>2. Can't scan? Enter this key manually: <code id="tfaSecret" style="user-select:all"></code><br>3. Type the 6-digit code the app shows to finish.</p>
+          <div id="tfaQr" style="background:#fff;border-radius:10px;padding:6px;line-height:0"></div>
+          <div style="flex:1;min-width:240px">
+            <p class="small"><b>1.</b> Open <b>Google Authenticator</b> (or Authy / 1Password) → <b>+</b> → <b>Scan a QR code</b>, and scan this. Scanning with the plain camera app often does nothing.<br>
+            <b>2.</b> Doing this on your phone? <a id="tfaOpen" href="#">Tap here to add it directly</a> — no scanning needed.<br>
+            <b>3.</b> Or <button class="ghost small" id="tfaCopy" style="padding:3px 8px">Copy key</button> and paste it in the app under “Enter a setup key”. <code id="tfaSecret" style="user-select:all"></code><br>
+            <b>4.</b> Type the 6-digit code the app shows to finish.</p>
             <div class="bar" style="margin-top:10px"><input id="tfaCode" inputmode="numeric" placeholder="123 456" style="width:140px;font-size:18px;letter-spacing:.15em;text-align:center"><button id="tfaConfirm">Confirm & turn on</button></div>
           </div>
         </div>
@@ -299,7 +302,7 @@ async function loadAdmins(){const l=await api('/admin/admins');
   $$('[data-apw]').forEach(b=>b.onclick=async()=>{const p=prompt('New password for this master (min 6 characters)');if(!p)return;try{await api(`/admin/admins/${b.dataset.apw}/password`,{method:'POST',body:{password:p}});toast('Password reset');}catch(e){toast(e.message,1)}});
   const me=l.find(u=>u.me);if(me){meAdmin=me;$('#tfaOff').classList.toggle('hidden',me.twofa);$('#tfaOn').classList.toggle('hidden',!me.twofa);$('#tfaWho').textContent=me.username;}}
 $('#aBtn').onclick=async()=>{try{await api('/admin/admins',{method:'POST',body:{username:$('#aUser').value,display_name:$('#aName').value,password:$('#aPass').value}});toast('Master added');$('#aUser').value=$('#aName').value=$('#aPass').value='';loadAdmins();}catch(e){toast(e.message,1)}};
-$('#tfaStart').onclick=async()=>{try{const j=await api('/admin/2fa/setup',{method:'POST'});$('#tfaQr').innerHTML=j.qr_svg;$('#tfaSecret').textContent=j.secret;$('#tfaSetup').classList.remove('hidden');$('#tfaCode').focus();}catch(e){toast(e.message,1)}};
+$('#tfaStart').onclick=async()=>{try{const j=await api('/admin/2fa/setup',{method:'POST'});$('#tfaQr').innerHTML=`<img src="${j.qr_png}" alt="QR" style="width:240px;height:240px;display:block">`;$('#tfaSecret').textContent=j.secret;$('#tfaOpen').href=j.uri;$('#tfaCopy').onclick=async()=>{try{await navigator.clipboard.writeText(j.secret);toast('Key copied');}catch(e){toast('Select the key and copy it',1)}};$('#tfaSetup').classList.remove('hidden');$('#tfaCode').focus();}catch(e){toast(e.message,1)}};
 $('#tfaConfirm').onclick=async()=>{try{await api('/admin/2fa/confirm',{method:'POST',body:{code:$('#tfaCode').value}});toast('Two-factor login is on');$('#tfaSetup').classList.add('hidden');$('#tfaCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
 $('#tfaDisable').onclick=async()=>{try{await api('/admin/2fa/disable',{method:'POST',body:{code:$('#tfaOffCode').value}});toast('Two-factor login is off');$('#tfaOffCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
 

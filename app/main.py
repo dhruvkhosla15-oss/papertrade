@@ -180,8 +180,9 @@ def twofa_setup(admin: User = Depends(current_admin), db: Session = Depends(get_
     secret = pyotp.random_base32()
     admin.totp_secret = secret; db.commit()
     uri = pyotp.TOTP(secret).provisioning_uri(name=admin.username, issuer_name="limeFX Master")
-    buf = _io.BytesIO(); segno.make(uri).save(buf, kind="svg", scale=5, dark="#111827", light=None)
-    return {"secret": secret, "uri": uri, "qr_svg": buf.getvalue().decode()}
+    buf = _io.BytesIO(); segno.make(uri, error="m").save(buf, kind="png", scale=10, border=4, dark="#000000", light="#ffffff")
+    import base64
+    return {"secret": secret, "uri": uri, "qr_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}
 
 
 class CodeIn(BaseModel):

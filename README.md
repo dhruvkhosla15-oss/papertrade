@@ -24,6 +24,9 @@ with those coins and see their profit/loss. No real money moves anywhere.
   No counterparty → rejected. Not enough depth → partial fill for the lots available, rest cancelled
   (like a real market order). Optional extra guards in Settings: max spread % and "no trade for N minutes"
   (both off by default). Contracts with an empty book appear greyed out.
+- **Marked to liquidation value:** open P&L uses the price you could actually exit at (bid for longs,
+  offer for shorts), not the last traded price — so a wide spread shows as a loss immediately.
+  Options settle at intrinsic value vs the underlying on expiry.
 - **Shadow book:** quantity a paper fill consumes is treated as gone for every trainee until Zerodha's
   live book changes, so one 1-lot offer can't be "bought" twice.
 - **Limit orders** rest until the opposite side of the book reaches the price (buy fills when best ask ≤ limit).

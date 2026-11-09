@@ -361,8 +361,10 @@ function onPrices(ticks){
   }
   // live P&L on positions
   let unreal=0,touched=false;
-  for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;const u=(pr.ltp-p.avg_price)*p.qty;unreal+=u;
-    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){l.textContent=(u>=0?'+':'')+fmt(u);l.className='num '+pnlCls(u);}if(lt)lt.textContent=fmt(pr.ltp);}
+  for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
+    const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
+    const u=(mk-p.avg_price)*p.qty;unreal+=u;
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){l.textContent=(u>=0?'+':'')+fmt(u);l.className='num '+pnlCls(u);}if(lt)lt.textContent=fmt(mk);}
   if(touched&&state.funds){const f={...state.funds,unrealised:unreal};$('#hPnl').textContent=(unreal>=0?'+':'')+inr(unreal)+' P&L';$('#hPnl').className='num small '+pnlCls(unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
@@ -447,7 +449,7 @@ function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positi
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
     <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · exp ${p.expiry}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
-    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${fmt(p.avg_price)}</span> &nbsp; <span class="mut">LTP</span> <b class="num" id="pltp${p.id}">${fmt(p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
+    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${fmt(p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${fmt(p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{if(!confirm('Exit this position at market price?'))return;try{await api(`/positions/${b.dataset.close}/close`,{method:'POST'});}catch(e){toast(e.message,1)}});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}

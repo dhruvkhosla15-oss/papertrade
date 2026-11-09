@@ -74,6 +74,7 @@ class Engine:
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
+        self._mark_at_book = on
         spread = float(get_setting(db, "max_spread_pct", "0") or 0)   # 0 = no spread limit (real-market mode)
         stale = int(get_setting(db, "stale_minutes", "0") or 0)        # 0 = no staleness check
         return on, spread, stale
@@ -167,6 +168,19 @@ class Engine:
             m += price * qty  # short option: margin + premium received as collateral
         return round(m, 2)
 
+    def mark_price(self, token: int, qty: int) -> Optional[float]:
+        """Liquidation value: longs marked at best bid, shorts at best ask. Falls back to LTP if
+        liquidity checks are off or the book side is empty."""
+        t = self.feed.prices.get(token)
+        if not t:
+            return None
+        if getattr(self, "_mark_at_book", True):
+            if qty > 0 and t.get("bid") is not None:
+                return t["bid"]
+            if qty < 0 and t.get("ask") is not None:
+                return t["ask"]
+        return t.get("ltp")
+
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
                 .order_by(Position.id.desc()).first())
@@ -180,9 +194,9 @@ class Engine:
         used += sum(o.margin_blocked for o in db.query(Order).filter_by(user_id=user.id, status="OPEN"))
         unreal = 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
-            ltp = self.feed.ltp(p.token)
-            if ltp is not None:
-                unreal += (ltp - p.avg_price) * p.qty
+            mk = self.mark_price(p.token, p.qty)
+            if mk is not None:
+                unreal += (mk - p.avg_price) * p.qty
         return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
                 "available": round(user.balance - used, 2), "unrealised": round(unreal, 2),
                 "equity": round(user.balance + unreal, 2)}
@@ -427,17 +441,19 @@ class Engine:
                         continue
                     close_time = MARKET_HOURS.get(p.exchange, ("09:15", "15:30"))[1]
                     if p.expiry < today or (p.expiry == today and hm >= close_time):
-                        ltp = self.feed.ltp(p.token)
-                        if ltp is None:
-                            ins = self.feed.instruments.get(p.token)
-                            # expired & no price (instrument gone): settle at intrinsic if option, else skip
-                            if ins and ins.instrument_type in ("CE", "PE"):
-                                und = self.feed.ltp(self.feed.index_token_for(ins.name) or -1)
-                                if und is None:
-                                    continue
+                        ins = self.feed.instruments.get(p.token)
+                        ltp = None
+                        if ins and ins.instrument_type in ("CE", "PE"):
+                            # options settle at intrinsic value vs the underlying (exchange rule), never at a stale LTP
+                            und = self.feed.ltp(self.feed.index_token_for(ins.name) or -1)
+                            if und is not None:
                                 ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
-                            else:
-                                ltp = p.avg_price
+                        if ltp is None:
+                            ltp = self.feed.ltp(p.token)
+                        if ltp is None:
+                            if ins and ins.instrument_type in ("CE", "PE"):
+                                continue  # wait until the underlying price is available
+                            ltp = p.avg_price
                         user = db.get(User, p.user_id)
                         realised = (ltp - p.avg_price) * p.qty
                         p.realised_pnl = round(p.realised_pnl + realised, 2)
@@ -467,8 +483,9 @@ class Engine:
 
     def position_dict(self, p: Position) -> dict:
         ltp = self.feed.ltp(p.token)
-        unreal = round((ltp - p.avg_price) * p.qty, 2) if (ltp is not None and p.qty) else 0.0
+        mk = self.mark_price(p.token, p.qty)
+        unreal = round((mk - p.avg_price) * p.qty, 2) if (mk is not None and p.qty) else 0.0
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 2),
-                "ltp": ltp, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
+                "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}

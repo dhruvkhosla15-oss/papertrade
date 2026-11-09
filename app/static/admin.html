@@ -6,21 +6,23 @@
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX — Master</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;800&display=swap" rel="stylesheet">
+<script src="/static/lightweight-charts.js"></script>
 <style>
-:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16}
-:root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d}
+:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--hover:#1d2230}
+:root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--hover:#f0fdf4}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
 button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:9px 14px;background:var(--acc);color:#0f1115;font-weight:600}
 button.ghost{background:var(--card);border:1px solid var(--line);color:var(--txt)}
-button.danger{background:#7f1d1d}
-button.ok{background:#14532d}
+button.danger{background:#7f1d1d;color:#fff}
+button.ok{background:#14532d;color:#fff}
 input,select{font:inherit;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:9px;width:100%}
 .hidden{display:none!important}
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-size:22px;letter-spacing:-.04em}
+.brand{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-size:24px;letter-spacing:-.04em;line-height:1}
+.brand .lm{color:var(--acc);font-weight:600}.brand .fx{font-weight:800}
 .feedlight{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}
 main{padding:16px 18px 40px;max-width:1200px;margin:0 auto}
@@ -31,7 +33,8 @@ table{width:100%;border-collapse:collapse}
 th,td{padding:8px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--mut);font-weight:500;font-size:12px}
 td:first-child,th:first-child{text-align:left}
-tr.clickable{cursor:pointer}tr.clickable:hover{background:#1d2230}
+th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--txt)}
+tr.clickable{cursor:pointer}tr.clickable:hover{background:var(--hover)}
 h2{font-size:16px;margin-bottom:10px}
 h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
 .small{font-size:12px}
@@ -44,23 +47,31 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
 .modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:1000px;max-height:90vh;overflow:auto}
 .kite{padding:10px 14px;border-radius:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.kite.ok{background:#14532d}.kite.bad{background:#7f1d1d}
+.kite.ok{background:#14532d;color:#fff}.kite.bad{background:#7f1d1d;color:#fff}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
 .stat{background:var(--bg);border-radius:10px;padding:10px}.stat b{font-size:18px;display:block}
-.tabs{display:flex;gap:6px;margin-bottom:10px}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#0f1115;background:var(--acc);border-color:var(--acc)}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#0f1115;background:var(--acc);border-color:var(--acc)}
+.nav{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:14px;width:max-content;max-width:100%}
+.nav button{background:none;color:var(--mut);padding:8px 18px;border-radius:7px}.nav button.active{background:var(--acc);color:#0f1115}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:none;color:var(--mut);border-radius:0;padding:7px 12px;font-weight:500}.seg button.active{background:var(--acc);color:#0f1115;font-weight:600}
+#dailyChart{height:220px;width:100%}
+a{color:var(--acc)}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media(max-width:700px){main{padding:12px 10px}th,td{padding:6px 5px;font-size:12px}}
 </style>
 </head>
 <body>
 <div id="loginView" class="login hidden">
-  <h2><span style="color:var(--acc)">lime</span>FX · Master login</h2>
+  <h2 class="brand" style="font-size:30px;margin-bottom:16px"><span class="lm">lime</span><span class="fx">FX</span> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
   <input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
   <button id="loginBtn" style="width:100%">Log in</button><p id="loginErr" class="dn small" style="margin-top:10px"></p>
 </div>
 
 <div id="appView" class="hidden">
 <header>
-  <div><div class="brand"><span style="color:var(--acc);font-weight:600">lime</span><span style="font-weight:800">FX</span> <span class="mut" style="font-weight:500">· Master</span></div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
-  <div class="row" style="flex:0 0 auto"><a href="/" class="small mut" style="align-self:center">Trader view</a><button class="ghost" id="logoutBtn">Log out</button></div>
+  <div><div class="brand"><span class="lm">lime</span><span class="fx">FX</span> <span class="mut" style="font-weight:500;font-size:15px">Master</span></div><div class="small mut" style="margin-top:4px"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
+  <div class="bar" style="flex:0 0 auto"><a href="/" class="small mut">Trader view</a><button class="ghost" id="themeBtn" title="Light / dark">☾</button><button class="ghost" id="logoutBtn">Log out</button></div>
 </header>
 <main>
   <div id="kiteBox" class="card kite hidden">
@@ -68,12 +79,17 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
   </div>
 
+  <div class="nav"><button data-nav="trainees" class="active">Trainees</button><button data-nav="perf">Performance</button><button data-nav="settings">Settings</button></div>
+
+  <!-- ===== Trainees ===== -->
+  <section id="nav-trainees">
   <div class="card grid">
     <div class="stat"><span class="mut small">Trainees</span><b id="sUsers">—</b></div>
     <div class="stat"><span class="mut small">Coins allocated</span><b id="sCredited" class="num">—</b></div>
     <div class="stat"><span class="mut small">Total equity</span><b id="sEquity" class="num">—</b></div>
     <div class="stat"><span class="mut small">Net P&L (all)</span><b id="sPnl" class="num">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
+    <div class="stat"><span class="mut small">Today's realised P&L</span><b id="sToday" class="num">—</b></div>
   </div>
 
   <div class="card">
@@ -88,32 +104,69 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </div>
 
   <div class="card" style="padding:0;overflow:auto">
-    <table id="uTbl"><thead><tr><th>Trainee</th><th>Status</th><th>Allocated</th><th>Balance</th><th>Used margin</th><th>Unrealised</th><th>Equity</th><th>Net P&L</th><th>Open pos</th><th>Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="balance">Balance</th><th class="sort" data-k="used_margin">Used margin</th><th class="sort" data-k="unrealised">Unrealised</th><th class="sort" data-k="equity">Equity</th><th class="sort" data-k="pnl">Net P&L</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
+  </section>
 
+  <!-- ===== Performance ===== -->
+  <section id="nav-perf" class="hidden">
   <div class="card">
-    <h2>Settings</h2><p class="small mut" style="margin-bottom:10px">One Save button applies everything in this section.</p>
-    <h3>Margin % of contract value (futures & short options)</h3>
+    <div class="bar" style="justify-content:space-between">
+      <div class="bar">
+        <div class="seg" id="presets"><button data-p="today">Today</button><button data-p="week" class="active">This week</button><button data-p="month">This month</button><button data-p="all">All time</button><button data-p="custom">Custom</button></div>
+        <div id="customRange" class="bar hidden"><input type="date" id="pFrom" style="width:auto;padding:7px"><span class="mut">to</span><input type="date" id="pTo" style="width:auto;padding:7px"><button class="ghost" id="pApply" style="padding:7px 12px">Apply</button></div>
+        <select id="pUser" style="width:auto;padding:7px 10px;min-width:160px"><option value="">All trainees</option></select>
+      </div>
+      <button id="xlsBtn">⬇ Download Excel</button>
+    </div>
+    <p class="small mut" id="pRangeTxt" style="margin-top:8px"></p>
+  </div>
+  <div class="card grid">
+    <div class="stat"><span class="mut small">Net P&L (period)</span><b id="pNet" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Trades</span><b id="pTrades" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Win rate</span><b id="pWin" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Profit factor</span><b id="pPF" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Best day</span><b id="pBestDay" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Worst day</span><b id="pWorstDay" class="num">—</b></div>
+  </div>
+  <div class="card"><h2>Daily P&L</h2><div id="dailyChart"></div></div>
+  <div class="card" style="padding:0;overflow:auto">
+    <div style="padding:10px 12px"><h2 style="margin:0">Trainee ranking</h2></div>
+    <table id="pTbl"><thead><tr><th>#</th><th>Trainee</th><th>Trades</th><th>Closed</th><th>Wins</th><th>Losses</th><th>Win %</th><th>Gross profit</th><th>Gross loss</th><th>Net P&L</th><th>Best trade</th><th>Worst trade</th><th>Profit factor</th><th>Equity now</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card" style="padding:0;overflow:auto">
+    <div style="padding:10px 12px"><h2 style="margin:0">Day by day</h2></div>
+    <table id="dTblDaily"><thead><tr><th>Date</th><th>Day</th><th>Net P&L</th><th>Cumulative</th></tr></thead><tbody></tbody></table>
+  </div>
+  </section>
+
+  <!-- ===== Settings ===== -->
+  <section id="nav-settings" class="hidden">
+  <div class="card">
+    <h2>Margin % of contract value</h2><p class="small mut" style="margin-bottom:10px">Applies to futures and short options. Long options block the full premium.</p>
     <div class="row">
-      <div><label class="small mut">NFO (Nifty/BankNifty)</label><input id="mNFO" type="number" step="0.5"></div>
+      <div><label class="small mut">NFO (Nifty / Bank Nifty)</label><input id="mNFO" type="number" step="0.5"></div>
       <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
       <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
-      <button id="mSave" class="ghost" style="flex:0 0 auto">Save</button>
     </div>
-    <h3 style="margin-top:16px">Liquidity rules (order-book fills)</h3>
+    <h2 style="margin-top:18px">Liquidity rules (order-book fills)</h2>
     <div class="row">
       <div><label class="small mut">Reject illiquid trades</label><select id="lqOn"><option value="true">On — fill only against real bids/offers</option><option value="false">Off — fill at last traded price</option></select></div>
       <div><label class="small mut">Max bid-ask spread % (0 = no limit, real market)</label><input id="lqSpread" type="number" step="0.5"></div>
       <div><label class="small mut">Reject if no trade for N minutes (0 = off)</label><input id="lqStale" type="number" step="1"></div>
     </div>
-    <p class="small mut" style="margin-top:8px" id="setInfo"></p>
-    <h3 style="margin-top:16px">Master password</h3>
+    <div class="bar" style="margin-top:14px"><button id="mSave">Save settings</button><span class="small mut" id="setInfo"></span></div>
+  </div>
+  <div class="card">
+    <h2>Master password</h2>
     <div class="row">
       <div><label class="small mut">Current password</label><input id="pwOld" type="password"></div>
       <div><label class="small mut">New password</label><input id="pwNew" type="password"></div>
       <button id="pwBtn" class="ghost" style="flex:0 0 auto">Change password</button>
     </div>
   </div>
+  </section>
 </main>
 </div>
 
@@ -121,7 +174,8 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <div class="box">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h2 id="dName" style="margin:0"></h2>
-      <div style="flex:0 0 auto;display:flex;gap:8px">
+      <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost" id="dXls">⬇ Excel</button>
         <button class="ghost" id="dSquare">Square off all</button>
         <button class="ghost" id="dFreeze"></button>
         <button class="ghost" id="dPass">Reset password</button>
@@ -138,30 +192,40 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
-const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';
-let users=[],detail=null,dtab='positions';
+const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';const sgn=n=>(n>0?'+':'')+inr(n);
+const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction'};
+let users=[],detail=null,dtab='positions',sortK='pnl',sortDir=-1,filterQ='';
 async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
   if(r.status===401&&p!=='/login'){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;}
 function toast(m,e){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),e?4000:2200);}
 
+// theme
+function applyTheme(){const th=document.documentElement.getAttribute('data-theme');$('#themeBtn').textContent=th==='light'?'☀':'☾';}
+$('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('data-theme');const nx=cur==='light'?'':'light';if(nx)document.documentElement.setAttribute('data-theme',nx);else document.documentElement.removeAttribute('data-theme');try{localStorage.setItem('lfx_theme',nx)}catch(e){}applyTheme();if(chart)styleChart();};
+applyTheme();
+
 $('#loginBtn').onclick=async()=>{try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});if(!j.is_admin){await api('/logout',{method:'POST'});$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}boot();}catch(e){$('#loginErr').textContent=e.message;}};
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
+
+// nav
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
   if(!me.user.is_admin){await api('/logout',{method:'POST'});$('#loginView').classList.remove('hidden');$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}
   $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
-  await Promise.all([loadUsers(),loadSettings()]);
-  setInterval(loadUsers,5000);setInterval(loadSettings,15000);
+  await Promise.all([loadUsers(),loadSettings(),loadToday()]);
+  setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
 async function loadSettings(){const s=await api('/admin/settings');
+  if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;
-  $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;
-  $('#setInfo').textContent=`Feed: ${s.feed.feed} · ${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · underlyings: ${s.underlyings.join(', ')} + all MCX`;
-  const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.message;
+  $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
+  $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.join(', ')} + all MCX`;
+  const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live prices':'Prices offline';
   const kb=$('#kiteBox');
   if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
     $('#kiteTitle').textContent=f.connected?'Zerodha live feed connected':'Zerodha not connected';
@@ -170,30 +234,87 @@ async function loadSettings(){const s=await api('/admin/settings');
   else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent='Simulated price feed';$('#kiteMsg').textContent='Simulated prices (test mode).';$('#kiteBtn').classList.add('hidden');}
 }
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
-$('#mSave').onclick=async()=>{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value},liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Saved');};
+$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value},liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
+const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
+async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}
+
+// ----- trainees table -----
+$('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};
+$$('#uTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir=-sortDir;else{sortK=k;sortDir=k==='display_name'?1:-1;}renderUsers();});
 async function loadUsers(){users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0);
   $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);
-  $('#sPnl').textContent=(te-tc>=0?'+':'')+inr(te-tc);$('#sPnl').className='num '+cls(te-tc);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
-  $('#uTbl tbody').innerHTML=users.map(u=>{const pnl=u.equity-u.total_credited;return `<tr class="clickable" data-id="${u.id}">
+  $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+  const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All trainees</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
+  renderUsers();if(detail)refreshDetail();
+}
+function renderUsers(){
+  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited}));
+  if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
+  list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
+  $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
+  const focused=document.activeElement&&document.activeElement.classList.contains('coinIn')?{id:document.activeElement.dataset.id,v:document.activeElement.value}:null;
+  $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}">
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
     <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.balance)}</td><td class="num">${inr(u.used_margin)}</td>
     <td class="num ${cls(u.unrealised)}">${inr(u.unrealised)}</td><td class="num">${inr(u.equity)}</td>
-    <td class="num ${cls(pnl)}">${pnl>=0?'+':''}${inr(pnl)}<div class="small mut">${u.total_credited?fmt(pnl/u.total_credited*100,1)+'%':''}</div></td>
+    <td class="num ${cls(u.pnl)}">${sgn(u.pnl)}<div class="small mut">${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
     <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
-    <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`;}).join('')||'<tr><td colspan=12 class="mut">No trainees yet</td></tr>';
+    <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`).join('')||`<tr><td colspan=12 class="mut">${users.length?'No match':'No trainees yet — add one above'}</td></tr>`;
+  if(focused){const i=$(`.coinIn[data-id="${focused.id}"]`);if(i){i.value=focused.v;i.focus();}}
   $$('[data-add],[data-sub]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.add||b.dataset.sub;const inp=$(`.coinIn[data-id="${id}"]`);let amt=+inp.value;if(!amt)return toast('Enter an amount',1);if(b.dataset.sub)amt=-amt;
     const note=prompt('Note (optional)','')??'';try{await api(`/admin/users/${id}/coins`,{method:'POST',body:{amount:amt,note}});toast(`${amt>0?'Added':'Removed'} ${inr(Math.abs(amt))}`);inp.value='';loadUsers();}catch(e){toast(e.message,1)}});
   $$('[data-view]').forEach(b=>b.onclick=e=>{e.stopPropagation();openDetail(+b.dataset.view)});
-  $$('tr.clickable').forEach(r=>r.onclick=e=>{if(e.target.tagName==='INPUT')return;openDetail(+r.dataset.id)});
-  if(detail)refreshDetail();
+  $$('#uTbl tr.clickable').forEach(r=>r.onclick=e=>{if(e.target.tagName==='INPUT')return;openDetail(+r.dataset.id)});
 }
 $('#nBtn').onclick=async()=>{try{await api('/admin/users',{method:'POST',body:{username:$('#nUser').value,display_name:$('#nName').value,password:$('#nPass').value,initial_coins:+$('#nCoins').value}});toast('Trainee created');$('#nUser').value=$('#nName').value=$('#nPass').value='';loadUsers();}catch(e){toast(e.message,1)}};
 
+// ----- performance -----
+let preset='week',chart=null,series=null;
+function rangeFor(p){const t=new Date(Date.now()+330*60000);const d=t.toISOString().slice(0,10);
+  if(p==='today')return[d,d];
+  if(p==='week'){const dow=(t.getUTCDay()+6)%7;const m=new Date(t);m.setUTCDate(t.getUTCDate()-dow);return[m.toISOString().slice(0,10),d];}
+  if(p==='month')return[d.slice(0,8)+'01',d];
+  if(p==='all')return['',''];
+  return[$('#pFrom').value,$('#pTo').value||d];}
+$$('#presets button').forEach(b=>b.onclick=()=>{preset=b.dataset.p;$$('#presets button').forEach(x=>x.classList.toggle('active',x===b));$('#customRange').classList.toggle('hidden',preset!=='custom');if(preset!=='custom')loadPerf();else{if(!$('#pFrom').value){const[f]=rangeFor('month');$('#pFrom').value=f;$('#pTo').value=istToday();}}});
+$('#pApply').onclick=loadPerf;$('#pUser').onchange=loadPerf;
+function qs(){const[f,t]=rangeFor(preset);const u=$('#pUser').value;return `from=${f}&to=${t}${u?'&user_id='+u:''}`;}
+$('#xlsBtn').onclick=()=>{location.href='/api/admin/export.xlsx?'+qs();toast('Preparing Excel…');};
+function styleChart(){const light=document.documentElement.getAttribute('data-theme')==='light';chart.applyOptions({layout:{background:{color:'transparent'},textColor:light?'#6b7280':'#8b93a7'},grid:{vertLines:{color:light?'#eef0f3':'#1d2230'},horzLines:{color:light?'#eef0f3':'#1d2230'}}});}
+function ensureChart(){if(chart)return;chart=LightweightCharts.createChart($('#dailyChart'),{height:220,rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false,tickMarkFormatter:t=>{const d=new Date(t*1000);return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'UTC'})}},localization:{timeFormatter:t=>new Date(t*1000).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})},handleScroll:false,handleScale:false});
+  series=chart.addHistogramSeries({priceFormat:{type:'volume'}});styleChart();new ResizeObserver(()=>chart.applyOptions({width:$('#dailyChart').clientWidth})).observe($('#dailyChart'));}
+async function loadPerf(){
+  let r;try{r=await api('/admin/report?'+qs());}catch(e){return toast(e.message,1)}
+  const days=Object.entries(r.daily);const net=days.reduce((a,[,v])=>a+v,0);
+  const closed=r.users.reduce((a,u)=>a+u.closing_trades,0),wins=r.users.reduce((a,u)=>a+u.wins,0),gp=r.users.reduce((a,u)=>a+u.gross_profit,0),gl=r.users.reduce((a,u)=>a+u.gross_loss,0);
+  $('#pRangeTxt').textContent=`${r.from===r.to?r.from:r.from+' → '+r.to} · ${r.users.length} trainee${r.users.length===1?'':'s'} · ${days.length} trading day${days.length===1?'':'s'}`;
+  $('#pNet').textContent=sgn(net);$('#pNet').className='num '+cls(net);
+  $('#pTrades').textContent=r.users.reduce((a,u)=>a+u.trades,0);
+  $('#pWin').textContent=closed?fmt(wins/closed*100,1)+'%':'—';
+  $('#pPF').textContent=gl?fmt(gp/Math.abs(gl)):(gp?'∞':'—');
+  const best=days.length?days.reduce((a,b)=>b[1]>a[1]?b:a):null,worst=days.length?days.reduce((a,b)=>b[1]<a[1]?b:a):null;
+  $('#pBestDay').innerHTML=best?`<span class="${cls(best[1])}">${sgn(best[1])}</span> <span class="small mut">${best[0]}</span>`:'—';
+  $('#pWorstDay').innerHTML=worst?`<span class="${cls(worst[1])}">${sgn(worst[1])}</span> <span class="small mut">${worst[0]}</span>`:'—';
+  ensureChart();const up=getComputedStyle(document.documentElement).getPropertyValue('--up').trim(),dn=getComputedStyle(document.documentElement).getPropertyValue('--dn').trim();
+  series.setData(days.map(([d,v])=>({time:d,value:v,color:v>=0?up:dn})));const W=$('#dailyChart').clientWidth||800;chart.timeScale().applyOptions({barSpacing:Math.max(6,Math.min(48,W/(days.length+3))),rightOffset:1});chart.timeScale().scrollToPosition(1,false);
+  const ranked=[...r.users].sort((a,b)=>b.net_pnl-a.net_pnl);
+  $('#pTbl tbody').innerHTML=ranked.map((u,i)=>`<tr class="clickable" data-id="${u.id}"><td>${i+1}</td><td style="text-align:left"><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
+    <td class="num">${u.trades}</td><td class="num">${u.closing_trades}</td><td class="num up">${u.wins}</td><td class="num dn">${u.losses}</td><td class="num">${u.win_rate==null?'—':fmt(u.win_rate,1)+'%'}</td>
+    <td class="num up">${inr(u.gross_profit)}</td><td class="num dn">${inr(u.gross_loss)}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
+    <td class="num ${cls(u.best)}">${u.best?inr(u.best):'—'}</td><td class="num ${cls(u.worst)}">${u.worst?inr(u.worst):'—'}</td><td class="num">${u.profit_factor==null?(u.gross_profit?'∞':'—'):fmt(u.profit_factor)}</td><td class="num">${inr(u.equity)}</td>
+    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=15 class="mut">No trades in this period</td></tr>';
+  $$('#pTbl tr.clickable').forEach(x=>x.onclick=()=>openDetail(+x.dataset.id));
+  let cum=0;const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  $('#dTblDaily tbody').innerHTML=days.map(([d,v])=>{cum+=v;return`<tr><td>${d}</td><td style="text-align:left" class="mut">${DN[new Date(d+'T00:00:00Z').getUTCDay()]}</td><td class="num ${cls(v)}">${sgn(v)}</td><td class="num ${cls(cum)}">${sgn(cum)}</td></tr>`;}).reverse().join('')||'<tr><td colspan=4 class="mut">No trading days in this period</td></tr>';
+}
+
+// ----- detail modal -----
 async function openDetail(id){detail=id;$('#detail').classList.remove('hidden');await refreshDetail();}
+$('#dXls').onclick=()=>{location.href=`/api/admin/export.xlsx?user_id=${detail}`;toast('Preparing Excel…');};
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`;$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);
@@ -206,7 +327,7 @@ async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`
   if(dtab==='trades'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th></tr>';
     T.tBodies[0].innerHTML=d.trades.map(t=>`<tr><td class="small">${new Date(t.created_at).toLocaleString('en-IN')}</td><td>${t.symbol}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${t.qty}</td><td class="num">${fmt(t.price)}</td><td class="num ${cls(t.realised_pnl)}">${t.realised_pnl?fmt(t.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades</td></tr>';}
   if(dtab==='ledger'){T.tHead.innerHTML='<tr><th>Time</th><th>Type</th><th>Note</th><th>Amount</th><th>Balance after</th></tr>';
-    T.tBodies[0].innerHTML=d.ledger.map(l=>`<tr><td class="small">${new Date(l.created_at).toLocaleString('en-IN')}</td><td>${l.kind}</td><td class="small mut" style="text-align:left">${l.note||''}</td><td class="num ${cls(l.amount)}">${fmt(l.amount)}</td><td class="num">${fmt(l.balance_after)}</td></tr>`).join('');}
+    T.tBodies[0].innerHTML=d.ledger.map(l=>`<tr><td class="small">${new Date(l.created_at).toLocaleString('en-IN')}</td><td style="text-align:left">${KINDS[l.kind]||l.kind}</td><td class="small mut" style="text-align:left">${l.note||''}</td><td class="num ${cls(l.amount)}">${fmt(l.amount)}</td><td class="num">${fmt(l.balance_after)}</td></tr>`).join('')||'<tr><td colspan=5 class="mut">Nothing yet</td></tr>';}
   $('#dFreeze').onclick=async()=>{await api(`/admin/users/${detail}`,{method:'PATCH',body:{is_active:!u.is_active}});toast(u.is_active?'Frozen':'Unfrozen');loadUsers();refreshDetail();};
   $('#dPass').onclick=async()=>{const p=prompt('New password for '+u.username);if(!p)return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{password:p}});toast('Password reset');};
   $('#dDelete').onclick=async()=>{if(!confirm(`Delete ${u.username} and all their history? This cannot be undone.`))return;await api(`/admin/users/${detail}`,{method:'DELETE'});detail=null;$('#detail').classList.add('hidden');loadUsers();};

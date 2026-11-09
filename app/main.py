@@ -5,9 +5,11 @@ import time
 from datetime import date
 from pathlib import Path
 from typing import Optional, List
+import io
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request, Response, Query
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -604,6 +606,151 @@ def leaderboard(admin: User = Depends(current_admin), db: Session = Depends(get_
                      "pnl_pct": round((f["equity"] - credited) / credited * 100, 2) if credited else 0})
     rows.sort(key=lambda r: -r["pnl"])
     return rows
+
+
+# ---- performance reports & Excel export ---------------------------------------------------------
+IST = timedelta(hours=5, minutes=30)
+
+
+def _range(from_: Optional[str], to: Optional[str]):
+    """IST calendar range -> UTC datetimes [start, end)."""
+    today = (datetime.utcnow() + IST).date()
+    f = date.fromisoformat(from_) if from_ else date(2000, 1, 1)
+    t = date.fromisoformat(to) if to else today
+    start = datetime.combine(f, datetime.min.time()) - IST
+    end = datetime.combine(t + timedelta(days=1), datetime.min.time()) - IST
+    return start, end, f, t
+
+
+def _ist_date(dt: datetime) -> str:
+    return (dt + IST).date().isoformat()
+
+
+def build_report(db: Session, users: List[User], from_: Optional[str], to: Optional[str]) -> dict:
+    start, end, f, t = _range(from_, to)
+    out = {"from": f.isoformat(), "to": t.isoformat(), "users": [], "daily": {}}
+    all_days = {}
+    for u in users:
+        trades = (db.query(Trade).filter(Trade.user_id == u.id, Trade.created_at >= start, Trade.created_at < end)
+                  .order_by(Trade.created_at).all())
+        closing = [x for x in trades if x.realised_pnl]
+        wins = [x.realised_pnl for x in closing if x.realised_pnl > 0]
+        losses = [x.realised_pnl for x in closing if x.realised_pnl < 0]
+        pnl = round(sum(x.realised_pnl for x in trades), 2)
+        daily = {}
+        for x in trades:
+            d = _ist_date(x.created_at)
+            daily[d] = round(daily.get(d, 0) + (x.realised_pnl or 0), 2)
+            all_days[d] = round(all_days.get(d, 0) + (x.realised_pnl or 0), 2)
+        credited = sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
+        funds = engine.funds(db, u)
+        out["users"].append({
+            "id": u.id, "username": u.username, "display_name": u.display_name,
+            "trades": len(trades), "closing_trades": len(closing), "wins": len(wins), "losses": len(losses),
+            "win_rate": round(len(wins) / len(closing) * 100, 1) if closing else None,
+            "gross_profit": round(sum(wins), 2), "gross_loss": round(sum(losses), 2), "net_pnl": pnl,
+            "best": round(max(wins), 2) if wins else 0, "worst": round(min(losses), 2) if losses else 0,
+            "avg_win": round(sum(wins) / len(wins), 2) if wins else 0, "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
+            "profit_factor": round(sum(wins) / abs(sum(losses)), 2) if losses else None,
+            "allocated": round(credited, 2), "equity": funds["equity"], "overall_pnl": round(funds["equity"] - credited, 2),
+            "daily": dict(sorted(daily.items())),
+        })
+    out["daily"] = dict(sorted(all_days.items()))
+    return out
+
+
+@app.get("/api/admin/report")
+def admin_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
+                 admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    q = db.query(User).filter_by(is_admin=False)
+    if user_id:
+        q = q.filter_by(id=user_id)
+    return build_report(db, q.order_by(User.id).all(), from_, to)
+
+
+@app.get("/api/report")
+def my_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+              user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return build_report(db, [user], from_, to)
+
+
+def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str]) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    rep = build_report(db, users, from_, to)
+    start, end, f, t = _range(from_, to)
+    wb = Workbook()
+    hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="365314")
+
+    def sheet(title, headers, rows, money_cols=()):
+        ws = wb.create_sheet(title) if wb.active.title != "Sheet" else wb.active
+        if ws.title == "Sheet":
+            ws.title = title
+        ws.append(headers)
+        for c in ws[1]:
+            c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
+        for r in rows:
+            ws.append(r)
+        for i, h in enumerate(headers, 1):
+            ws.column_dimensions[get_column_letter(i)].width = max(12, min(40, len(str(h)) + 4))
+            if i in money_cols:
+                for cell in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                    cell[0].number_format = '#,##0.00'
+        ws.freeze_panes = "A2"
+        return ws
+
+    sheet("Summary", ["Trainee", "Username", "Period", "Trades", "Closing trades", "Wins", "Losses", "Win rate %",
+                      "Gross profit", "Gross loss", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss",
+                      "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
+          [[u["display_name"], u["username"], f"{rep['from']} to {rep['to']}", u["trades"], u["closing_trades"], u["wins"], u["losses"],
+            u["win_rate"], u["gross_profit"], u["gross_loss"], u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"],
+            u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
+          money_cols=(9, 10, 11, 12, 13, 14, 15, 17, 18, 19))
+    # daily pivot
+    days = sorted({d for u in rep["users"] for d in u["daily"]})
+    sheet("Daily P&L", ["Date"] + [u["display_name"] for u in rep["users"]] + ["Total"],
+          [[d] + [u["daily"].get(d, 0) for u in rep["users"]] + [rep["daily"].get(d, 0)] for d in days],
+          money_cols=tuple(range(2, len(rep["users"]) + 3)))
+    uid2name = {u.id: u.display_name for u in users}
+    ids = [u.id for u in users]
+    trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
+    sheet("Trades", ["Date", "Time (IST)", "Trainee", "Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
+          [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S"), uid2name.get(x.user_id, ""), x.symbol, x.exchange,
+            x.side, x.qty, x.price, x.realised_pnl] for x in trades], money_cols=(8, 9))
+    orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
+    sheet("Orders", ["Date", "Time (IST)", "Trainee", "Contract", "Side", "Type", "Lots", "Qty", "Limit", "Trigger", "Status", "Fill price", "Note"],
+          [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S"), uid2name.get(o.user_id, ""), o.symbol, o.side, o.order_type,
+            o.lots, o.qty, o.limit_price, o.trigger_price, o.status, o.fill_price, o.reason] for o in orders], money_cols=(9, 10, 12))
+    led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
+    kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
+             "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction"}
+    sheet("Coin ledger", ["Date", "Time (IST)", "Trainee", "Type", "Amount", "Balance after", "Note"],
+          [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S"), uid2name.get(l.user_id, ""), kinds.get(l.kind, l.kind),
+            l.amount, l.balance_after, l.note] for l in led], money_cols=(5, 6))
+    buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def _xlsx_response(data: bytes, name: str):
+    return StreamingResponse(io.BytesIO(data), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.get("/api/admin/export.xlsx")
+def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
+                 admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    q = db.query(User).filter_by(is_admin=False)
+    if user_id:
+        q = q.filter_by(id=user_id)
+    users = q.order_by(User.id).all()
+    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
+    return _xlsx_response(build_xlsx(db, users, from_, to), rep_name)
+
+
+@app.get("/api/export.xlsx")
+def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+              user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return _xlsx_response(build_xlsx(db, [user], from_, to), f"limefx_{user.username}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
 
 
 # ---- Zerodha connect -----------------------------------------------------------------------

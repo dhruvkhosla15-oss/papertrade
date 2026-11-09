@@ -87,6 +87,17 @@ scrolling ticker; everything else (trading, charts, depth, other tabs) asks them
 **Log in** button top-right. Each new trainee starts with a default watchlist (Nifty, Bank Nifty,
 Sensex, Gold, Silver, Crude Oil, Natural Gas, Copper) which they can edit.
 
+## Performance reports & Excel
+
+The master panel has three tabs: **Trainees**, **Performance**, **Settings**.
+
+- **Performance** shows, for Today / This week / This month / All time / a custom date range (IST calendar days):
+  net P&L, trades, win rate, profit factor, best and worst day, a daily P&L bar chart, a trainee ranking table
+  and a day-by-day table. Pick one trainee or all.
+- **Download Excel** exports the selected range: sheets *Summary* (one row per trainee), *Daily P&L*
+  (date × trainee pivot), *Trades*, *Orders* and *Coin ledger*. The same button is in each trainee's detail view.
+- Trainees see their own Today / Week / Month P&L in the Account tab and can download their own Excel.
+
 ## Managing trainees
 
 - **Create:** username, display name, password, initial coins.

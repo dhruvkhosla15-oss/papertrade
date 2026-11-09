@@ -81,6 +81,7 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ulist button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between}
 .sym{font-weight:600}
@@ -199,6 +200,15 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
+    <h3>My Performance</h3>
+    <div class="card">
+      <div class="perf3" id="perfCards"></div>
+      <div class="small mut" id="perfMeta" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+        <select id="xRange" style="flex:1"><option value="today">Today</option><option value="week">This week</option><option value="month" selected>This month</option><option value="all">All time</option></select>
+        <button class="ghost" id="xlsBtn" style="flex:0 0 auto">⬇ Download Excel</button>
+      </div>
+    </div>
     <h3>Coin Ledger</h3>
     <div class="card" style="padding:0;overflow:auto">
       <table id="ledTbl"><thead><tr><th>Time</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody></tbody></table>
@@ -364,7 +374,7 @@ async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
   sub(state.positions.map(p=>p.token));
-  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();
+  if(state.tab==='orders')loadTrades();if(state.tab==='account'){loadLedger();loadPerf();}
 }
 
 // ---------- websocket ----------
@@ -579,11 +589,21 @@ function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><t
 async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades yet</td></tr>';}
 async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
 
+// ---------- performance ----------
+const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
+function perfRange(p){const t=new Date(Date.now()+330*60000),d=istDay();if(p==='today')return[d,d];if(p==='week'){const m=new Date(t);m.setUTCDate(t.getUTCDate()-(t.getUTCDay()+6)%7);return[m.toISOString().slice(0,10),d];}if(p==='month')return[d.slice(0,8)+'01',d];return['',''];}
+async function loadPerf(){try{const d=istDay();const[w]=perfRange('week'),[m]=perfRange('month');
+  const [rt,rw,rm]=await Promise.all([api(`/report?from=${d}&to=${d}`),api(`/report?from=${w}&to=${d}`),api(`/report?from=${m}&to=${d}`)]);
+  const v=r=>r.users[0]?r.users[0].net_pnl:0,u=rm.users[0]||{};
+  $('#perfCards').innerHTML=[['Today',v(rt)],['This week',v(rw)],['This month',v(rm)]].map(([k,x])=>`<div class="stat"><span class="small mut">${k}</span><b class="num ${x>0?'up':x<0?'dn':''}">${(x>0?'+':'')+inr(x)}</b></div>`).join('');
+  $('#perfMeta').textContent=u.closing_trades?`This month: ${u.closing_trades} closed trades · ${u.win_rate}% winners · best ${inr(u.best)} · worst ${inr(u.worst)}`:'No closed trades this month yet.';}catch(e){}}
+$('#xlsBtn').onclick=()=>{const[f,t]=perfRange($('#xRange').value);location.href=`/api/export.xlsx?from=${f}&to=${t}`;toast('Preparing your Excel…');};
+
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();
 $$('nav.tabs button').forEach(b=>b.onclick=()=>{if(state.guest&&b.dataset.tab!=='watch'){showLogin();return;}state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
-  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
+  if(state.tab==='orders')loadTrades();if(state.tab==='account'){loadLedger();loadPerf();}if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
 
 boot();
 </script>

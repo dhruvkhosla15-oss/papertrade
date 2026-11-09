@@ -81,6 +81,8 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.cats{display:grid;gap:10px}.cat{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;cursor:pointer}.cat:hover{background:var(--hover,var(--seg))}.cat>div:nth-child(2){flex:1}.cat b{font-size:16px}.cat-ic{font-size:26px;width:40px;text-align:center}.cat>span.mut{font-size:20px}
+.catHead{display:flex;align-items:center;gap:10px;padding:10px 0 2px}
 .dlp{display:flex;flex-wrap:wrap;gap:6px}.dlp button{background:var(--seg);color:var(--mut);padding:7px 12px;font-weight:500}.dlp button.active{background:var(--acc);color:#0f1115;font-weight:600}
 .dlgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dlgrid button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px}.dlgrid button span{font-weight:400;white-space:normal}
 .perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
@@ -139,11 +141,16 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div class="seg" style="margin-bottom:12px"><button id="segOpt" class="active">Options</button><button id="segFut">Futures</button></div>
 
     <div id="optView">
-      <div id="undList" class="card" style="padding:0 12px"></div>
+<div id="catList" class="cats">
+        <div class="cat" data-cat="index"><div class="cat-ic">📈</div><div><b>Indices</b><div class="small mut">Nifty · Bank Nifty · Sensex</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStk">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
+      </div>
+      <div id="undList" class="card hidden" style="padding:0 12px"></div>
       <div id="chainPanel" class="hidden">
         <div class="card">
           <div class="row" style="align-items:center">
-            <button class="ghost" id="backUnd" style="flex:0 0 auto;padding:8px 12px">‹ Scrips</button>
+            <button class="ghost" id="backUnd" style="flex:0 0 auto;padding:8px 12px">‹ Back</button>
             <select id="selUnd" class="hidden"></select>
             <div style="flex:1;min-width:0"><div class="sym" id="undName" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div><div class="small mut" style="white-space:nowrap"><b id="spotLtp" class="num" style="color:var(--txt)">—</b> <span id="spotChg" class="num"></span></div></div>
           </div>
@@ -159,11 +166,16 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     </div>
 
     <div id="futView" class="hidden">
-      <div id="undListF" class="card" style="padding:0 12px"></div>
+<div id="catListF" class="cats">
+        <div class="cat" data-cat="index"><div class="cat-ic">📈</div><div><b>Indices</b><div class="small mut">Nifty · Bank Nifty · Sensex</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStkF">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
+      </div>
+      <div id="undListF" class="card hidden" style="padding:0 12px"></div>
       <div id="futPanel" class="hidden">
         <div class="card">
           <div class="row" style="align-items:center">
-            <button class="ghost" id="backUndF" style="flex:0 0 auto;padding:8px 12px">‹ Scrips</button>
+            <button class="ghost" id="backUndF" style="flex:0 0 auto;padding:8px 12px">‹ Back</button>
             <select id="selUndF" class="hidden"></select>
             <div style="flex:1"><div class="sym" id="undNameF"></div><div class="small mut"><span class="mut">Spot </span><b id="spotLtpF" class="num">—</b> <span id="spotChgF" class="num"></span></div></div>
           </div>
@@ -368,13 +380,20 @@ async function boot(){
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
     return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
   const nStk=state.und.filter(u=>u.kind==='stock').length;
-  const filt=nStk?`<div style="padding:10px 0 2px"><input class="undFilter" placeholder="Find a scrip — e.g. RELIANCE, GOLD, NIFTY (${nStk} stocks available)" style="padding:9px 10px"></div>`:'';
-  $('#undList').innerHTML=filt+listHtml(true);$('#undListF').innerHTML=filt+listHtml(false).replace(/id="p(\d+)"/g,'id="fp$1"').replace(/id="c(\d+)"/g,'id="fc$1"');
-  $$('.undFilter').forEach(inp=>inp.oninput=()=>{const q=inp.value.trim().toUpperCase();const box=inp.closest('.card');
-    box.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));
-    box.querySelectorAll('h3').forEach(h=>{let n=h.nextElementSibling,vis=false;while(n&&n.tagName!=='H3'){if(!n.classList.contains('hidden'))vis=true;n=n.nextElementSibling;}h.classList.toggle('hidden',!vis);});});
-  $$('#undList .wl-item').forEach(el=>el.onclick=()=>{$('#selUnd').value=el.dataset.und;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
-  $$('#undListF .wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;$('#undListF').classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
+  $('#catStk').textContent=$('#catStkF').textContent=nStk?`Futures & options on ${nStk} NSE stocks`:'F&O on NSE stocks';
+  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities'};
+  const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);
+    const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
+    return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${filt}`+
+      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
+  const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');
+    list.querySelector('.backCat').onclick=()=>{list.classList.add('hidden');$(sfx?'#catListF':'#catList').classList.remove('hidden');};
+    const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
+    sub(state.und.filter(u=>u.kind===cat&&u.spot_token).map(u=>u.spot_token));
+    if(sfx)list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;list.classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
+    else list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{$('#selUnd').value=el.dataset.und;list.classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
+    onPrices(Object.values(state.prices));};
+  $$('#catList .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,''));$$('#catListF .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,'f'));
   $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
   $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');$('#undListF').classList.remove('hidden');};
   state.tickerTokens=[...new Set([...(state.tickerTokens||[]),...state.und.map(u=>u.spot_token).filter(Boolean)])];
@@ -478,6 +497,7 @@ function onPrices(ticks){
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
+    for(const [pp,cc] of [['mp','mc']]){const mp=document.getElementById(pp+t.token);if(mp){mp.textContent=fmt(t.ltp);flash(mp,dir);const mc=document.getElementById(cc+t.token);if(mc&&t.change!=null){mc.textContent=(t.change>0?'+':'')+t.change+'%';mc.className='small num '+pnlCls(t.change);}}}
     const fp=document.getElementById('fp'+t.token);if(fp){fp.textContent=fmt(t.ltp);flash(fp,dir);const fc=document.getElementById('fc'+t.token);if(fc&&t.change!=null){fc.textContent=(t.change>0?'+':'')+t.change+'%';fc.className='small num '+pnlCls(t.change);}}
     for(const pre of ['tp','tp2_']){const tp=document.getElementById(pre+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById((pre==='tp'?'tc':'tc2_')+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
@@ -597,7 +617,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
   $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel||e.target.classList.contains('drag')||state._dragged)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
-    if(w.segment==='INDICES'){$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
+    if(w.segment==='INDICES'){$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
     openSheet(w);});
   $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}

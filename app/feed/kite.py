@@ -171,17 +171,29 @@ class KiteFeed(PriceFeed):
         ins = self.instruments.get(token)
         if not ins:
             return []
-        to_d = datetime.now()
+        # Kite treats naive datetimes as IST, so build the range in IST (server clock is UTC on Railway).
+        to_d = datetime.utcnow() + timedelta(hours=5, minutes=30) + timedelta(minutes=5)
         # Kite caps the range per request by interval; options/futures are short-lived anyway.
         span = {"minute": 55, "5minute": 95, "15minute": 190, "60minute": 390, "day": 1900}[kint]
         from_d = to_d - timedelta(days=span)
+        if ins.expiry:
+            # a contract has no data before it was listed; don't ask for more than ~a year back
+            from_d = max(from_d, to_d - timedelta(days=400))
         try:
             rows = self.kite.historical_data(token, from_d, to_d, kint, oi=True)
         except Exception as e:
             log.warning("historical failed %s: %s", ins.symbol, e)
             return hit["data"] if hit else []
-        data = [{"time": int(r["date"].timestamp()), "open": r["open"], "high": r["high"], "low": r["low"],
+        def _ts(d):
+            # tz-aware (IST) from kiteconnect -> epoch; if naive, assume IST
+            if d.tzinfo is None:
+                d = d - timedelta(hours=5, minutes=30)
+                return int(d.replace(tzinfo=None).timestamp())
+            return int(d.timestamp())
+        data = [{"time": _ts(r["date"]), "open": r["open"], "high": r["high"], "low": r["low"],
                  "close": r["close"], "volume": r.get("volume", 0), "oi": r.get("oi", 0)} for r in rows]
+        if data:
+            log.info("candles %s %s: %d rows, first %s last %s", ins.symbol, kint, len(data), rows[0]["date"], rows[-1]["date"])
         cached[key] = {"ts": now, "data": data}
         return data
 

@@ -560,11 +560,12 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
     if not p or not p.qty:
         raise HTTPException(404, "position not found")
     async with engine._lock:
+        cancelled = engine.cancel_pending_for(db, user, p.token)
         try:
             o = engine.place_order(db, user, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
         except EngineError as e:
             raise HTTPException(400, str(e))
-    return {"order": engine.order_dict(o)}
+    return {"order": engine.order_dict(o), "cancelled_orders": cancelled}
 
 
 @app.get("/api/trades")
@@ -743,6 +744,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
     async with engine._lock:
         for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
             try:
+                engine.cancel_pending_for(db, u, p.token)
                 engine.place_order(db, u, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
                 done += 1
             except EngineError as e:

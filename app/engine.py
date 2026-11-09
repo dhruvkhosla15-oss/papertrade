@@ -308,6 +308,18 @@ class Engine:
         db.commit()
         self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
 
+    def cancel_pending_for(self, db: Session, user: User, token: int) -> int:
+        """Cancel resting LIMIT/SL orders on a contract (used when a position is exited from the
+        Positions screen, so a leftover stop-loss can't silently open a fresh position)."""
+        n = 0
+        for o in db.query(Order).filter_by(user_id=user.id, token=token, status="OPEN").all():
+            o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — position exited"
+            n += 1
+            self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
+        if n:
+            db.commit()
+        return n
+
     def _fill(self, db: Session, user: User, order: Order, price: float):
         ins = self.feed.instruments[order.token]
         qty = order.qty

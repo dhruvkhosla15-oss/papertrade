@@ -90,7 +90,7 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
-.fsum{padding:14px 16px}.fs3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.fs3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}.fs3 .h{font-size:11px;color:var(--mut);margin-top:3px}
+.fsum{padding:14px 16px}.fs3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}.fs3>div{min-width:0}.fs3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fs3 .h{font-size:11px;color:var(--mut);margin-top:3px}
 .fs3 .big{font-size:20px}.fs3.sub{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}.fs3.sub .num{font-size:15px;font-weight:600}
 @media(max-width:380px){.fs3 .big{font-size:17px}}
 .homeSeg{display:flex;width:100%;margin-bottom:12px}.homeSeg button{flex:1;padding:10px;font-size:14px;font-weight:600}.homeSeg button.active,#pPeriod button.active{background:var(--acc);color:#0f1115}
@@ -245,9 +245,9 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-positions" class="hidden">
     <div class="card fsum">
       <div class="fs3">
-        <div><div class="k">Realised today</div><div class="big num" id="fReal"></div><div class="h">after commission</div></div>
+        <div><div class="k">Realised</div><div class="big num" id="fReal"></div><div class="h">after commission</div></div>
         <div><div class="k">Unrealised</div><div class="big num" id="fUnreal"></div><div class="h">at exit price</div></div>
-        <div><div class="k">Total today</div><div class="big num" id="fTot"></div><div class="h">realised + open</div></div>
+        <div><div class="k">Today total</div><div class="big num" id="fTot"></div><div class="h">realised + open</div></div>
       </div>
       <div class="fs3 sub">
         <div><div class="k">Balance</div><div class="num" id="fBal"></div></div>

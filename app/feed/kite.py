@@ -33,7 +33,7 @@ class KiteFeed(PriceFeed):
         self.access_token = None
         self.ticker: KiteTicker | None = None
         self.token_date: str | None = None
-        self.status_msg = "Zerodha not connected — admin must log in"
+        self.status_msg = "Market data not connected"
 
     # ---- auth --------------------------------------------------------------
     def login_url(self) -> str:
@@ -110,14 +110,14 @@ class KiteFeed(PriceFeed):
         self.status_msg = msg
 
     def _on_connect(self, ws, response):
-        self._set_status(True, "live Zerodha prices")
+        self._set_status(True, "Live market data")
         toks = list(self._refcount)
         if toks:
             ws.subscribe(toks)
             ws.set_mode(ws.MODE_QUOTE, toks)
 
     def _on_close(self, ws, code, reason):
-        self._set_status(False, f"ticker closed: {reason}")
+        self._set_status(False, "Market data disconnected — reconnecting")
 
     def _on_ticks(self, ws, ticks):
         # runs in ticker thread; hand to asyncio loop

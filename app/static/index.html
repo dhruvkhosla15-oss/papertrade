@@ -220,9 +220,9 @@ async function boot(){
   refreshAll();
   setInterval(refreshFunds,5000);
 }
-function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.message;
+function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live':'Offline';
   const mo=state.me.market_open||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
-  if(!f.connected){$('#banner').textContent='Live prices not available right now: '+f.message;$('#banner').classList.remove('hidden');}
+  if(!f.connected){$('#banner').textContent='Live prices are not available right now. Please check back shortly.';$('#banner').classList.remove('hidden');}
   else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
   else $('#banner').classList.add('hidden');}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);

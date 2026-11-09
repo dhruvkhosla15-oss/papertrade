@@ -208,9 +208,15 @@ class Engine:
             mk = self.mark_price(p.token, p.qty)
             if mk is not None:
                 unreal += (mk - p.avg_price) * p.qty
+        # realised today (IST calendar day) net of commission, from the ledger
+        from datetime import datetime, timedelta
+        day_start = datetime.combine(ist_now().date(), datetime.min.time()) - timedelta(hours=5, minutes=30)
+        realised_today = sum(l.amount for l in db.query(Ledger).filter(
+            Ledger.user_id == user.id, Ledger.created_at >= day_start,
+            Ledger.kind.in_(["REALISED_PNL", "COMMISSION", "EXPIRY_SETTLEMENT"])))
         return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
                 "available": round(user.balance - used, 2), "unrealised": round(unreal, 2),
-                "equity": round(user.balance + unreal, 2)}
+                "realised_today": round(realised_today, 2), "equity": round(user.balance + unreal, 2)}
 
     # ---- orders ----------------------------------------------------------------
     def place_order(self, db: Session, user: User, token: int, side: str, lots: int,

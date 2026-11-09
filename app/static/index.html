@@ -196,10 +196,10 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <!-- POSITIONS -->
   <section id="tab-positions" class="hidden">
     <div class="card grid2">
-      <div><div class="mut small">Balance</div><div class="big num" id="fBal"></div></div>
-      <div><div class="mut small">Unrealised P&L</div><div class="big num" id="fUnreal"></div></div>
-      <div><div class="mut small">Used margin</div><div class="num" id="fUsed"></div></div>
-      <div><div class="mut small">Available</div><div class="num" id="fAvail"></div></div>
+      <div><div class="mut small">Realised today</div><div class="big num" id="fReal"></div><div class="small mut">booked, after commission</div></div>
+      <div><div class="mut small">Unrealised</div><div class="big num" id="fUnreal"></div><div class="small mut">open positions, at exit price</div></div>
+      <div><div class="mut small">Balance</div><div class="num" id="fBal"></div></div>
+      <div><div class="mut small">Used margin · Available</div><div class="num"><span id="fUsed"></span> · <span id="fAvail"></span></div></div>
     </div>
     <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Open positions</h3><button class="ghost" id="exitAll" style="flex:0 0 auto;padding:8px 12px">Exit all at market</button></div>
     <div id="posList"></div>
@@ -420,8 +420,10 @@ function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':
   if(!f.connected){$('#banner').textContent='Live prices are not available right now. Please check back shortly.';$('#banner').classList.remove('hidden');}
   else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
   else $('#banner').classList.add('hidden');}
+function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
-  const u=f.unrealised;$('#hPnl').textContent=(u>=0?'+':'')+inr(u)+' P&L';$('#hPnl').className='num small '+pnlCls(u);
+  const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);
+  $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);}
 async function refreshFunds(){try{const m=await api('/me');state.me=m;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
@@ -523,7 +525,7 @@ function onPrices(ticks){
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty;unreal+=u;
     const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=fmt(mk);}
-  if(touched&&state.funds){const f={...state.funds,unrealised:unreal};$('#hPnl').textContent=(unreal>=0?'+':'')+inr(unreal)+' P&L';$('#hPnl').className='num small '+pnlCls(unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
+  if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));

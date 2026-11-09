@@ -4,7 +4,8 @@ from sqlalchemy import (create_engine, Column, Integer, String, Float, Boolean,
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from .config import DB_URL
 
-engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
+engine = create_engine(DB_URL, pool_size=40, max_overflow=80, pool_timeout=60,
+                       connect_args={"check_same_thread": False, "timeout": 30} if DB_URL.startswith("sqlite") else {})
 
 
 @event.listens_for(engine, "connect")
@@ -108,6 +109,16 @@ class Trade(Base):
     qty = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     realised_pnl = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=now)
+
+
+class Watch(Base):
+    __tablename__ = "watchlist"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    token = Column(Integer, nullable=False)
+    symbol = Column(String(64), nullable=False)
+    exchange = Column(String(8), nullable=False)
     created_at = Column(DateTime, default=now)
 
 

@@ -45,6 +45,7 @@ class Engine:
         self._lock = asyncio.Lock()
         feed.on_tick(self._on_tick)
         self._pending_tokens = set()
+        self._pending_scheduled = set()   # tokens with a pending-order pass already queued
         # shadow book: paper fills consume depth until the live book changes
         # token -> {"sig": depth signature, "bids": {price: consumed_qty}, "asks": {price: consumed_qty}}
         self._consumed = {}
@@ -146,8 +147,12 @@ class Engine:
             if remaining <= 0:
                 break
         avg = round(cost / filled / ins.tick_size) * ins.tick_size
-        b = f"{levels[0][0]:g}" if side == "SELL" else (f"{bids[0][0]:g}" if bids else "—")
-        a = f"{levels[0][0]:g}" if side == "BUY" else (f"{asks[0][0]:g}" if asks else "—")
+        if (side == "BUY" and avg < levels[0][0] - 1e-9) or (side == "SELL" and avg > levels[0][0] + 1e-9):
+            log.error("FILL ANOMALY %s %s qty=%s filled=%s cost=%s avg=%s levels=%s raw=%s consumed=%s tick=%s",
+                      ins.symbol, side, qty, filled, cost, avg, levels[:3], raw_levels[:3], sh[side_key], ins.tick_size)
+        px_s = lambda v: f"{v:.2f}".rstrip("0").rstrip(".")
+        b = px_s(levels[0][0]) if side == "SELL" else (px_s(bids[0][0]) if bids else "—")
+        a = px_s(levels[0][0]) if side == "BUY" else (px_s(asks[0][0]) if asks else "—")
         note = f"matched vs book: bid {b} / ask {a}"
         if abs(avg - levels[0][0]) > 1e-9:
             note += ", filled across levels"
@@ -356,12 +361,15 @@ class Engine:
     # ---- tick handling: pending orders ------------------------------------------
     def _on_tick(self, tick: dict):
         tok = tick["token"]
-        if tok not in self._pending_tokens:
+        if tok not in self._pending_tokens or tok in self._pending_scheduled:
             return
+        self._pending_scheduled.add(tok)
         asyncio.get_event_loop().create_task(self._process_pending(tok, tick["ltp"]))
 
     async def _process_pending(self, token: int, ltp: float):
         async with self._lock:
+            self._pending_scheduled.discard(token)
+            ltp = self.feed.ltp(token) or ltp   # use the freshest price by the time we run
             db = SessionLocal()
             try:
                 orders = db.query(Order).filter_by(token=token, status="OPEN").all()

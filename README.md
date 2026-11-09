@@ -13,7 +13,7 @@ with those coins and see their profit/loss. No real money moves anywhere.
 | `app/engine.py` | Order engine — fills at the exact live LTP, lot sizes, margin, netting, P&L, expiry settlement |
 | `app/feed/kite.py` | Live Zerodha Kite Connect feed (WebSocket ticks + daily instrument download) |
 | `app/feed/mock.py` | Simulated feed for trying the app without a Zerodha login |
-| `app/static/index.html` | Trainee app — option chain, order ticket, positions, orders, ledger (mobile-first) |
+| `app/static/index.html` | Trainee app — watchlist, option chain, futures, charts, market depth, order ticket, positions, orders, ledger (mobile-first) |
 | `app/static/admin.html` | Master panel — create trainees, add/remove coins, watch every position, square off, freeze |
 
 ## Rules the engine follows
@@ -31,7 +31,9 @@ with those coins and see their profit/loss. No real money moves anywhere.
   live book changes, so one 1-lot offer can't be "bought" twice.
 - **Limit orders** rest until the opposite side of the book reaches the price (buy fills when best ask ≤ limit).
 - **Stop-loss orders** trigger at the trigger price, then fill like a market order.
-- Quantities are whole lots using the exchange lot size (Nifty 75, Bank Nifty 35, Sensex 20, MCX per contract).
+- Quantities are whole lots. NSE/BSE lot sizes come from Zerodha's daily instrument file (Nifty 75, Bank Nifty 30, Sensex 20).
+  MCX lots use the exchange contract multipliers (GOLD 100, GOLDM 10, SILVER 30, CRUDEOIL 100, NATURALGAS 1250, COPPER 2500 ...)
+  — Zerodha's file quotes MCX in lots, so the multiplier table in `app/feed/kite.py` converts to units; override with `PT_MCX_MULTIPLIERS=NAME:units,...`.
 - **Margin:** buying options blocks the full premium. Futures and short options block
   *margin % × underlying price × qty* (default 12 % NFO/BFO, 10 % MCX — change in Settings).
 - Positions net per contract; realised P&L credits/debits the coin balance immediately.

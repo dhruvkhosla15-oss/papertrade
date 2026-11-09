@@ -109,7 +109,7 @@ class MockFeed(PriceFeed):
                 exp = _month_end_expiry(mi) - timedelta(days=10)
                 e = exp.isoformat()
                 tok += 1
-                items.append(Instrument(tok, _sym(name, exp), name, "MCX", "MCX-FUT", "FUT", e, 0, lot, tick))
+                items.append(Instrument(tok, _sym(name, exp), name, "MCX", "MCX-FUT", "FUT", e, 0, lot, tick, f"{lot} units"))
                 if mi == 0 and name in ("CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER"):
                     atm = round(price / step) * step
                     for k in range(-12, 13):
@@ -117,7 +117,7 @@ class MockFeed(PriceFeed):
                         for kind in ("CE", "PE"):
                             tok += 1
                             items.append(Instrument(tok, _sym(name, exp, strike, kind), name, "MCX",
-                                                    "MCX-OPT", kind, e, strike, lot, tick))
+                                                    "MCX-OPT", kind, e, strike, lot, tick, f"{lot} units"))
         self.load_instruments(items)
 
     def _price(self, ins: Instrument) -> float:

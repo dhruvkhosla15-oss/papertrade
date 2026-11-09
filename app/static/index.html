@@ -82,8 +82,18 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 </header>
 <div id="banner" class="banner hidden"></div>
 <main>
+  <!-- WATCHLIST -->
+  <section id="tab-watch">
+    <div class="card" style="padding:8px">
+      <input id="wsearch" placeholder="Add a contract — e.g. NIFTY 24300 CE, GOLDM FUT">
+      <div id="wsearchRes"></div>
+    </div>
+    <div class="card" style="padding:0 12px" id="wlist"></div>
+    <p id="wEmpty" class="mut card">Your watchlist is empty. Search above, or add from the Market tab.</p>
+  </section>
+
   <!-- WATCH / CHAIN -->
-  <section id="tab-market">
+  <section id="tab-market" class="hidden">
     <div class="card" style="padding:8px">
       <input id="search" placeholder="Search any contract — e.g. BANKNIFTY 52000 CE, CRUDEOIL FUT">
       <div id="searchRes"></div>
@@ -98,7 +108,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         </div>
         <div class="row" style="margin-top:8px">
           <div><span class="mut small">Spot </span><b id="spotLtp" class="num">—</b> <span id="spotChg" class="small num"></span></div>
-          <div style="text-align:right"><span class="mut small">Lot </span><b id="lotSize"></b></div>
+          <div style="text-align:right"><span class="mut small">Lot size </span><b id="lotSize"></b></div>
         </div>
       </div>
       <div class="card" id="chainWrap" style="padding:0;overflow:auto;max-height:58vh">
@@ -131,6 +141,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div><div class="mut small">Used margin</div><div class="num" id="fUsed"></div></div>
       <div><div class="mut small">Available</div><div class="num" id="fAvail"></div></div>
     </div>
+    <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Open positions</h3><button class="ghost" id="exitAll" style="flex:0 0 auto;padding:8px 12px">Exit all at market</button></div>
     <div id="posList"></div>
     <p id="posEmpty" class="mut card">No open positions</p>
   </section>
@@ -163,7 +174,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </section>
 </main>
 <nav class="tabs">
-  <button data-tab="market" class="active">Market</button>
+  <button data-tab="watch" class="active">Watchlist</button>
+  <button data-tab="market">Market</button>
   <button data-tab="positions">Positions</button>
   <button data-tab="orders">Orders</button>
   <button data-tab="account">Account</button>
@@ -174,8 +186,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <div id="sheet" class="sheet hidden">
   <div class="box">
     <div class="row" style="justify-content:space-between">
-      <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div></div>
-      <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div></div>
+      <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div><button class="ghost small" id="oWatch" style="padding:3px 8px;margin-top:4px">+ Watchlist</button></div>
     </div>
     <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:center" class="mut">Market depth</div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
     <div id="oIlliq" class="small dn hidden" style="margin-top:6px"></div>
@@ -227,7 +239,7 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
 const pnlCls=n=>n>0?'up':n<0?'dn':'';
-let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set(),positions:[],orders:[],sel:null,side:'BUY',otype:'MARKET',tab:'market'};
+let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set(),positions:[],orders:[],sel:null,side:'BUY',otype:'MARKET',tab:'watch'};
 
 async function api(path,opts={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
@@ -260,6 +272,7 @@ async function boot(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   connectWS();
+  loadWatch();
   await loadUnderlying();
   refreshAll();
   setInterval(refreshFunds,5000);
@@ -353,6 +366,7 @@ function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)retur
 function onPrices(ticks){
   for(const t of ticks){
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
+    const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
@@ -388,7 +402,9 @@ function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$
     const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';const lim=state.me?.liquidity?.max_spread_pct||0;$('#dSpread').className='num '+(sp!=null&&lim>0&&sp>lim?'dn':'');}}
 
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
-  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
+  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · exp ${ins.expiry}`;
+  $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
+  $('#oWatch').onclick=()=>addWatch(ins.token);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
   const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';
   sub([ins.token]);$('#sheet').classList.remove('hidden');updateMargin();}
@@ -445,8 +461,25 @@ $$('#cTf button').forEach(b=>b.onclick=()=>{cTf=b.dataset.tf;$$('#cTf button').f
 $('#cBuy').onclick=()=>{$('#chartModal').classList.add('hidden');openSheet(state.futs?.find(x=>x.token===cTok)||state.chain.find(x=>x.token===cTok)||state.sel,'BUY');};
 $('#cSell').onclick=()=>{$('#chartModal').classList.add('hidden');openSheet(state.futs?.find(x=>x.token===cTok)||state.chain.find(x=>x.token===cTok)||state.sel,'SELL');};
 
+// ---------- watchlist ----------
+state.watch=[];
+async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
+function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
+  $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
+    <span style="min-width:0;flex:1"><span class="sym">${w.symbol}</span><div class="small mut" style="white-space:nowrap">${w.exchange} · lot ${w.lot_size}${w.expiry?' · '+w.expiry.slice(5):''}</div></span>
+    <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span><div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div></span>
+    <button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button></div>`).join('');
+  $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel)return;openSheet(state.watch.find(x=>x.token==el.dataset.tok));});
+  $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}
+async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
+let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{const q=$('#wsearch').value.trim();if(q.length<2){$('#wsearchRes').innerHTML='';return;}
+  const r=await api('/search?q='+encodeURIComponent(q));
+  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
+  $$('#wsearchRes .wl-item').forEach(el=>el.onclick=()=>{addWatch(+el.dataset.tok);$('#wsearchRes').innerHTML='';$('#wsearch').value='';});},300);};
+
 // ---------- positions / orders ----------
-function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);
+$('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
+function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
     <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · exp ${p.expiry}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
@@ -465,8 +498,8 @@ async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').inne
 
 // ---------- tabs ----------
 $$('nav.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
-  ['market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
-  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();});
+  ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
+  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
 
 boot();
 </script>

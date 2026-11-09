@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from . import config
-from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, get_setting, set_setting
+from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
 from .auth import (get_db, current_user, current_admin, hash_password, verify_password, make_token,
                    decode_token, COOKIE)
 from .engine import Engine, EngineError
@@ -206,6 +206,40 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
         raise HTTPException(404, "charts are available for options and futures only")
     data = await asyncio.get_event_loop().run_in_executor(None, feed.candles, token, interval)
     return {"interval": interval, "candles": data}
+
+
+@app.get("/api/watchlist")
+def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.id).all()
+    out = []
+    for w in rows:
+        ins = feed.instruments.get(w.token)
+        if ins:
+            out.append({**ins.to_dict(), "watch_id": w.id})
+    return out
+
+
+class WatchIn(BaseModel):
+    token: int
+
+
+@app.post("/api/watchlist")
+def watchlist_add(body: WatchIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ins = feed.instruments.get(body.token)
+    if not ins or ins.segment == "INDICES":
+        raise HTTPException(404, "unknown contract")
+    if db.query(Watch).filter_by(user_id=user.id, token=body.token).first():
+        return {"ok": True}
+    if db.query(Watch).filter_by(user_id=user.id).count() >= 50:
+        raise HTTPException(400, "Watchlist is full (50)")
+    db.add(Watch(user_id=user.id, token=body.token, symbol=ins.symbol, exchange=ins.exchange)); db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/watchlist/{token}")
+def watchlist_remove(token: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.query(Watch).filter_by(user_id=user.id, token=token).delete(); db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/search")
@@ -442,6 +476,7 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
         raise HTTPException(404)
     db.query(Trade).filter_by(user_id=uid).delete()
     db.query(Ledger).filter_by(user_id=uid).delete()
+    db.query(Watch).filter_by(user_id=uid).delete()
     db.delete(u); db.commit()
     return {"ok": True}
 

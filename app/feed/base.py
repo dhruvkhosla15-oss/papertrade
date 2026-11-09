@@ -23,6 +23,7 @@ class Instrument:
     strike: float
     lot_size: int
     tick_size: float
+    lot_label: str = ""   # e.g. "1 kg (price per 10 g)" for MCX; blank for NSE/BSE
 
     def to_dict(self):
         return asdict(self)
@@ -67,9 +68,15 @@ class PriceFeed:
                       key=lambda x: (x.instrument_type, x.strike))
 
     def search(self, q: str, limit=30) -> List[Instrument]:
-        q = q.upper().replace(" ", "")
-        out = [i for i in self.instruments.values() if q in i.symbol.replace(" ", "")]
-        out.sort(key=lambda i: (len(i.symbol), i.symbol))
+        """Every word in the query must appear in the symbol (so 'NIFTY FUT', 'GOLDM', 'BANKNIFTY 52000 CE' all work)."""
+        words = [w for w in q.upper().split() if w]
+        if not words:
+            return []
+        today = __import__("datetime").date.today().isoformat()
+        out = [i for i in self.instruments.values()
+               if i.segment != "INDICES" and (not i.expiry or i.expiry >= today)
+               and all(w in i.symbol for w in words)]
+        out.sort(key=lambda i: (i.expiry or "", len(i.symbol), i.symbol))
         return out[:limit]
 
     def index_token_for(self, name: str) -> Optional[int]:

@@ -83,6 +83,10 @@ once a day** — this is an exchange rule, not something the app can bypass.
 
 If you forget, trainees see "Live prices not available" and orders are rejected until you log in.
 
+The feed bar also has **Disconnect feed** / **Reconnect feed** buttons: disconnect pauses live prices for
+everyone (trainees see OFFLINE, orders are rejected); reconnect restores it using the day's token, no Zerodha
+login needed.
+
 ## Public home page
 
 Visitors who are not logged in see the watchlist page with live spot prices and the scrolling ticker, and can

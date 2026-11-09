@@ -999,6 +999,27 @@ def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str
     return _xlsx_response(build_xlsx(db, [user], from_, to, sheets), f"limefx_{user.username}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
 
 
+# ---- feed control (master) ----------------------------------------------------------------------
+@app.post("/api/admin/feed/disconnect")
+def feed_disconnect(admin: User = Depends(current_admin)):
+    if not hasattr(feed, "disconnect"):
+        raise HTTPException(400, "Not available for this feed")
+    feed.disconnect()
+    log.info("live feed disconnected by master %s", admin.username)
+    return feed.status()
+
+
+@app.post("/api/admin/feed/reconnect")
+def feed_reconnect(admin: User = Depends(current_admin)):
+    if not hasattr(feed, "reconnect"):
+        raise HTTPException(400, "Not available for this feed")
+    ok = feed.reconnect()
+    log.info("live feed reconnect by master %s -> %s", admin.username, ok)
+    if not ok:
+        raise HTTPException(400, "Today's Zerodha login is needed first — use Connect Zerodha")
+    return feed.status()
+
+
 # ---- Zerodha connect -----------------------------------------------------------------------
 @app.get("/auth/kite/login")
 def kite_login(admin: User = Depends(current_admin)):

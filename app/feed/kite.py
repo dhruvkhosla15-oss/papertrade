@@ -157,6 +157,26 @@ class KiteFeed(PriceFeed):
         self.ticker.connect(threaded=True)
         self.status_msg = "connecting to Kite ticker..."
 
+    def disconnect(self):
+        """Master-initiated: close the ticker and stop streaming until reconnect()/connect()."""
+        self.paused = True
+        if self.ticker:
+            try:
+                self.ticker.close()
+            except Exception:
+                pass
+            self.ticker = None
+        self._set_status(False, "Live feed paused by master")
+
+    def reconnect(self):
+        """Master-initiated: re-establish the ticker with today's token (no Zerodha login needed)."""
+        self.paused = False
+        if not self.token_valid_today():
+            self._set_status(False, "Today's Zerodha login is needed first")
+            return False
+        self.connect()
+        return True
+
     def _set_status(self, connected, msg):
         self.connected = connected
         self.status_msg = msg
@@ -169,6 +189,8 @@ class KiteFeed(PriceFeed):
             ws.set_mode(ws.MODE_FULL, toks)
 
     def _on_close(self, ws, code, reason):
+        if getattr(self, "paused", False):
+            return
         self._set_status(False, "Market data disconnected — reconnecting")
 
     def _on_ticks(self, ws, ticks):
@@ -273,4 +295,6 @@ class KiteFeed(PriceFeed):
         s = super().status()
         s["token_valid_today"] = self.token_valid_today()
         s["needs_login"] = not self.token_valid_today()
+        s["paused"] = bool(getattr(self, "paused", False))
+        s["can_reconnect"] = self.token_valid_today() and not self.connected
         return s

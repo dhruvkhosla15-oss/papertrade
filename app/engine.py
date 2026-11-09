@@ -239,6 +239,8 @@ class Engine:
         if ltp is None or (self.feed.tick_age(token) or 0) > 300:
             # Not yet subscribed / stale. Subscribe and ask client to retry.
             self.feed.pin([token])
+            if not self.feed.connected:
+                raise EngineError("Live prices are offline right now — trading is paused until the feed is back")
             raise EngineError("No live price yet for this contract — try again in a second")
         if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
             raise EngineError("limit_price required")

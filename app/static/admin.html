@@ -81,7 +81,11 @@ a{color:var(--acc)}
 <main>
   <div id="kiteBox" class="card kite hidden">
     <div style="flex:1"><b id="kiteTitle"></b><div class="small" id="kiteMsg"></div></div>
-    <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
+    <div class="bar" style="flex:0 0 auto">
+      <button class="ghost" id="feedReconnect" style="display:none">Reconnect feed</button>
+      <button class="ghost" id="feedDisconnect" style="display:none">Disconnect feed</button>
+      <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
+    </div>
   </div>
 
   <div class="nav"><button data-nav="trainees" class="active">Trainees</button><button data-nav="perf">Performance</button><button data-nav="settings">Settings</button></div>
@@ -282,9 +286,14 @@ async function loadSettings(){const s=await api('/admin/settings');
   if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
     $('#kiteTitle').textContent=f.connected?'Zerodha live feed connected':'Zerodha not connected';
     $('#kiteMsg').textContent=f.needs_login?'Today\'s login is pending. Zerodha requires a manual login every morning (token expires ~6 AM). Click to log in — takes 10 seconds.':f.message;
-    $('#kiteBtn').classList.toggle('hidden',f.connected&&!f.needs_login);}
-  else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent='Simulated price feed';$('#kiteMsg').textContent='Simulated prices (test mode).';$('#kiteBtn').classList.add('hidden');}
+    $('#kiteBtn').classList.toggle('hidden',!f.needs_login);
+    $('#feedDisconnect').style.display=f.connected?'':'none';
+    $('#feedReconnect').style.display=(!f.connected&&!f.needs_login)?'':'none';
+    if(f.paused){kb.className='card kite';$('#kiteTitle').textContent='Live feed paused';}}
+  else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent=f.paused?'Live feed paused':'Simulated price feed';$('#kiteMsg').textContent=f.message;$('#kiteBtn').classList.add('hidden');$('#feedDisconnect').style.display=f.connected?'':'none';$('#feedReconnect').style.display=f.connected?'none':'';}
 }
+$('#feedDisconnect').onclick=async()=>{if(!confirm('Disconnect the live price feed? Trainees will see OFFLINE and orders will be rejected until you reconnect.'))return;try{await api('/admin/feed/disconnect',{method:'POST'});toast('Live feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
+$('#feedReconnect').onclick=async()=>{try{await api('/admin/feed/reconnect',{method:'POST'});toast('Reconnecting…');setTimeout(loadSettings,2500);}catch(e){toast(e.message,1)}};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
 $('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value},commission_pct:+$('#commPct').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 

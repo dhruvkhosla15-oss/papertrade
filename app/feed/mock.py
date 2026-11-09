@@ -167,9 +167,21 @@ class MockFeed(PriceFeed):
         self.status_msg = "simulated prices"
         asyncio.create_task(self._run())
 
+    def disconnect(self):
+        self.paused = True; self.connected = False; self.status_msg = "Live feed paused by master"
+
+    def reconnect(self):
+        self.paused = False; self.connected = True; self.status_msg = "simulated prices"; return True
+
+    def status(self):
+        s = super().status(); s["needs_login"] = False; s["paused"] = bool(getattr(self, "paused", False)); s["can_reconnect"] = not self.connected
+        return s
+
     async def _run(self):
         while True:
             dt = 0.5
+            if getattr(self, "paused", False):
+                await asyncio.sleep(dt); continue
             for name in self.spot:
                 vol = self.vol[name]
                 step = vol * math.sqrt(dt / (252 * 6.25 * 3600))

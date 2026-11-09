@@ -99,14 +99,17 @@ async def startup():
 
 
 # ---- pages -----------------------------------------------------------------------
+_NOCACHE = {"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"}
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=_NOCACHE)
 
 
 @app.get("/admin")
 def admin_page():
-    return FileResponse(STATIC / "admin.html")
+    return FileResponse(STATIC / "admin.html", headers=_NOCACHE)
 
 
 # ---- auth -------------------------------------------------------------------------

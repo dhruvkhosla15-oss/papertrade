@@ -28,7 +28,7 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05;margin-bottom:8px}
-header{padding:12px 14px 10px}
+header{padding:14px 14px 12px}
 .livepill{margin-top:0}
 header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}
 header .brand .fx,.login h1 .fx{font-weight:800}
@@ -49,11 +49,10 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.15);color:var(--dn)}
 .livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
-.profile{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 4px;color:var(--txt);text-align:right;cursor:pointer;transition:background .15s,border-color .15s}
+.profile{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 14px 6px 6px;color:var(--txt);text-align:right;cursor:pointer;transition:background .15s,border-color .15s}
 .profile:hover,.profile:active{background:var(--strike);border-color:var(--acc)}
-.profile .avatar{width:34px;height:34px;border-radius:50%;background:var(--acc);color:#0f1115;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:0 0 auto}
-.profile .pf{display:flex;flex-direction:column;line-height:1.15;font-size:12px}.profile .pf .mut{font-size:10px}.profile .pf b{font-size:14px}.profile .pf .small{font-size:11px}
-.profile .chev{color:var(--mut);font-size:18px;line-height:1;margin-left:2px}
+.profile .avatar{width:40px;height:40px;border-radius:50%;background:var(--acc);color:#0f1115;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:0 0 auto}
+.profile .pf{display:flex;flex-direction:column;line-height:1.35;gap:1px;font-size:12px}.profile .plbl{color:var(--acc);font-weight:600;font-size:11px;letter-spacing:.02em}.profile .pf b{font-size:15px}.profile .pf .small{font-size:11px}
 header .funds b{font-size:15px}
 .feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}
@@ -150,7 +149,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">FX</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
-  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="mut">Available Balance</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span><span class="chev">›</span></button></div>
+  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
 <div class="marquee"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>

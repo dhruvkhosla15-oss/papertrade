@@ -157,11 +157,17 @@ class KiteFeed(PriceFeed):
             if "oi" in t:
                 d["oi"] = t["oi"]
             depth = t.get("depth") or {}
-            bids = [(float(x["price"]), int(x["quantity"]), int(x.get("orders", 0))) for x in depth.get("buy", []) if x.get("quantity")]
-            asks = [(float(x["price"]), int(x["quantity"]), int(x.get("orders", 0))) for x in depth.get("sell", []) if x.get("quantity")]
+            # MCX quantities from Kite are in LOTS; convert to units so they match our lot_size (multiplier)
+            ins = self.instruments.get(d["token"])
+            m = ins.lot_size if (ins and ins.exchange == "MCX" and ins.lot_size > 1) else 1
+            bids = [(float(x["price"]), int(x["quantity"]) * m, int(x.get("orders", 0))) for x in depth.get("buy", []) if x.get("quantity")]
+            asks = [(float(x["price"]), int(x["quantity"]) * m, int(x.get("orders", 0))) for x in depth.get("sell", []) if x.get("quantity")]
             if ohlc:
                 d["open"], d["high"], d["low"] = ohlc.get("open"), ohlc.get("high"), ohlc.get("low")
-            d["tbq"] = t.get("total_buy_quantity"); d["tsq"] = t.get("total_sell_quantity")
+            d["tbq"] = (t.get("total_buy_quantity") or 0) * m; d["tsq"] = (t.get("total_sell_quantity") or 0) * m
+            if m > 1 and "volume" in d and d["volume"] is not None:
+                d["volume"] = d["volume"] * m
+            d["qty_in_lots"] = m > 1
             d["bids"] = bids; d["asks"] = asks
             d["bid"] = bids[0][0] if bids else None
             d["ask"] = asks[0][0] if asks else None

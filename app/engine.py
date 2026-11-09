@@ -412,6 +412,21 @@ class Engine:
     def load_pending(self):
         db = SessionLocal()
         try:
+            # Legacy positions opened before MCX lot multipliers were applied can't be netted against the
+            # corrected lot size; settle them at the current exit price with a note (one-time cleanup).
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                ins = self.feed.instruments.get(p.token)
+                if ins and ins.lot_size != p.lot_size:
+                    mk = self.mark_price(p.token, p.qty) or self.feed.ltp(p.token) or p.avg_price
+                    user = db.get(User, p.user_id)
+                    realised = (mk - p.avg_price) * p.qty
+                    p.realised_pnl = round(p.realised_pnl + realised, 2)
+                    db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
+                                 side="SELL" if p.qty > 0 else "BUY", qty=abs(p.qty), price=mk, realised_pnl=round(realised, 2)))
+                    self._ledger(db, user, realised, "LOT_SIZE_CORRECTION", f"{p.symbol} settled @ {mk} (lot size corrected {p.lot_size}->{ins.lot_size})")
+                    p.qty = 0; p.margin_blocked = 0.0; p.is_closed = True
+                    log.warning("settled legacy position %s for user %s due to lot size change", p.symbol, user.username)
+            db.commit()
             toks = {o.token for o in db.query(Order).filter_by(status="OPEN")}
             toks |= {p.token for p in db.query(Position).filter_by(is_closed=False)}
             self._pending_tokens |= {o.token for o in db.query(Order).filter_by(status="OPEN")}

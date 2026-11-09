@@ -25,7 +25,17 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand{font-weight:800;letter-spacing:-.03em;font-size:24px;line-height:1.1}
+header .brand{font-weight:700;letter-spacing:-.01em;font-size:26px;line-height:1.1;font-family:Georgia,'Times New Roman',serif}
+h3,.login h1,.sym{font-family:Georgia,'Times New Roman',serif;letter-spacing:0}
+h3{font-size:13px;text-transform:none;letter-spacing:.02em}
+.marquee{overflow:hidden;white-space:nowrap;background:var(--card);border-bottom:1px solid var(--line);font-size:12px;padding:6px 0}
+.marquee .track{display:inline-flex;gap:26px;padding-left:14px;animation:scroll 70s linear infinite;will-change:transform}
+.marquee:hover .track{animation-play-state:paused}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.marquee span{flex:0 0 auto}.marquee b{margin-left:4px}
+.loginbtn{background:var(--acc);color:#0f1115;font-weight:700;padding:8px 14px;border-radius:999px}
+.login{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:40;margin:0;max-width:none;padding:16px}
+.login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;width:100%;max-width:360px}
 .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.15);color:var(--dn)}
 .livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
@@ -78,20 +88,24 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <body>
 
 <div id="loginView" class="login hidden">
-  <h1><span style="color:var(--acc)">Lime</span>FX</h1>
-  <input id="lu" placeholder="Username" autocapitalize="none">
-  <input id="lp" type="password" placeholder="Password">
-  <button id="loginBtn" style="width:100%">Log in</button>
-  <p id="loginErr" class="dn small" style="margin-top:10px"></p>
+  <div class="box">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h1 style="margin:0"><span style="color:var(--acc)">Lime</span>FX</h1><button class="ghost" id="loginClose" style="flex:0 0 auto;padding:6px 10px">✕</button></div>
+    <p class="mut small" style="margin-bottom:12px">Log in with the username and password your trainer gave you.</p>
+    <input id="lu" placeholder="Username" autocapitalize="none">
+    <input id="lp" type="password" placeholder="Password">
+    <button id="loginBtn" style="width:100%">Log in</button>
+    <p id="loginErr" class="dn small" style="margin-top:10px"></p>
+  </div>
 </div>
 
-<div id="appView" class="hidden">
+<div id="appView">
 <header>
   <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
   <div style="display:flex;align-items:center;gap:10px"><button class="thbtn" id="thToggle" title="Light / dark">☾</button>
-  <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
+  <button class="loginbtn hidden" id="hLogin">Log in</button>
+  <div class="funds" id="hFunds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
 </header>
-<div class="ticker" id="ticker"></div>
+<div class="marquee"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>
 <main>
   <!-- WATCHLIST -->
@@ -168,7 +182,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div class="card" style="padding:0;overflow:auto">
       <table id="ordTbl"><thead><tr><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
     </div>
-    <h3>Trade history</h3>
+    <h3>Trade History</h3>
     <div class="card" style="padding:0;overflow:auto">
       <table id="trdTbl"><thead><tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th></tr></thead><tbody></tbody></table>
     </div>
@@ -178,12 +192,12 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
-    <h3>Coin ledger</h3>
+    <h3>Coin Ledger</h3>
     <div class="card" style="padding:0;overflow:auto">
       <table id="ledTbl"><thead><tr><th>Time</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="card">
-      <h3>Change password</h3>
+      <h3>Change Password</h3>
       <input id="pwOld" type="password" placeholder="Current password" style="margin-bottom:8px">
       <input id="pwNew" type="password" placeholder="New password" style="margin-bottom:8px">
       <button class="ghost" id="pwBtn">Update</button>
@@ -261,7 +275,7 @@ let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set
 
 async function api(path,opts={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
-  if(r.status===401&&path!=='/login'){showLogin();throw new Error('Please log in');}
+  if(r.status===401&&path!=='/login'){if(!opts._quiet)showLogin();throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.detail||r.statusText);
   return j;
@@ -273,7 +287,7 @@ function showLogin(){$('#loginView').classList.remove('hidden');$('#appView').cl
 $('#loginBtn').onclick=async()=>{
   try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
     if(j.is_admin){location.href='/admin';return;}
-    boot();}catch(e){$('#loginErr').textContent=e.message;}
+    location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#171a21'},textColor:t==='light'?'#6b7280':'#8b93a7'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1f2430'},horzLines:{color:t==='light'?'#eef0f3':'#1f2430'}}});}
@@ -286,16 +300,32 @@ $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
 
 // ---------- boot ----------
+function showLogin(){$('#loginView').classList.remove('hidden');setTimeout(()=>$('#lu').focus(),50);}
+$('#loginClose').onclick=()=>$('#loginView').classList.add('hidden');
+$('#hLogin').onclick=showLogin;
+function setGuest(g){state.guest=g;$('#hLogin').classList.toggle('hidden',!g);$('#hFunds').classList.toggle('hidden',g);$('#wsearch').parentElement.classList.toggle('hidden',g);
+  $('#wEmpty').classList.add('hidden');document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('mut',g&&b.dataset.tab!=='watch'));}
+function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
+  const html=list.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="tp${u.spot_token}">—</b> <span class="small num" id="tc${u.spot_token}"></span></span>`).join('');
+  $('#ticker').innerHTML=html+html.replace(/id="tp/g,'id="tp2_').replace(/id="tc/g,'id="tc2_');}
+async function bootGuest(){
+  setGuest(true);
+  const home=await fetch('/api/public/home').then(r=>r.json());
+  renderFeed(home.feed);renderTicker(home.ticker);
+  state.watch=home.watchlist;renderWatch();
+  connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
+  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());renderFeed(h.feed);}catch(e){}},10000);
+}
 async function boot(){
-  try{state.me=await api('/me');}catch(e){return;}
+  let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
+  if(!me){return bootGuest();}
+  state.me=me;
   if(state.me.user.is_admin){location.href='/admin';return;}
-  $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
+  setGuest(false);$('#loginView').classList.add('hidden');
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
   renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
-  const idx=state.und.filter(u=>u.exchange!=='MCX'&&u.spot_token);
-  $('#ticker').innerHTML=idx.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="tp${u.spot_token}">—</b> <span class="small num" id="tc${u.spot_token}"></span></span>`).join('');
-  sub(idx.map(u=>u.spot_token));state.tickerTokens=idx.map(u=>u.spot_token);
+  renderTicker(state.und.filter(u=>u.spot_token));sub(state.tickerTokens);
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   const grp=u=>u.exchange==='MCX'?'MCX Commodities':'Index';
@@ -314,7 +344,7 @@ async function boot(){
   setInterval(refreshFunds,5000);
 }
 function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'LIVE':'OFFLINE';$('#livePill').className='livepill'+(f.connected?' ok':'');
-  const mo=state.me.market_open||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
+  const mo=(state.me&&state.me.market_open)||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
   if(!f.connected){$('#banner').textContent='Live prices are not available right now. Please check back shortly.';$('#banner').classList.remove('hidden');}
   else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
   else $('#banner').classList.add('hidden');}
@@ -408,7 +438,7 @@ function onPrices(ticks){
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
     const fp=document.getElementById('fp'+t.token);if(fp){fp.textContent=fmt(t.ltp);flash(fp,dir);const fc=document.getElementById('fc'+t.token);if(fc&&t.change!=null){fc.textContent=(t.change>0?'+':'')+t.change+'%';fc.className='small num '+pnlCls(t.change);}}
-    const tp=document.getElementById('tp'+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById('tc'+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}
+    for(const pre of ['tp','tp2_']){const tp=document.getElementById(pre+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById((pre==='tp'?'tc':'tc2_')+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
     chartTick(t);
@@ -507,10 +537,12 @@ state.watch=[];
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    <span style="min-width:0;flex:1"><span class="sym">${w.symbol}</span><div class="small mut" style="white-space:nowrap">${w.exchange} · lot ${w.lot_size}${w.expiry?' · '+w.expiry.slice(5):''}</div></span>
-    <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span><div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div></span>
-    <button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button></div>`).join('');
-  $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel)return;openSheet(state.watch.find(x=>x.token==el.dataset.tok));});
+    <span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${w.segment==='INDICES'?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
+    ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
+  $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
+    if(w.segment==='INDICES'){$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
+    openSheet(w);});
   $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
 let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{const q=$('#wsearch').value.trim();if(q.length<2){$('#wsearchRes').innerHTML='';return;}
@@ -535,11 +567,11 @@ function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><t
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
 async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades yet</td></tr>';}
-async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${x.kind.replace('_',' ').toLowerCase()}<div class="small mut">${x.note||''}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
+async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
 
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();
-$$('nav.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(state.guest&&b.dataset.tab!=='watch'){showLogin();return;}state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
   if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
 

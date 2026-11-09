@@ -74,8 +74,8 @@ class PriceFeed:
             return []
         today = __import__("datetime").date.today().isoformat()
         out = [i for i in self.instruments.values()
-               if i.segment != "INDICES" and (not i.expiry or i.expiry >= today)
-               and all(w in i.symbol for w in words)]
+               if (not i.expiry or i.expiry >= today)
+               and all(w in i.symbol or w in i.name for w in words)]
         out.sort(key=lambda i: (i.expiry or "", len(i.symbol), i.symbol))
         return out[:limit]
 

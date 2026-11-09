@@ -211,8 +211,54 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
     return {"interval": interval, "candles": data}
 
 
+DEFAULT_WATCH = [("NSE", "NIFTY"), ("NSE", "BANKNIFTY"), ("BSE", "SENSEX"),
+                 ("MCX", "GOLD"), ("MCX", "SILVER"), ("MCX", "CRUDEOIL"), ("MCX", "NATURALGAS"), ("MCX", "COPPER")]
+
+
+def _default_watch_instruments():
+    out = []
+    for ex, name in DEFAULT_WATCH:
+        tok = feed.index_token_for(name)
+        ins = feed.instruments.get(tok) if tok else None
+        if ins:
+            out.append(ins)
+    return out
+
+
+def _public_tokens():
+    """Tokens a not-logged-in visitor may stream: index spots + nearest future of every underlying."""
+    toks = set()
+    for ex, names in feed.underlyings().items():
+        for n in names:
+            t = feed.index_token_for(n)
+            if t:
+                toks.add(t)
+    for i in _default_watch_instruments():
+        toks.add(i.token)
+    return toks
+
+
+@app.get("/api/public/home")
+def public_home():
+    """What a visitor sees before logging in."""
+    tick = []
+    for ex, names in feed.underlyings().items():
+        for n in names:
+            t = feed.index_token_for(n)
+            if t:
+                tick.append({"exchange": ex, "name": n, "spot_token": t})
+    order = {"NFO": 0, "BFO": 1, "MCX": 2}
+    tick.sort(key=lambda x: (order.get(x["exchange"], 9), x["name"]))
+    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status()}
+
+
 @app.get("/api/watchlist")
 def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not db.query(Watch).filter_by(user_id=user.id).first() and not get_setting(db, f"watch_seeded_{user.id}"):
+        for ins in _default_watch_instruments():
+            db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange))
+        set_setting(db, f"watch_seeded_{user.id}", "1")
+        db.commit()
     rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.id).all()
     out = []
     for w in rows:
@@ -229,7 +275,7 @@ class WatchIn(BaseModel):
 @app.post("/api/watchlist")
 def watchlist_add(body: WatchIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     ins = feed.instruments.get(body.token)
-    if not ins or ins.segment == "INDICES":
+    if not ins:
         raise HTTPException(404, "unknown contract")
     if db.query(Watch).filter_by(user_id=user.id, token=body.token).first():
         return {"ok": True}
@@ -358,11 +404,10 @@ def list_ledger(user: User = Depends(current_user), db: Session = Depends(get_db
 async def ws_endpoint(ws: WebSocket):
     tok = ws.cookies.get(COOKIE) or ws.query_params.get("token")
     data = decode_token(tok) if tok else None
-    if not data:
-        await ws.close(code=4401)
-        return
+    guest = not data
     await ws.accept()
-    c = Client(ws, data["uid"])
+    c = Client(ws, data["uid"] if data else 0)
+    allowed = _public_tokens() if guest else None
     clients.append(c)
 
     async def pump_events():
@@ -376,6 +421,8 @@ async def ws_endpoint(ws: WebSocket):
             msg = json.loads(await ws.receive_text())
             if msg.get("type") == "subscribe":
                 toks = [int(t) for t in msg.get("tokens", [])]
+                if allowed is not None:
+                    toks = [t for t in toks if t in allowed]
                 new = set(toks) - c.tokens
                 feed.subscribe(list(new))
                 c.tokens |= new

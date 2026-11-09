@@ -80,6 +80,13 @@ once a day** — this is an exchange rule, not something the app can bypass.
 
 If you forget, trainees see "Live prices not available" and orders are rejected until you log in.
 
+## Public home page
+
+Visitors who are not logged in see the watchlist page with live spot prices (indices + MCX) and the
+scrolling ticker; everything else (trading, charts, depth, other tabs) asks them to log in via the
+**Log in** button top-right. Each new trainee starts with a default watchlist (Nifty, Bank Nifty,
+Sensex, Gold, Silver, Crude Oil, Natural Gas, Copper) which they can edit.
+
 ## Managing trainees
 
 - **Create:** username, display name, password, initial coins.

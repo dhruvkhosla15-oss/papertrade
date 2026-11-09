@@ -8,9 +8,12 @@
 <style>
 :root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#1d2230;--itm:#141a26;--seg:#0f1115}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
-@keyframes flashUp{0%{background:rgba(34,197,94,.35)}100%{background:transparent}}
-@keyframes flashDn{0%{background:rgba(239,68,68,.35)}100%{background:transparent}}
-.fu{animation:flashUp .6s ease-out}.fd{animation:flashDn .6s ease-out}
+@keyframes flashUp{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}
+@keyframes flashDn{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
+.fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}
+.ticker{display:flex;gap:14px;overflow-x:auto;white-space:nowrap;font-size:12px;padding:6px 14px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}
+.ticker::-webkit-scrollbar{display:none}.ticker b{margin-left:4px}.ticker span{flex:0 0 auto}
+.thbtn{background:none;border:1px solid var(--line);color:var(--mut);padding:4px 8px;border-radius:8px;font-size:13px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);-webkit-tap-highlight-color:transparent}
 button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#0f1115;font-weight:600}
@@ -83,8 +86,10 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <div id="appView" class="hidden">
 <header>
   <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
-  <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div>
+  <div style="display:flex;align-items:center;gap:10px"><button class="thbtn" id="thToggle" title="Light / dark">☾</button>
+  <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
 </header>
+<div class="ticker" id="ticker"></div>
 <div id="banner" class="banner hidden"></div>
 <main>
   <!-- WATCHLIST -->
@@ -266,6 +271,9 @@ $('#loginBtn').onclick=async()=>{
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#171a21'},textColor:t==='light'?'#6b7280':'#8b93a7'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1f2430'},horzLines:{color:t==='light'?'#eef0f3':'#1f2430'}}});}
 $('#thDark').onclick=()=>setTheme('dark');$('#thLight').onclick=()=>setTheme('light');
+$('#thToggle').onclick=()=>{const light=document.documentElement.getAttribute('data-theme')==='light';setTheme(light?'dark':'light');};
+const _setTheme=setTheme;setTheme=function(t){_setTheme(t);$('#thToggle').textContent=t==='light'?'☀':'☾';};
+(function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thToggle').textContent=t==='light'?'☀':'☾';})();
 (function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');})();
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
@@ -278,6 +286,9 @@ async function boot(){
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
   renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
+  const idx=state.und.filter(u=>u.exchange!=='MCX'&&u.spot_token);
+  $('#ticker').innerHTML=idx.map(u=>`<span><span class="mut">${u.name}</span> <b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span>`).join('');
+  sub(idx.map(u=>u.spot_token));state.tickerTokens=idx.map(u=>u.spot_token);
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   connectWS();
@@ -318,7 +329,7 @@ function connectWS(){
 }
 function sub(tokens){const n=tokens.filter(t=>!state.subs.has(t));n.forEach(t=>state.subs.add(t));
   if(n.length&&state.ws&&state.ws.readyState===1)state.ws.send(JSON.stringify({type:'subscribe',tokens:n}));}
-function unsub(tokens){const keep=new Set([...state.positions.map(p=>p.token),state.spotToken,state.spotTokenF,state.sel?.token]);
+function unsub(tokens){const keep=new Set([...state.positions.map(p=>p.token),...(state.tickerTokens||[]),...(state.watch||[]).map(w=>w.token),state.spotToken,state.spotTokenF,state.sel?.token]);
   const g=tokens.filter(t=>state.subs.has(t)&&!keep.has(t));g.forEach(t=>state.subs.delete(t));
   if(g.length&&state.ws&&state.ws.readyState===1)state.ws.send(JSON.stringify({type:'unsubscribe',tokens:g}));}
 
@@ -378,19 +389,20 @@ function onPrices(ticks){
   for(const t of ticks){
     const prev=lastPx[t.token];const dir=prev==null?0:Math.sign(t.ltp-prev);lastPx[t.token]=t.ltp;
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
-    const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';}
+    const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
+    if((state.tickerTokens||[]).includes(t.token)){const tp=document.getElementById('p'+t.token);if(tp){tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');}}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
     chartTick(t);
-    if(state.sel&&t.token===state.sel.token){renderBook(t);$('#oLtp').textContent=fmt(t.ltp);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
+    if(state.sel&&t.token===state.sel.token){renderBook(t);$('#oLtp').textContent=(dir>0?'▲ ':dir<0?'▼ ':'')+fmt(t.ltp);$('#oLtp').style.color=dir>0?'var(--up)':dir<0?'var(--dn)':'';flash($('#oBid'),dir);flash($('#oAsk'),dir);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
   }
   // live P&L on positions
   let unreal=0,touched=false;
   for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty;unreal+=u;
-    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){l.textContent=(u>=0?'+':'')+fmt(u);l.className='num '+pnlCls(u);}if(lt)lt.textContent=fmt(mk);}
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=fmt(mk);}
   if(touched&&state.funds){const f={...state.funds,unrealised:unreal};$('#hPnl').textContent=(unreal>=0?'+':'')+inr(unreal)+' P&L';$('#hPnl').className='num small '+pnlCls(unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}

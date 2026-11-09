@@ -334,7 +334,7 @@ function toast(msg,err){const t=document.createElement('div');t.className='toast
 function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
 $('#loginBtn').onclick=async()=>{
   try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
-    if(j.is_admin){location.href='/admin';return;}
+    if(j.needs_2fa||j.is_admin){location.href='/admin';return;}
     location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});

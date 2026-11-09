@@ -25,6 +25,11 @@ def make_token(user: User) -> str:
                       SECRET_KEY, algorithm="HS256")
 
 
+def make_pre_token(user: User) -> str:
+    """Short-lived token issued after password check, before the 2FA code (5 minutes)."""
+    return jwt.encode({"uid": user.id, "pre2fa": True, "exp": int(time.time()) + 300}, SECRET_KEY, algorithm="HS256")
+
+
 def decode_token(tok: str) -> dict | None:
     try:
         return jwt.decode(tok, SECRET_KEY, algorithms=["HS256"])
@@ -43,7 +48,7 @@ def get_db():
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     tok = request.cookies.get(COOKIE) or request.headers.get("authorization", "").replace("Bearer ", "")
     data = decode_token(tok) if tok else None
-    if not data:
+    if not data or data.get("pre2fa"):
         raise HTTPException(401, "Not logged in")
     u = db.get(User, data["uid"])
     if not u or not u.is_active and not u.is_admin:

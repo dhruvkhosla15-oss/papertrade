@@ -7,3 +7,5 @@ PyJWT>=2.8
 python-multipart
 httpx
 openpyxl>=3.1
+pyotp>=2.9
+segno>=1.6

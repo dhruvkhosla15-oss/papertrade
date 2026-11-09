@@ -34,6 +34,8 @@ class User(Base):
     password_hash = Column(String(256), nullable=False)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    totp_secret = Column(String(64), default="")   # master 2FA (TOTP); empty = not set up
+    totp_enabled = Column(Boolean, default=False)
     balance = Column(Float, default=0.0)        # coins (₹ equivalent). Realised P&L flows in here.
     created_at = Column(DateTime, default=now)
 
@@ -139,6 +141,12 @@ def init_db():
         with engine.begin() as con:
             con.execute(text("ALTER TABLE watchlist ADD COLUMN position INTEGER DEFAULT 0"))
             con.execute(text("UPDATE watchlist SET position = id"))
+    ucols = {c["name"] for c in inspect(engine).get_columns("users")}
+    with engine.begin() as con:
+        if "totp_secret" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) DEFAULT ''"))
+        if "totp_enabled" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0"))
     tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
     if "commission" not in tcols:
         with engine.begin() as con:

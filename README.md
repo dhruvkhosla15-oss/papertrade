@@ -111,6 +111,16 @@ The master panel has three tabs: **Trainees**, **Performance**, **Settings**.
 - **Freeze** blocks login and trading without deleting history.
 - **Net P&L** = equity − coins you've allocated, so adding coins never looks like "profit".
 
+## Master accounts & two-factor login
+
+- **Several masters:** Settings → *Master accounts* lists everyone with master access. Any master can add
+  another (username, name, password), reset a colleague's password or 2FA, or remove them. You can't remove
+  yourself, and there must always be at least one master.
+- **Two-factor login (TOTP):** Settings → *Two-factor login* → scan the QR code with Google Authenticator /
+  Authy / 1Password and confirm with the code. From then on the master login asks for the 6-digit code after
+  the password. Lost phone → another master clicks *Reset 2FA* on your row.
+- Trainee logins are unchanged (password only).
+
 ## Limits & notes
 
 - Kite Connect is licensed for personal use. Running a small closed training group is how

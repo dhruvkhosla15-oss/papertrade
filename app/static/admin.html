@@ -38,6 +38,8 @@ tr.clickable{cursor:pointer}tr.clickable:hover{background:var(--hover)}
 h2{font-size:16px;margin-bottom:10px}
 h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
 .small{font-size:12px}
+code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-break:break-all}
+#tfaQr svg{width:180px;height:180px}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
 .pill.frozen{background:#7f1d1d;color:#fecaca}.pill.active{background:#14532d;color:#bbf7d0}
@@ -64,8 +66,11 @@ a{color:var(--acc)}
 <body>
 <div id="loginView" class="login hidden">
   <h2 class="brand" style="font-size:30px;margin-bottom:16px"><span class="lm">lime</span><span class="fx">FX</span> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
-  <input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
-  <button id="loginBtn" style="width:100%">Log in</button><p id="loginErr" class="dn small" style="margin-top:10px"></p>
+  <div id="pwStep"><input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
+  <button id="loginBtn" style="width:100%">Log in</button></div>
+  <div id="otpStep" class="hidden"><p class="small mut" style="margin-bottom:8px">Enter the 6-digit code from your authenticator app</p><input id="lcode" inputmode="numeric" autocomplete="one-time-code" placeholder="123 456" style="font-size:22px;letter-spacing:.2em;text-align:center">
+  <button id="otpBtn" style="width:100%">Verify</button><button class="ghost" id="otpBack" style="width:100%;margin-top:8px">‹ Back</button></div>
+  <p id="loginErr" class="dn small" style="margin-top:10px"></p>
 </div>
 
 <div id="appView" class="hidden">
@@ -165,6 +170,38 @@ a{color:var(--acc)}
     <div class="bar" style="margin-top:14px"><button id="mSave">Save settings</button><span class="small mut" id="setInfo"></span></div>
   </div>
   <div class="card">
+    <h2>Master accounts</h2>
+    <p class="small mut" style="margin-bottom:10px">Everyone here has full master access: trainees, coins, settings, reports. Each master should turn on their own two-factor login.</p>
+    <div style="overflow:auto"><table id="admTbl"><thead><tr><th>Master</th><th>2-factor</th><th>Since</th><th></th></tr></thead><tbody></tbody></table></div>
+    <h3 style="margin-top:14px">Add a master</h3>
+    <div class="row">
+      <div><label class="small mut">Username</label><input id="aUser" autocapitalize="none"></div>
+      <div><label class="small mut">Name</label><input id="aName"></div>
+      <div><label class="small mut">Password (min 6)</label><input id="aPass" type="password"></div>
+      <button id="aBtn" style="flex:0 0 auto">Add master</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Two-factor login (this account)</h2>
+    <div id="tfaOff">
+      <p class="small mut" style="margin-bottom:10px">Adds a 6-digit code from Google Authenticator / Authy / 1Password to your master login. Strongly recommended — the master panel controls every trainee's coins.</p>
+      <button id="tfaStart">Turn on two-factor</button>
+      <div id="tfaSetup" class="hidden" style="margin-top:14px">
+        <div class="bar" style="align-items:flex-start;gap:18px">
+          <div id="tfaQr" style="background:#fff;border-radius:10px;padding:8px;line-height:0"></div>
+          <div style="flex:1;min-width:220px">
+            <p class="small">1. Open your authenticator app and scan this QR code.<br>2. Can't scan? Enter this key manually: <code id="tfaSecret" style="user-select:all"></code><br>3. Type the 6-digit code the app shows to finish.</p>
+            <div class="bar" style="margin-top:10px"><input id="tfaCode" inputmode="numeric" placeholder="123 456" style="width:140px;font-size:18px;letter-spacing:.15em;text-align:center"><button id="tfaConfirm">Confirm & turn on</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="tfaOn" class="hidden">
+      <p class="small" style="margin-bottom:10px"><span class="pill active">ON</span> Two-factor login is active for <b id="tfaWho"></b>. Keep your authenticator app safe — another master can reset it for you if you lose your phone.</p>
+      <div class="bar"><input id="tfaOffCode" inputmode="numeric" placeholder="current code" style="width:140px"><button class="danger" id="tfaDisable">Turn off two-factor</button></div>
+    </div>
+  </div>
+  <div class="card">
     <h2>Master password</h2>
     <div class="row">
       <div><label class="small mut">Current password</label><input id="pwOld" type="password"></div>
@@ -203,7 +240,7 @@ const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn
 const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'};
 let users=[],detail=null,dtab='positions',sortK='pnl',sortDir=-1,filterQ='';
 async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
-  if(r.status===401&&p!=='/login'){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
+  if(r.status===401&&!p.startsWith('/login')){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;}
 function toast(m,e){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),e?4000:2200);}
 
@@ -212,19 +249,24 @@ function applyTheme(){const th=document.documentElement.getAttribute('data-theme
 $('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('data-theme');const nx=cur==='light'?'':'light';if(nx)document.documentElement.setAttribute('data-theme',nx);else document.documentElement.removeAttribute('data-theme');try{localStorage.setItem('lfx_theme',nx)}catch(e){}applyTheme();if(chart)styleChart();};
 applyTheme();
 
-$('#loginBtn').onclick=async()=>{try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});if(!j.is_admin){await api('/logout',{method:'POST'});$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}boot();}catch(e){$('#loginErr').textContent=e.message;}};
-$('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
+let preTok='';
+$('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
+  if(j.needs_2fa){preTok=j.pre_token;$('#pwStep').classList.add('hidden');$('#otpStep').classList.remove('hidden');$('#lcode').value='';$('#lcode').focus();return;}
+  if(!j.is_admin){await api('/logout',{method:'POST'});$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}boot();}catch(e){$('#loginErr').textContent=e.message;}};
+$('#otpBtn').onclick=async()=>{$('#loginErr').textContent='';try{await api('/login/2fa',{method:'POST',body:{pre_token:preTok,code:$('#lcode').value}});boot();}catch(e){$('#loginErr').textContent=e.message;}};
+$('#otpBack').onclick=()=>{$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
+$('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});$('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click()});
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
   if(!me.user.is_admin){await api('/logout',{method:'POST'});$('#loginView').classList.remove('hidden');$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}
   $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
-  await Promise.all([loadUsers(),loadSettings(),loadToday()]);
+  await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);
   setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
 async function loadSettings(){const s=await api('/admin/settings');
@@ -245,6 +287,21 @@ $('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',bod
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}
+
+// ----- master accounts & 2FA -----
+let meAdmin=null;
+async function loadAdmins(){const l=await api('/admin/admins');
+  $('#admTbl tbody').innerHTML=l.map(u=>`<tr><td><b>${u.display_name}</b> <span class="small mut">${u.username}${u.me?' (you)':''}</span></td>
+    <td><span class="pill ${u.twofa?'active':''}">${u.twofa?'ON':'off'}</span></td><td class="small mut">${new Date(u.created_at).toLocaleDateString('en-IN')}</td>
+    <td style="white-space:nowrap">${u.me?'':`<button class="ghost small" data-apw="${u.id}" style="padding:5px 9px">Reset password</button> ${u.twofa?`<button class="ghost small" data-a2fa="${u.id}" style="padding:5px 9px">Reset 2FA</button>`:''} <button class="danger small" data-adel="${u.id}" style="padding:5px 9px">Remove</button>`}</td></tr>`).join('');
+  $$('[data-adel]').forEach(b=>b.onclick=async()=>{if(!confirm('Remove master access for this account? They will no longer be able to log in.'))return;try{await api(`/admin/admins/${b.dataset.adel}`,{method:'DELETE'});toast('Master removed');loadAdmins();}catch(e){toast(e.message,1)}});
+  $$('[data-a2fa]').forEach(b=>b.onclick=async()=>{if(!confirm('Reset this master\'s two-factor login? They can log in with password only until they set it up again.'))return;try{await api(`/admin/admins/${b.dataset.a2fa}/reset-2fa`,{method:'POST'});toast('2FA reset');loadAdmins();}catch(e){toast(e.message,1)}});
+  $$('[data-apw]').forEach(b=>b.onclick=async()=>{const p=prompt('New password for this master (min 6 characters)');if(!p)return;try{await api(`/admin/admins/${b.dataset.apw}/password`,{method:'POST',body:{password:p}});toast('Password reset');}catch(e){toast(e.message,1)}});
+  const me=l.find(u=>u.me);if(me){meAdmin=me;$('#tfaOff').classList.toggle('hidden',me.twofa);$('#tfaOn').classList.toggle('hidden',!me.twofa);$('#tfaWho').textContent=me.username;}}
+$('#aBtn').onclick=async()=>{try{await api('/admin/admins',{method:'POST',body:{username:$('#aUser').value,display_name:$('#aName').value,password:$('#aPass').value}});toast('Master added');$('#aUser').value=$('#aName').value=$('#aPass').value='';loadAdmins();}catch(e){toast(e.message,1)}};
+$('#tfaStart').onclick=async()=>{try{const j=await api('/admin/2fa/setup',{method:'POST'});$('#tfaQr').innerHTML=j.qr_svg;$('#tfaSecret').textContent=j.secret;$('#tfaSetup').classList.remove('hidden');$('#tfaCode').focus();}catch(e){toast(e.message,1)}};
+$('#tfaConfirm').onclick=async()=>{try{await api('/admin/2fa/confirm',{method:'POST',body:{code:$('#tfaCode').value}});toast('Two-factor login is on');$('#tfaSetup').classList.add('hidden');$('#tfaCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
+$('#tfaDisable').onclick=async()=>{try{await api('/admin/2fa/disable',{method:'POST',body:{code:$('#tfaOffCode').value}});toast('Two-factor login is off');$('#tfaOffCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
 
 // ----- trainees table -----
 $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};

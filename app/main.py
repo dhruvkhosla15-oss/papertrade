@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from . import config
 from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
-from .auth import (get_db, current_user, current_admin, hash_password, verify_password, make_token,
+from .auth import (make_pre_token, get_db, current_user, current_admin, hash_password, verify_password, make_token,
                    decode_token, COOKIE)
 from .engine import Engine, EngineError
 from .feed.mock import MockFeed
@@ -139,9 +139,134 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
         raise HTTPException(401, "Wrong username or password")
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
+    if u.is_admin and u.totp_enabled:
+        return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": True}
     tok = make_token(u)
     response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
+
+
+class TwoFaIn(BaseModel):
+    pre_token: str
+    code: str
+
+
+def _totp_ok(secret: str, code: str) -> bool:
+    import pyotp
+    return bool(secret) and pyotp.TOTP(secret).verify((code or "").strip().replace(" ", ""), valid_window=1)
+
+
+@app.post("/api/login/2fa")
+def login_2fa(body: TwoFaIn, response: Response, db: Session = Depends(get_db)):
+    from .auth import decode_token
+    data = decode_token(body.pre_token)
+    if not data or not data.get("pre2fa"):
+        raise HTTPException(401, "Login expired — enter your password again")
+    u = db.get(User, data["uid"])
+    if not u or not u.is_admin or not _totp_ok(u.totp_secret, body.code):
+        raise HTTPException(401, "Wrong authenticator code")
+    tok = make_token(u)
+    response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
+    return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": True}
+
+
+# ---- master 2FA (TOTP: Google Authenticator / Authy / 1Password) ----------------------------------
+@app.post("/api/admin/2fa/setup")
+def twofa_setup(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Create a new secret (not active until confirmed) and return the QR code to scan."""
+    import pyotp, segno, io as _io
+    if admin.totp_enabled:
+        raise HTTPException(400, "2FA is already on. Turn it off first to set up a new device.")
+    secret = pyotp.random_base32()
+    admin.totp_secret = secret; db.commit()
+    uri = pyotp.TOTP(secret).provisioning_uri(name=admin.username, issuer_name="limeFX Master")
+    buf = _io.BytesIO(); segno.make(uri).save(buf, kind="svg", scale=5, dark="#111827", light=None)
+    return {"secret": secret, "uri": uri, "qr_svg": buf.getvalue().decode()}
+
+
+class CodeIn(BaseModel):
+    code: str
+
+
+@app.post("/api/admin/2fa/confirm")
+def twofa_confirm(body: CodeIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    if not admin.totp_secret or not _totp_ok(admin.totp_secret, body.code):
+        raise HTTPException(400, "That code didn't match — check the time on your phone and try again")
+    admin.totp_enabled = True; db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/admin/2fa/disable")
+def twofa_disable(body: CodeIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    if not _totp_ok(admin.totp_secret, body.code):
+        raise HTTPException(400, "Wrong authenticator code")
+    admin.totp_enabled = False; admin.totp_secret = ""; db.commit()
+    return {"ok": True}
+
+
+# ---- master accounts -----------------------------------------------------------------------------------
+class AdminIn(BaseModel):
+    username: str
+    display_name: str = ""
+    password: str
+
+
+@app.get("/api/admin/admins")
+def admins_list(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return [{"id": u.id, "username": u.username, "display_name": u.display_name, "twofa": bool(u.totp_enabled),
+             "is_active": u.is_active, "me": u.id == admin.id, "created_at": u.created_at.isoformat() + "Z"}
+            for u in db.query(User).filter_by(is_admin=True).order_by(User.id).all()]
+
+
+@app.post("/api/admin/admins")
+def admins_add(body: AdminIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    uname = body.username.strip().lower()
+    if not uname or len(body.password) < 6:
+        raise HTTPException(400, "Username and a password of at least 6 characters are required")
+    if db.query(User).filter_by(username=uname).first():
+        raise HTTPException(400, "Username already exists")
+    u = User(username=uname, display_name=body.display_name.strip() or uname, password_hash=hash_password(body.password),
+             is_admin=True, is_active=True, balance=0.0)
+    db.add(u); db.commit()
+    return {"ok": True, "id": u.id}
+
+
+@app.delete("/api/admin/admins/{uid}")
+def admins_remove(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    u = db.get(User, uid)
+    if not u or not u.is_admin:
+        raise HTTPException(404, "No such master account")
+    if u.id == admin.id:
+        raise HTTPException(400, "You can't remove your own master access — ask another master to do it")
+    if db.query(User).filter_by(is_admin=True).count() <= 1:
+        raise HTTPException(400, "There must be at least one master")
+    db.delete(u); db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/admin/admins/{uid}/reset-2fa")
+def admins_reset_2fa(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Another master can clear a colleague's 2FA if they lose their phone."""
+    u = db.get(User, uid)
+    if not u or not u.is_admin:
+        raise HTTPException(404, "No such master account")
+    u.totp_enabled = False; u.totp_secret = ""; db.commit()
+    return {"ok": True}
+
+
+class AdminPwIn(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/admins/{uid}/password")
+def admins_password(uid: int, body: AdminPwIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    u = db.get(User, uid)
+    if not u or not u.is_admin:
+        raise HTTPException(404, "No such master account")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    u.password_hash = hash_password(body.password); db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/logout")
@@ -176,7 +301,7 @@ def change_password(body: PasswordIn, user: User = Depends(current_user), db: Se
 
 def _user_dict(u: User):
     return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin,
-            "is_active": u.is_active, "balance": round(u.balance, 2)}
+            "is_active": u.is_active, "balance": round(u.balance, 2), "twofa": bool(u.totp_enabled)}
 
 
 # ---- market data ------------------------------------------------------------------------

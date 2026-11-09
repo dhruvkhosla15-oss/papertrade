@@ -257,11 +257,11 @@ def public_home():
 @app.get("/api/watchlist")
 def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not db.query(Watch).filter_by(user_id=user.id).first() and not get_setting(db, f"watch_seeded_{user.id}"):
-        for ins in _default_watch_instruments():
-            db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange))
+        for n, ins in enumerate(_default_watch_instruments()):
+            db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
         set_setting(db, f"watch_seeded_{user.id}", "1")
         db.commit()
-    rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.id).all()
+    rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position, Watch.id).all()
     out = []
     for w in rows:
         ins = feed.instruments.get(w.token)
@@ -283,7 +283,25 @@ def watchlist_add(body: WatchIn, user: User = Depends(current_user), db: Session
         return {"ok": True}
     if db.query(Watch).filter_by(user_id=user.id).count() >= 50:
         raise HTTPException(400, "Watchlist is full (50)")
-    db.add(Watch(user_id=user.id, token=body.token, symbol=ins.symbol, exchange=ins.exchange)); db.commit()
+    last = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position.desc()).first()
+    db.add(Watch(user_id=user.id, token=body.token, symbol=ins.symbol, exchange=ins.exchange, position=(last.position + 1) if last else 0)); db.commit()
+    return {"ok": True}
+
+
+class WatchOrder(BaseModel):
+    tokens: List[int]
+
+
+@app.put("/api/watchlist/order")
+def watchlist_reorder(body: WatchOrder, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = {w.token: w for w in db.query(Watch).filter_by(user_id=user.id).all()}
+    n = 0
+    for tok in body.tokens:
+        if tok in rows:
+            rows[tok].position = n; n += 1
+    for w in sorted((w for t, w in rows.items() if t not in body.tokens), key=lambda w: w.id):
+        w.position = n; n += 1
+    db.commit()
     return {"ok": True}
 
 

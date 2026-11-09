@@ -119,6 +119,7 @@ class Watch(Base):
     token = Column(Integer, nullable=False)
     symbol = Column(String(64), nullable=False)
     exchange = Column(String(8), nullable=False)
+    position = Column(Integer, default=0)
     created_at = Column(DateTime, default=now)
 
 
@@ -130,6 +131,13 @@ class Setting(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    # lightweight migrations for columns added after first release
+    from sqlalchemy import text, inspect
+    cols = {c["name"] for c in inspect(engine).get_columns("watchlist")}
+    if "position" not in cols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE watchlist ADD COLUMN position INTEGER DEFAULT 0"))
+            con.execute(text("UPDATE watchlist SET position = id"))
 
 
 def get_setting(db, key, default=None):

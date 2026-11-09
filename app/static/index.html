@@ -90,6 +90,8 @@ td:first-child,th:first-child{text-align:left}
 .small{font-size:12px}
 h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
 .wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.drag{color:var(--mut);cursor:grab;padding:4px 6px 4px 0;touch-action:none;user-select:none;font-size:14px;letter-spacing:-2px;flex:0 0 auto}
+.wl-item.dragging{opacity:.45;background:var(--seg)}.wl-item.over-top{box-shadow:inset 0 2px 0 var(--acc)}.wl-item.over-bot{box-shadow:inset 0 -2px 0 var(--acc)}
 .banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}
 </style>
 <script src="/static/lightweight-charts.js"></script>
@@ -317,7 +319,7 @@ async function api(path,opts={}){
 function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?4000:2200);}
 
 // ---------- auth ----------
-function showLogin(){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
+function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
 $('#loginBtn').onclick=async()=>{
   try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
     if(j.is_admin){location.href='/admin';return;}
@@ -334,7 +336,7 @@ $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
 
 // ---------- boot ----------
-function showLogin(){$('#loginView').classList.remove('hidden');setTimeout(()=>$('#lu').focus(),50);}
+function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');setTimeout(()=>$('#lu').focus(),50);}
 $('#loginClose').onclick=()=>$('#loginView').classList.add('hidden');
 $('#hLogin').onclick=showLogin;
 function setGuest(g){state.guest=g;$('#hLogin').classList.toggle('hidden',!g);$('#hFunds').classList.toggle('hidden',g);$('#wsearch').parentElement.classList.toggle('hidden',g);
@@ -354,7 +356,7 @@ async function boot(){
   let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
   if(!me){return bootGuest();}
   state.me=me;
-  if(state.me.user.is_admin){location.href='/admin';return;}
+  if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
   setGuest(false);$('#loginView').classList.add('hidden');
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
   renderFunds(state.me.funds);renderFeed(state.me.feed);
@@ -571,13 +573,25 @@ state.watch=[];
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function monthName(e){return e?MON[+e.slice(5,7)-1]:'';}
 function isNearMonth(w){const u=(state.und||[]).find(x=>x.exchange==='MCX'&&x.name===w.name);return !u||u.spot_token===w.token;}
+function initDrag(){const list=$('#wlist');
+  $$('#wlist .drag').forEach(h=>h.onpointerdown=e=>{const item=h.closest('.wl-item');const startY=e.clientY;let moved=false;e.preventDefault();
+    const move=ev=>{if(!moved&&Math.abs(ev.clientY-startY)<4)return;moved=true;item.classList.add('dragging');ev.preventDefault();
+      const items=$$('#wlist .wl-item').filter(x=>x!==item);let target=null,before=false;
+      for(const x of items){const r=x.getBoundingClientRect();if(ev.clientY<r.top+r.height/2){target=x;before=true;break;}target=x;before=false;}
+      if(target){const want=before?target:target.nextSibling;if(item.nextSibling!==want&&item!==want)list.insertBefore(item,want);}
+      if(ev.clientY<80)window.scrollBy(0,-10);else if(ev.clientY>innerHeight-80)window.scrollBy(0,10);};
+    const up=async()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);item.classList.remove('dragging');
+      if(moved){state._dragged=true;setTimeout(()=>state._dragged=false,250);const toks=$$('#wlist .wl-item').map(x=>+x.dataset.tok);state.watch.sort((a,b)=>toks.indexOf(a.token)-toks.indexOf(b.token));
+        try{await api('/watchlist/order',{method:'PUT',body:{tokens:toks}});}catch(e){toast(e.message,1)}}};
+    window.addEventListener('pointermove',move,{passive:false});window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);});}
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    <span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${w.segment==='INDICES'?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
-  $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
+  initDrag();
+  $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel||e.target.classList.contains('drag')||state._dragged)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
     if(w.segment==='INDICES'){$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
     openSheet(w);});
   $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}

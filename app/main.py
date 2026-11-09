@@ -228,6 +228,7 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
 
 
 DEFAULT_WATCH = [("NSE", "NIFTY"), ("NSE", "BANKNIFTY"), ("BSE", "SENSEX"),
+                 ("NSE", "RELIANCE"), ("NSE", "HDFCBANK"), ("NSE", "TCS"),
                  ("MCX", "GOLD"), ("MCX", "SILVER"), ("MCX", "CRUDEOIL"), ("MCX", "NATURALGAS"), ("MCX", "COPPER")]
 
 

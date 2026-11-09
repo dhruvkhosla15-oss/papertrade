@@ -123,7 +123,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <!-- WATCHLIST -->
   <section id="tab-watch">
     <div class="card" style="padding:8px">
-      <input id="wsearch" placeholder="Add a contract — e.g. NIFTY 24300 CE, GOLDM FUT">
+      <input id="wsearch" placeholder="Add a scrip — e.g. RELIANCE, NIFTY 24300 CE, GOLDM FUT">
       <div id="wsearchRes"></div>
     </div>
     <div class="card" style="padding:0 12px" id="wlist"></div>
@@ -603,7 +603,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
 let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{const q=$('#wsearch').value.trim();if(q.length<2){$('#wsearchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
-  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
+  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.segment==='INDICES'?(i.kind==='stock'?'NSE stock · spot':'spot'):i.exchange+' · lot '+i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
   $$('#wsearchRes .wl-item').forEach(el=>el.onclick=()=>{addWatch(+el.dataset.tok);$('#wsearchRes').innerHTML='';$('#wsearch').value='';});},300);};
 
 // ---------- positions / orders ----------

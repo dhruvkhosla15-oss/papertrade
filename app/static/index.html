@@ -97,7 +97,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       </table>
     </div>
     <div class="card">
-      <h3>Futures</h3>
+      <h3>Futures (all expiries)</h3>
       <div id="futList"></div>
     </div>
     <div class="card">
@@ -266,7 +266,7 @@ async function loadUnderlying(){
 }
 async function loadChain(){
   const [ex,name]=$('#selUnd').value.split('|');const exp=$('#selExp').value;
-  const old=state.chain.map(i=>i.token);
+  const old=state.chain.map(i=>i.token).concat((state.futs||[]).map(f=>f.token));
   const j=await api(`/chain?exchange=${ex}&name=${name}&expiry=${exp}`);
   state.chain=j.instruments;state.spotToken=j.spot_token;
   const lot=state.chain[0]?.lot_size;$('#lotSize').textContent=lot||'—';
@@ -278,11 +278,11 @@ async function loadChain(){
     <td class="strike num">${s}</td>
     <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
   $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
-  const futs=state.chain.filter(i=>i.instrument_type==='FUT');
-  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span class="sym">${f.symbol}</span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures for this expiry</span>';
-  $$('#futList .wl-item').forEach(el=>el.onclick=()=>openSheet(state.chain.find(x=>x.token==el.dataset.tok)));
+  const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
+  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${f.symbol}</span><div class="small mut">exp ${f.expiry} · lot ${f.lot_size}</div></span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
+  $$('#futList .wl-item').forEach(el=>el.onclick=()=>openSheet(state.futs.find(x=>x.token==el.dataset.tok)));
   unsub(old);
-  const toks=state.chain.map(i=>i.token);if(state.spotToken)toks.push(state.spotToken);
+  const toks=state.chain.map(i=>i.token).concat(futs.map(f=>f.token));if(state.spotToken)toks.push(state.spotToken);
   sub(toks);
   // show cached prices
   onPrices(toks.map(t=>state.prices[t]).filter(Boolean));

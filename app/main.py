@@ -184,6 +184,15 @@ def chain(exchange: str, name: str, expiry: str, user: User = Depends(current_us
     return {"spot_token": feed.index_token_for(name), "instruments": [i.to_dict() for i in items]}
 
 
+@app.get("/api/futures")
+def futures(exchange: str, name: str, user: User = Depends(current_user)):
+    today = date.today().isoformat()
+    items = sorted((i for i in feed.instruments.values()
+                    if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and i.expiry >= today),
+                   key=lambda x: x.expiry)
+    return [i.to_dict() for i in items]
+
+
 @app.get("/api/search")
 def search(q: str, user: User = Depends(current_user)):
     if len(q) < 2:

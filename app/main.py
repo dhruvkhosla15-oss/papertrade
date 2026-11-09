@@ -406,10 +406,11 @@ def public_home():
 
 @app.get("/api/watchlist")
 def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if not db.query(Watch).filter_by(user_id=user.id).first() and not get_setting(db, f"watch_seeded_{user.id}"):
+    if not db.query(Watch).filter_by(user_id=user.id).first() and feed.instruments:
+        # empty watchlist (new trainee, or everything removed) -> start from the showcase list
         for n, ins in enumerate(_default_watch_instruments()):
             db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
-        set_setting(db, f"watch_seeded_{user.id}", "1")
+        set_setting(db, f"watch_seeded_{user.id}", "1"); set_setting(db, f"watch_showcase_{user.id}", "1")
         db.commit()
     elif not get_setting(db, f"watch_showcase_{user.id}") and feed.instruments:
         # one-time: add the showcase scrips (top stocks etc.) to watchlists created before they existed

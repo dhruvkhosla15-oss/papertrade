@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;800&display=swap" rel="stylesheet">
 <script src="/static/lightweight-charts.js"></script>
 <style>
-:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--hover:#1d2230}
+:root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--hover:#182540}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--hover:#f0fdf4}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
@@ -350,7 +350,7 @@ $('#pApply').onclick=loadPerf;$('#pUser').onchange=loadPerf;
 function qs(){const[f,t]=rangeFor(preset);const u=$('#pUser').value;return `from=${f}&to=${t}${u?'&user_id='+u:''}`;}
 $('#xlsBtn').onclick=()=>{location.href='/api/admin/export.xlsx?'+qs();toast('Preparing Excel…');};
 $$('[data-pdl]').forEach(b=>b.onclick=()=>{location.href='/api/admin/export.xlsx?'+qs()+'&sheets='+b.dataset.pdl;toast('Preparing Excel…');});
-function styleChart(){const light=document.documentElement.getAttribute('data-theme')==='light';chart.applyOptions({layout:{background:{color:'transparent'},textColor:light?'#6b7280':'#8b93a7'},grid:{vertLines:{color:light?'#eef0f3':'#1d2230'},horzLines:{color:light?'#eef0f3':'#1d2230'}}});}
+function styleChart(){const light=document.documentElement.getAttribute('data-theme')==='light';chart.applyOptions({layout:{background:{color:'transparent'},textColor:light?'#6b7280':'#8b93a7'},grid:{vertLines:{color:light?'#eef0f3':'#1e2a44'},horzLines:{color:light?'#eef0f3':'#1e2a44'}}});}
 function ensureChart(){if(chart)return;chart=LightweightCharts.createChart($('#dailyChart'),{height:220,rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false,tickMarkFormatter:t=>{const d=new Date(t*1000);return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'UTC'})}},localization:{timeFormatter:t=>new Date(t*1000).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})},handleScroll:false,handleScale:false});
   series=chart.addHistogramSeries({priceFormat:{type:'volume'}});styleChart();new ResizeObserver(()=>chart.applyOptions({width:$('#dailyChart').clientWidth})).observe($('#dailyChart'));}
 async function loadPerf(){

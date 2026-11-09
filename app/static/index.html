@@ -7,7 +7,7 @@
 <title>limeFX</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#1d2230;--itm:#141a26;--seg:#0f1115}
+:root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#182540;--itm:#14203a;--seg:#0b1220}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
 @keyframes flashUp{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}
 @keyframes flashDn{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
@@ -342,7 +342,7 @@ $('#loginBtn').onclick=async()=>{
     location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
-function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#171a21'},textColor:t==='light'?'#6b7280':'#8b93a7'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1f2430'},horzLines:{color:t==='light'?'#eef0f3':'#1f2430'}}});}
+function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#121c2e'},textColor:t==='light'?'#6b7280':'#8da2c0'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1e2a44'},horzLines:{color:t==='light'?'#eef0f3':'#1e2a44'}}});}
 $('#thDark').onclick=()=>setTheme('dark');$('#thLight').onclick=()=>setTheme('light');
 $('#thToggle').onclick=()=>{const light=document.documentElement.getAttribute('data-theme')==='light';setTheme(light?'dark':'light');};
 const _setTheme=setTheme;setTheme=function(t){_setTheme(t);$('#thToggle').textContent=t==='light'?'☀':'☾';};
@@ -573,7 +573,7 @@ const stepOf=tf=>({'1m':60,'5m':300,'15m':900,'1h':3600,'1d':86400})[tf];
 function openChart(ins){cTok=ins.token;$('#cSym').textContent=ins.symbol;$('#cMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
   const pr=state.prices[ins.token];$('#cLtp').textContent=pr?fmt(pr.ltp):'—';$('#cChg').textContent=pr&&pr.change!=null?((pr.change>0?'+':'')+pr.change+'%'):'';$('#cChg').className='small num '+pnlCls(pr?.change);
   $('#chartModal').classList.remove('hidden');sub([ins.token]);
-  if(!chart){chart=LightweightCharts.createChart($('#chartBox'),{layout:{background:{color:'#171a21'},textColor:'#8b93a7'},grid:{vertLines:{color:'#1f2430'},horzLines:{color:'#1f2430'}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#262b36'},rightPriceScale:{borderColor:'#262b36'},crosshair:{mode:0}});
+  if(!chart){chart=LightweightCharts.createChart($('#chartBox'),{layout:{background:{color:'#121c2e'},textColor:'#8da2c0'},grid:{vertLines:{color:'#1e2a44'},horzLines:{color:'#1e2a44'}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#1e2a44'},rightPriceScale:{borderColor:'#1e2a44'},crosshair:{mode:0}});
     cSeries=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderVisible:false,wickUpColor:'#22c55e',wickDownColor:'#ef4444'});
     vSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:''});vSeries.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
     new ResizeObserver(()=>chart.applyOptions({width:$('#chartBox').clientWidth,height:$('#chartBox').clientHeight})).observe($('#chartBox'));}

@@ -22,7 +22,7 @@ from .feed.mock import MockFeed
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("app")
 
-app = FastAPI(title="PaperTrade F&O")
+app = FastAPI(title="LimeFX")
 STATIC = Path(__file__).parent / "static"
 
 if config.FEED == "kite":

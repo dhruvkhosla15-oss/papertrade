@@ -1,4 +1,4 @@
-# PaperTrade F&O
+# LimeFX (paper trading F&O)
 
 A paper-trading platform for NSE/BSE index F&O (Nifty, Bank Nifty, Sensex) and all MCX
 contracts, with live Zerodha prices. A **master** account allocates virtual coins to

@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>PaperTrade F&O</title>
+<title>LimeFX</title>
 <style>
-:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#3b82f6;--buy:#2563eb;--sell:#dc2626}
+:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);-webkit-tap-highlight-color:transparent}
-button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#fff}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#0f1115;font-weight:600}
 button.ghost{background:var(--card);border:1px solid var(--line);color:var(--txt)}
-button.buy{background:var(--buy)} button.sell{background:var(--sell)}
+button.buy{background:var(--buy);color:#fff} button.sell{background:var(--sell);color:#fff}
 button:disabled{opacity:.5;cursor:default}
 input,select{font:inherit;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;width:100%}
 .hidden{display:none!important}
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand{font-weight:700}
+header .brand{font-weight:800;letter-spacing:-.02em;font-size:16px}
 header .funds{text-align:right;font-size:12px}
 header .funds b{font-size:15px}
 .feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
@@ -64,7 +64,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <body>
 
 <div id="loginView" class="login hidden">
-  <h1>PaperTrade <span class="mut">F&O</span></h1>
+  <h1><span style="color:var(--acc)">Lime</span>FX</h1>
   <input id="lu" placeholder="Username" autocapitalize="none">
   <input id="lp" type="password" placeholder="Password">
   <button id="loginBtn" style="width:100%">Log in</button>
@@ -73,7 +73,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView" class="hidden">
 <header>
-  <div><div class="brand">PaperTrade</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
+  <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
   <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div>
 </header>
 <div id="banner" class="banner hidden"></div>

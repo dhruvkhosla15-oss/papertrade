@@ -49,6 +49,11 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.15);color:var(--dn)}
 .livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
+.profile{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 4px;color:var(--txt);text-align:right;cursor:pointer;transition:background .15s,border-color .15s}
+.profile:hover,.profile:active{background:var(--strike);border-color:var(--acc)}
+.profile .avatar{width:34px;height:34px;border-radius:50%;background:var(--acc);color:#0f1115;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:0 0 auto}
+.profile .pf{display:flex;flex-direction:column;line-height:1.15;font-size:12px}.profile .pf .mut{font-size:10px}.profile .pf b{font-size:14px}.profile .pf .small{font-size:11px}
+.profile .chev{color:var(--mut);font-size:18px;line-height:1;margin-left:2px}
 header .funds b{font-size:15px}
 .feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}
@@ -122,7 +127,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .drag{color:var(--mut);cursor:grab;padding:4px 6px 4px 0;touch-action:none;user-select:none;font-size:14px;letter-spacing:-2px;flex:0 0 auto}
 .wl-item.dragging{opacity:.45;background:var(--seg)}.wl-item.over-top{box-shadow:inset 0 2px 0 var(--acc)}.wl-item.over-bot{box-shadow:inset 0 -2px 0 var(--acc)}
-.banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}
+.banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}.banner.soft{background:#3f3a12;color:#fde68a}.banner b{color:#fff}
 </style>
 <script src="/static/lightweight-charts.js"></script>
 </head>
@@ -145,14 +150,14 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">FX</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
-  <div class="funds" id="hFunds"><div class="mut">Available Balance</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
+  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="mut">Available Balance</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span><span class="chev">›</span></button></div>
 </header>
 <div class="marquee"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>
 <main>
   <!-- WATCHLIST -->
   <section id="tab-watch">
-    <div class="seg homeSeg" id="homeSeg"><button data-home="pulse" class="active">Pulse</button><button data-home="watch">Watchlist</button></div>
+    <div class="seg homeSeg hidden" id="homeSeg"><button data-home="pulse" class="active">Pulse</button><button data-home="watch">Watchlist</button></div>
     <div id="pulseView">
       <div class="pctl">
         <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
@@ -291,11 +296,11 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </section>
 </main>
 <nav class="tabs">
-  <button data-tab="watch" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
+  <button data-tab="watch" data-home="pulse" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><span>Pulse</span></button>
+  <button data-tab="watch" data-home="watch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg><span>Watchlist</span></button>
   <button data-tab="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-8M22 19H2"/></svg><span>Market</span></button>
   <button data-tab="positions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg><span>Positions</span></button>
   <button data-tab="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg><span>Orders</span></button>
-  <button data-tab="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg><span>Account</span></button>
 </nav>
 </div>
 
@@ -416,12 +421,12 @@ function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
 async function bootGuest(){
   setGuest(true);
   const home=await fetch('/api/public/home').then(r=>r.json());
-  renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
+  state.marketOpen=home.market_open;state.marketHours=home.market_hours;renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
   try{state.und=await api('/underlyings');buildMarket();}catch(e){}
   setHome((()=>{try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}})());
-  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());renderFeed(h.feed);}catch(e){}},10000);
+  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());state.marketOpen=h.market_open;renderFeed(h.feed);}catch(e){}},10000);
 }
 function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
@@ -451,8 +456,8 @@ async function boot(){
   state.me=me;
   if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
   setGuest(false);$('#loginView').classList.add('hidden');
-  $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
-  renderFunds(state.me.funds);renderFeed(state.me.feed);
+  $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';$('#hAvatar').textContent=(state.me.user.display_name||state.me.user.username).split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  state.marketOpen=state.me.market_open;state.marketHours=state.me.market_hours||state.marketHours;renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
   try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
   buildMarket();
@@ -467,17 +472,21 @@ async function boot(){
   setInterval(refreshFunds,5000);
 }
 function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'LIVE':'OFFLINE';$('#livePill').className='livepill'+(f.connected?' ok':'');
-  const mo=(state.me&&state.me.market_open)||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
-  if(!f.connected){$('#banner').textContent='Live prices are not available right now. Please check back shortly.';$('#banner').classList.remove('hidden');}
-  else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
-  else $('#banner').classList.add('hidden');}
+  const mo=state.marketOpen||{};const hrs=state.marketHours||{NFO:['09:15','15:30'],BFO:['09:15','15:30'],MCX:['09:00','23:55']};
+  const t12=s=>{const[h,m]=s.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm');};
+  const nseOpen=mo.NFO!==false,mcxOpen=mo.MCX!==false;const b=$('#banner');
+  if(!f.connected){b.textContent='Live prices are not available right now. Please check back shortly.';b.className='banner';}
+  else if(!nseOpen&&!mcxOpen){b.innerHTML=`All markets closed · NSE &amp; BSE open ${t12(hrs.NFO[0])}–${t12(hrs.NFO[1])} · MCX ${t12(hrs.MCX[0])}–${t12(hrs.MCX[1])}`;b.className='banner';}
+  else if(!nseOpen){b.innerHTML=`NSE &amp; BSE closed (open ${t12(hrs.NFO[0])}–${t12(hrs.NFO[1])}) · <b>MCX open</b> till ${t12(hrs.MCX[1])}`;b.className='banner soft';}
+  else if(!mcxOpen){b.innerHTML=`MCX closed (opens ${t12(hrs.MCX[0])}) · <b>NSE &amp; BSE open</b> till ${t12(hrs.NFO[1])}`;b.className='banner soft';}
+  else b.className='banner hidden';}
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);
   $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);}
-async function refreshFunds(){try{const m=await api('/me');state.me=m;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
+async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
@@ -682,7 +691,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
   $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel||e.target.classList.contains('drag')||state._dragged)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
-    if(w.segment==='INDICES'){$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
+    if(w.segment==='INDICES'){showTab('market');$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
     openSheet(w);});
   $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
@@ -738,13 +747,13 @@ async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${p
   $('#p52').innerHTML=n52.map((r,i)=>pulseRow(r,i,'52')).join('')||(d.history_ready?'<div class="pempty">Nothing within 3% of a 52-week high or low</div>':hl);
   $('#pNote').textContent=pulseP==='today'?'Change vs previous close · live':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago · prices live';
   $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
-function openScrip(ex,name){if(state.guest){showLogin();return;}$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
+function openScrip(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
 $$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});
 $('#pKind').onchange=()=>{pulseK=$('#pKind').value;loadPulse();};
-function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');
+function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));if(state.tab==='watch')$$('nav.tabs button[data-tab="watch"]').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');
   if(v==='pulse'){loadPulse();if(!pulseTimer)pulseTimer=setInterval(()=>{if(state.tab==='watch'&&!$('#pulseView').classList.contains('hidden'))loadPulse();},20000);}else if(!state.guest)loadWatch();}
 $$('#homeSeg button').forEach(b=>b.onclick=()=>setHome(b.dataset.home));
-$('#brandHome').onclick=()=>{$('#loginView').classList.add('hidden');$('#sheet')?.classList.add('hidden');$('nav.tabs button[data-tab="watch"]').click();setHome('pulse');window.scrollTo({top:0,behavior:'smooth'});};
+$('#brandHome').onclick=()=>{$('#loginView').classList.add('hidden');$('#sheet')?.classList.add('hidden');showTab('watch','pulse');window.scrollTo({top:0,behavior:'smooth'});};
 
 // ---------- performance ----------
 const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
@@ -767,10 +776,14 @@ $('#dlFrom').onchange=$('#dlTo').onchange=dlTxt;
 $$('[data-dl]').forEach(b=>b.onclick=()=>{const[f,t]=dlRange(dlPreset);if(dlPreset==='custom'&&!f)return toast('Pick a start date',1);location.href=`/api/export.xlsx?from=${f}&to=${t}${b.dataset.dl?'&sheets='+b.dataset.dl:''}`;toast('Preparing your Excel…');});
 
 // ---------- tabs ----------
-$('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();
-$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(state.guest&&!['watch','market'].includes(b.dataset.tab)){showLogin();return;}state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
-  ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
-  if(state.tab==='orders')loadTrades();if(state.tab==='account'){loadLedger();loadPerf();}if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});
+$('#goMarket').onclick=()=>showTab('market');
+function showTab(tab,home){if(state.guest&&!['watch','market'].includes(tab)){showLogin();return;}state.tab=tab;
+  $$('nav.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab&&(tab!=='watch'||x.dataset.home===(home||currentHome()))));
+  ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));
+  if(tab==='orders')loadTrades();if(tab==='account'){loadLedger();loadPerf();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
+function currentHome(){try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}}
+$$('nav.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab,b.dataset.home));
+$('#hFunds').onclick=()=>showTab('account');
 
 boot();
 </script>

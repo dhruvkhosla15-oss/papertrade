@@ -280,7 +280,7 @@ def logout(response: Response):
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": feed.status(),
-            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS},
+            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "liquidity": {"on": on, "max_spread_pct": spread}}
 
 
@@ -402,7 +402,8 @@ def _ticker():
 def public_home():
     """What a visitor sees before logging in."""
     tick = _ticker()
-    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status()}
+    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status(),
+            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS}
 
 
 @app.get("/api/watchlist")

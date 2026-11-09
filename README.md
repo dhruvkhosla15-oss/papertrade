@@ -89,11 +89,13 @@ login needed.
 
 ## Home: Pulse
 
-The landing tab is **Home**, with a **Pulse | Watchlist** toggle. Pulse shows top gainers, top losers and most
+The dock has **Pulse · Watchlist · Market · Positions · Orders**; the Account section opens from the profile chip
+(initials + balance) top-right. Pulse shows top gainers, top losers and most
 traded (futures turnover) for **Today / This week / This month**, filterable by All / Indices / Stocks / MCX, with
 10-day sparklines. Today's change is live from the feed; week/month use daily closes pulled once a day from
 Zerodha's historical API (`app/pulse.py`). Tapping a row opens that scrip's option chain (login required).
-Visitors can see Pulse without logging in. The limeFX logo always returns to Home.
+Visitors can see Pulse without logging in. The limeFX logo always returns to Pulse. A banner under the ticker
+shows which exchanges are closed (NSE/BSE and MCX have different hours) and when they open.
 
 ## Public home page
 

@@ -68,6 +68,15 @@ class Pulse:
         day = (datetime.utcnow() + IST).date().isoformat()
         if self._hist_day == day or self._building:
             return
+        # don't burn the daily budget before the feed can actually answer (e.g. after midnight,
+        # before the morning Zerodha login) — yesterday's reference data stays in use meanwhile
+        if not getattr(self.feed, "connected", True):
+            return
+        if hasattr(self.feed, "token_valid_today") and not self.feed.token_valid_today():
+            return
+        if time.time() - getattr(self, "_last_attempt", 0) < 600:
+            return
+        self._last_attempt = time.time()
         self._building = True
         threading.Thread(target=self._build_history, args=(day,), daemon=True).start()
 
@@ -90,14 +99,22 @@ class Pulse:
                     if d < day:
                         closes.append((d, r["close"])); highs.append(r["high"]); lows.append(r["low"])
                         vols.append(r.get("volume") or 0); ois.append(r.get("oi") or 0)
-                hist[tok] = {"closes": closes[-260:], "hi52": max(highs[-250:]) if highs else None,
-                             "lo52": min(lows[-250:]) if lows else None,
-                             "avg_vol": (sum(vols[-20:]) / len(vols[-20:])) if vols[-20:] else 0,
-                             "prev_oi": ois[-1] if ois else 0}
+                if closes:
+                    hist[tok] = {"closes": closes[-260:], "hi52": max(highs[-250:]) if highs else None,
+                                 "lo52": min(lows[-250:]) if lows else None,
+                                 "avg_vol": (sum(vols[-20:]) / len(vols[-20:])) if vols[-20:] else 0,
+                                 "prev_oi": ois[-1] if ois else 0}
+                    # publish progressively so the page fills in while the build runs
+                    with self._hist_lock:
+                        self._hist[tok] = hist[tok]
                 time.sleep(0.35)   # stay under Kite's historical-data rate limit
-            with self._hist_lock:
-                self._hist = hist; self._hist_day = day
-            log.info("pulse history built for %s (%d scrips)", day, len(hist))
+            if len(hist) >= max(10, len(toks) // 2):
+                with self._hist_lock:
+                    self._hist = hist; self._hist_day = day
+                log.info("pulse history built for %s (%d of %d tokens)", day, len(hist), len(toks))
+            else:
+                log.warning("pulse history build for %s got only %d of %d tokens; keeping previous data, will retry",
+                            day, len(hist), len(toks))
         finally:
             self._building = False
 

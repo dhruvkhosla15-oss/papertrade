@@ -51,10 +51,13 @@ header .funds{text-align:right;font-size:12px}
 header .funds b{font-size:15px}
 .feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}
-main{padding:12px 14px 80px;max-width:900px;margin:0 auto}
-nav.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:5}
-nav.tabs button{flex:1;background:none;color:var(--mut);border-radius:0;padding:12px 4px;font-size:12px}
-nav.tabs button.active{color:var(--txt);border-top:2px solid var(--acc)}
+main{padding:12px 14px 96px;max-width:900px;margin:0 auto}
+nav.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));margin:0 auto;max-width:560px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:6px;display:flex;gap:4px;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+nav.tabs button{flex:1;background:none;color:var(--mut);border-radius:14px;padding:8px 2px 7px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
+nav.tabs button svg{width:20px;height:20px}
+nav.tabs button.active{background:var(--acc);color:#0f1115}
+nav.tabs button.mut{opacity:.55}
+:root[data-theme="light"] nav.tabs{box-shadow:0 10px 30px rgba(0,0,0,.15)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
 .row{display:flex;gap:8px;align-items:center}
 .row>*{flex:1}
@@ -238,11 +241,11 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </section>
 </main>
 <nav class="tabs">
-  <button data-tab="watch" class="active">Watchlist</button>
-  <button data-tab="market">Market</button>
-  <button data-tab="positions">Positions</button>
-  <button data-tab="orders">Orders</button>
-  <button data-tab="account">Account</button>
+  <button data-tab="watch" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg><span>Watchlist</span></button>
+  <button data-tab="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-8M22 19H2"/></svg><span>Market</span></button>
+  <button data-tab="positions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg><span>Positions</span></button>
+  <button data-tab="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg><span>Orders</span></button>
+  <button data-tab="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg><span>Account</span></button>
 </nav>
 </div>
 

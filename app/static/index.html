@@ -361,7 +361,7 @@ async function boot(){
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
   renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
-  renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));sub(state.tickerTokens);
+  try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='stock'?'Stocks (F&O)':'Index';

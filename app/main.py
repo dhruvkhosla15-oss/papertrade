@@ -227,9 +227,13 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
     return {"interval": interval, "candles": data}
 
 
-DEFAULT_WATCH = [("NSE", "NIFTY"), ("NSE", "BANKNIFTY"), ("BSE", "SENSEX"),
-                 ("NSE", "RELIANCE"), ("NSE", "HDFCBANK"), ("NSE", "TCS"),
-                 ("MCX", "GOLD"), ("MCX", "SILVER"), ("MCX", "CRUDEOIL"), ("MCX", "NATURALGAS"), ("MCX", "COPPER")]
+# Showcase: what the public home page, the scrolling ticker and a new trainee's watchlist show.
+# Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
+_SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
+                     "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
+                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER"]
+SHOWCASE = [s.strip().upper() for s in os.environ.get("PT_SHOWCASE", ",".join(_SHOWCASE_DEFAULT)).split(",") if s.strip()]
+DEFAULT_WATCH = [(None, n) for n in SHOWCASE]
 
 
 def _default_watch_instruments():
@@ -243,35 +247,23 @@ def _default_watch_instruments():
 
 
 def _public_tokens():
-    """Tokens a not-logged-in visitor may stream: index spots + nearest future of every MCX commodity."""
+    """Tokens a not-logged-in visitor may stream: the showcase spots / nearest MCX futures."""
+    return {i.token for i in _default_watch_instruments()}
+
+
+def _ticker():
     from .feed.base import kind_of
-    toks = set()
-    for ex, names in feed.underlyings().items():
-        for n in names:
-            if kind_of(ex, n) == "stock":
-                continue
-            t = feed.index_token_for(n)
-            if t:
-                toks.add(t)
+    out = []
     for i in _default_watch_instruments():
-        toks.add(i.token)
-    return toks
+        ex = i.exchange if i.exchange == "MCX" else ("BFO" if i.exchange == "BSE" else "NFO")
+        out.append({"exchange": ex, "name": i.name, "spot_token": i.token, "kind": kind_of(ex, i.name)})
+    return out
 
 
 @app.get("/api/public/home")
 def public_home():
     """What a visitor sees before logging in."""
-    from .feed.base import kind_of
-    tick = []
-    for ex, names in feed.underlyings().items():
-        for n in names:
-            if kind_of(ex, n) == "stock":
-                continue
-            t = feed.index_token_for(n)
-            if t:
-                tick.append({"exchange": ex, "name": n, "spot_token": t, "kind": kind_of(ex, n)})
-    order = {"NFO": 0, "BFO": 1, "MCX": 2}
-    tick.sort(key=lambda x: (order.get(x["exchange"], 9), x["name"]))
+    tick = _ticker()
     return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status()}
 
 
@@ -281,6 +273,16 @@ def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db))
         for n, ins in enumerate(_default_watch_instruments()):
             db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
         set_setting(db, f"watch_seeded_{user.id}", "1")
+        db.commit()
+    elif not get_setting(db, f"watch_showcase_{user.id}") and feed.instruments:
+        # one-time: add the showcase scrips (top stocks etc.) to watchlists created before they existed
+        have = {w.token for w in db.query(Watch).filter_by(user_id=user.id).all()}
+        last = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position.desc()).first()
+        pos = (last.position + 1) if last else 0
+        for ins in _default_watch_instruments():
+            if ins.token not in have:
+                db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=pos)); pos += 1
+        set_setting(db, f"watch_showcase_{user.id}", "1")
         db.commit()
     rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position, Watch.id).all()
     out = []

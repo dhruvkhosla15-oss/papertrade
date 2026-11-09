@@ -45,6 +45,9 @@ class Engine:
         self._lock = asyncio.Lock()
         feed.on_tick(self._on_tick)
         self._pending_tokens = set()
+        # shadow book: paper fills consume depth until the live book changes
+        # token -> {"sig": depth signature, "bids": {price: consumed_qty}, "asks": {price: consumed_qty}}
+        self._consumed = {}
 
     def set_event_callback(self, cb):
         self._event_cb = cb
@@ -97,7 +100,22 @@ class Engine:
         ltt = tick.get("ltt")
         if stale_min > 0 and ltt and time.time() - ltt > stale_min * 60 and self.market_open(ins.exchange):
             raise EngineError(f"Illiquid: no trade in this contract for {int((time.time() - ltt) // 60)} minutes")
-        levels = asks if side == "BUY" else bids
+        # --- shadow book: subtract quantity already consumed by paper fills since this book snapshot ---
+        sig = (tuple((x[0], x[1]) for x in bids), tuple((x[0], x[1]) for x in asks))
+        sh = self._consumed.get(ins.token)
+        if not sh or sh["sig"] != sig:
+            sh = {"sig": sig, "bids": {}, "asks": {}}
+            self._consumed[ins.token] = sh
+        side_key = "asks" if side == "BUY" else "bids"
+        raw_levels = asks if side == "BUY" else bids
+        levels = []
+        for lvl in raw_levels:
+            left = lvl[1] - sh[side_key].get(lvl[0], 0)
+            if left > 0:
+                levels.append((lvl[0], left))
+        if not levels:
+            raise EngineError("No remaining counterparty quantity at the moment — the visible "
+                              f"{'offers' if side == 'BUY' else 'bids'} have already been taken; wait for the book to refresh")
         remaining, cost = qty, 0.0
         for lvl in levels:
             price, avail = lvl[0], lvl[1]
@@ -117,8 +135,18 @@ class Engine:
             for lvl in levels:
                 take = min(remaining, lvl[1]); cost += take * lvl[0]; remaining -= take
                 if remaining <= 0: break
+        # record what this fill consumed so the next order (any trainee) can't take the same quantity again
+        remaining = filled
+        for price, avail in levels:
+            take = min(remaining, avail)
+            if take > 0:
+                sh[side_key][price] = sh[side_key].get(price, 0) + take
+            remaining -= take
+            if remaining <= 0:
+                break
         avg = round(cost / filled / ins.tick_size) * ins.tick_size
-        b = f"{bids[0][0]:g}" if bids else "—"; a = f"{asks[0][0]:g}" if asks else "—"
+        b = f"{levels[0][0]:g}" if side == "SELL" else (f"{bids[0][0]:g}" if bids else "—")
+        a = f"{levels[0][0]:g}" if side == "BUY" else (f"{asks[0][0]:g}" if asks else "—")
         note = f"matched vs book: bid {b} / ask {a}"
         if abs(avg - levels[0][0]) > 1e-9:
             note += ", filled across levels"

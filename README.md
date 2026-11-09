@@ -24,6 +24,8 @@ with those coins and see their profit/loss. No real money moves anywhere.
   No counterparty → rejected. Not enough depth → partial fill for the lots available, rest cancelled
   (like a real market order). Optional extra guards in Settings: max spread % and "no trade for N minutes"
   (both off by default). Contracts with an empty book appear greyed out.
+- **Shadow book:** quantity a paper fill consumes is treated as gone for every trainee until Zerodha's
+  live book changes, so one 1-lot offer can't be "bought" twice.
 - **Limit orders** rest until the opposite side of the book reaches the price (buy fills when best ask ≤ limit).
 - **Stop-loss orders** trigger at the trigger price, then fill like a market order.
 - Quantities are whole lots using the exchange lot size (Nifty 75, Bank Nifty 35, Sensex 20, MCX per contract).

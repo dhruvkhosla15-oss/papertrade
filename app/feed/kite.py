@@ -25,7 +25,7 @@ MCX_MULTIPLIER = {
     "CRUDEOIL": 100, "CRUDEOILM": 10, "NATURALGAS": 1250, "NATGASMINI": 250,
     "COPPER": 2500, "COPPERM": 250, "ZINC": 5000, "ZINCMINI": 1000, "ALUMINIUM": 5000, "ALUMINI": 1000,
     "LEAD": 5000, "LEADMINI": 1000, "NICKEL": 1500, "TIN": 1000,
-    "MENTHAOIL": 360, "COTTONCNDY": 48, "KAPAS": 200, "CPO": 1000, "RUBBER": 10, "CARDAMOM": 100,
+    "MENTHAOIL": 360, "COTTONCNDY": 48, "COTTON": 48, "KAPAS": 200, "CPO": 1000, "RUBBER": 10, "CARDAMOM": 100,
 }
 # Human-readable contract size (shown on the order ticket)
 MCX_UNIT = {
@@ -35,7 +35,7 @@ MCX_UNIT = {
     "COPPER": "2,500 kg", "COPPERM": "250 kg", "ZINC": "5 MT (price per kg)", "ZINCMINI": "1 MT (price per kg)",
     "ALUMINIUM": "5 MT (price per kg)", "ALUMINI": "1 MT (price per kg)", "LEAD": "5 MT (price per kg)", "LEADMINI": "1 MT (price per kg)",
     "NICKEL": "1,500 kg", "MENTHAOIL": "360 kg", "COTTONCNDY": "48 candies", "KAPAS": "4 MT (price per 20 kg)",
-    "CPO": "10 MT (price per 10 kg)", "RUBBER": "1 MT (price per 100 kg)", "CARDAMOM": "100 kg",
+    "CPO": "10 MT (price per 10 kg)", "RUBBER": "1 MT (price per 100 kg)", "CARDAMOM": "100 kg", "COTTON": "48 candies",
 }
 MCX_MULTIPLIER.update({k: int(v) for k, v in
                        (p.split(":") for p in __import__("os").getenv("PT_MCX_MULTIPLIERS", "").split(",") if ":" in p)})
@@ -99,6 +99,7 @@ class KiteFeed(PriceFeed):
         # Zerodha's instrument dump quotes MCX quantities in *lots* (lot_size=1) and omits the
         # contract multiplier. P&L and margin need the real multiplier, so apply it here.
         fixed, unknown = 0, set()
+        kept = []
         for i in items:
             if i.exchange == "MCX" and i.lot_size <= 1:
                 mult = MCX_MULTIPLIER.get(i.name)
@@ -107,6 +108,9 @@ class KiteFeed(PriceFeed):
                     i.lot_label = MCX_UNIT.get(i.name, "")
                 else:
                     unknown.add(i.name)
+                    continue  # unknown contract size -> don't offer it rather than risk wrong P&L
+            kept.append(i)
+        items = kept
         self.load_instruments(items)
         log.info("loaded %d instruments (MCX multiplier applied to %d; unknown multiplier for %s)",
                  len(items), fixed, sorted(unknown) or "none")

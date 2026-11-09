@@ -180,8 +180,11 @@ def underlyings(user: User = Depends(current_user)):
 
 @app.get("/api/expiries")
 def expiries(exchange: str, name: str, user: User = Depends(current_user)):
-    today = date.today().isoformat()
-    return [e for e in feed.expiries(exchange, name) if e >= today]
+    from .engine import ist_now
+    n = ist_now(); today = n.date().isoformat()
+    close = config.MARKET_HOURS.get(exchange, ("09:15", "15:30"))[1]
+    out = [e for e in feed.expiries(exchange, name) if e > today or (e == today and n.strftime("%H:%M") < close)]
+    return out
 
 
 @app.get("/api/chain")

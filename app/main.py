@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional, List
 import io
+import os
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request, Response, Query
@@ -25,6 +26,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("app")
 
 app = FastAPI(title="LimeFX")
+
+CANONICAL_HOST = os.environ.get("PT_CANONICAL_HOST", "")  # e.g. www.limefx.in — bare/other hosts redirect here
+
+
+@app.middleware("http")
+async def _canonical_host(request: Request, call_next):
+    host = request.headers.get("host", "").split(":")[0]
+    if CANONICAL_HOST and host and host != CANONICAL_HOST and not host.startswith(("localhost", "127.")) and not host.endswith(".railway.app"):
+        return RedirectResponse(f"https://{CANONICAL_HOST}{request.url.path}" + (f"?{request.url.query}" if request.url.query else ""), status_code=308)
+    return await call_next(request)
+
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 

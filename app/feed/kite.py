@@ -18,6 +18,18 @@ from ..config import ALLOWED_UNDERLYINGS
 
 log = logging.getLogger("kite")
 
+# MCX contract multipliers (units per lot). Price is quoted per unit; P&L = price diff x multiplier x lots.
+MCX_MULTIPLIER = {
+    "GOLD": 100, "GOLDM": 10, "GOLDGUINEA": 1, "GOLDPETAL": 1, "GOLDTEN": 10,
+    "SILVER": 30, "SILVERM": 5, "SILVERMIC": 1,
+    "CRUDEOIL": 100, "CRUDEOILM": 10, "NATURALGAS": 1250, "NATGASMINI": 250,
+    "COPPER": 2500, "ZINC": 5000, "ZINCMINI": 1000, "ALUMINIUM": 5000, "ALUMINI": 1000,
+    "LEAD": 5000, "LEADMINI": 1000, "NICKEL": 1500, "TIN": 1000,
+    "MENTHAOIL": 360, "COTTONCNDY": 48, "KAPAS": 200, "CPO": 10, "RUBBER": 1000, "CARDAMOM": 100,
+}
+MCX_MULTIPLIER.update({k: int(v) for k, v in
+                       (p.split(":") for p in __import__("os").getenv("PT_MCX_MULTIPLIERS", "").split(",") if ":" in p)})
+
 INDEX_SYMBOLS = {"NIFTY": ("NSE", "NIFTY 50"), "BANKNIFTY": ("NSE", "NIFTY BANK"),
                  "SENSEX": ("BSE", "SENSEX"), "FINNIFTY": ("NSE", "NIFTY FIN SERVICE"),
                  "MIDCPNIFTY": ("NSE", "NIFTY MID SELECT"), "BANKEX": ("BSE", "BANKEX")}
@@ -74,18 +86,19 @@ class KiteFeed(PriceFeed):
                                         row["segment"], row["instrument_type"], exp_s,
                                         float(row["strike"] or 0), int(row["lot_size"] or 1),
                                         float(row["tick_size"] or 0.05)))
-        # Zerodha's instrument dump lists MCX *options* with lot_size=1; the real lot equals the
-        # underlying future's lot (GOLD 100, CRUDEOIL 100, NATURALGAS 1250, SILVER 30 ...).
-        fut_lot = {}
+        # Zerodha's instrument dump quotes MCX quantities in *lots* (lot_size=1) and omits the
+        # contract multiplier. P&L and margin need the real multiplier, so apply it here.
+        fixed, unknown = 0, set()
         for i in items:
-            if i.exchange == "MCX" and i.instrument_type == "FUT" and i.lot_size > 1:
-                fut_lot[i.name] = max(fut_lot.get(i.name, 0), i.lot_size)
-        fixed = 0
-        for i in items:
-            if i.exchange == "MCX" and i.instrument_type in ("CE", "PE") and i.lot_size <= 1 and i.name in fut_lot:
-                i.lot_size = fut_lot[i.name]; fixed += 1
+            if i.exchange == "MCX" and i.lot_size <= 1:
+                mult = MCX_MULTIPLIER.get(i.name)
+                if mult:
+                    i.lot_size = mult; fixed += 1
+                else:
+                    unknown.add(i.name)
         self.load_instruments(items)
-        log.info("loaded %d instruments (fixed lot size on %d MCX options)", len(items), fixed)
+        log.info("loaded %d instruments (MCX multiplier applied to %d; unknown multiplier for %s)",
+                 len(items), fixed, sorted(unknown) or "none")
 
     # ---- websocket ----------------------------------------------------------
     async def start(self, loop):

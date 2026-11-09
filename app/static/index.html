@@ -26,7 +26,9 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05}
+header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05;margin-bottom:8px}
+header{padding:12px 14px 10px}
+.livepill{margin-top:2px}
 header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}
 header .brand .fx,.login h1 .fx{font-weight:800}
 h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
@@ -94,7 +96,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <div id="loginView" class="login hidden">
   <div class="box">
     <h1><span class="lm">lime</span><span class="fx">FX</span></h1>
-    <p class="mut" style="margin-bottom:18px">Paper trading for NSE, BSE &amp; MCX derivatives. Log in with the details your trainer gave you.</p>
+    <div style="height:18px"></div>
     <input id="lu" placeholder="Username" autocapitalize="none" autocomplete="username">
     <input id="lp" type="password" placeholder="Password" autocomplete="current-password">
     <button id="loginBtn" style="width:100%">Log in</button>

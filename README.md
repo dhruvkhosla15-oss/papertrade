@@ -134,7 +134,8 @@ The master panel has three tabs: **Trainees**, **Performance**, **Settings**.
 - **Two-factor login (TOTP):** Settings → *Two-factor login* → scan the QR code with Google Authenticator /
   Authy / 1Password and confirm with the code. From then on the master login asks for the 6-digit code after
   the password. Lost phone → another master clicks *Reset 2FA* on your row.
-- Trainee logins are unchanged (password only).
+- **Trainees** can turn on the same two-factor login from Account → *Two-factor login*; the master can reset it
+  from the trainee's detail view (*Reset 2FA*) if they lose their phone.
 
 ## Limits & notes
 

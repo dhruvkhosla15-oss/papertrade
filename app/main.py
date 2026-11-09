@@ -139,8 +139,8 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
         raise HTTPException(401, "Wrong username or password")
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
-    if u.is_admin and u.totp_enabled:
-        return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": True}
+    if u.totp_enabled:
+        return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": u.is_admin}
     tok = make_token(u)
     response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
@@ -163,23 +163,26 @@ def login_2fa(body: TwoFaIn, response: Response, db: Session = Depends(get_db)):
     if not data or not data.get("pre2fa"):
         raise HTTPException(401, "Login expired — enter your password again")
     u = db.get(User, data["uid"])
-    if not u or not u.is_admin or not _totp_ok(u.totp_secret, body.code):
+    if not u or not _totp_ok(u.totp_secret, body.code):
         raise HTTPException(401, "Wrong authenticator code")
+    if not u.is_active and not u.is_admin:
+        raise HTTPException(403, "Account frozen — contact your trainer")
     tok = make_token(u)
     response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
-    return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": True}
+    return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
 
 
 # ---- master 2FA (TOTP: Google Authenticator / Authy / 1Password) ----------------------------------
+@app.post("/api/2fa/setup")
 @app.post("/api/admin/2fa/setup")
-def twofa_setup(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def twofa_setup(admin: User = Depends(current_user), db: Session = Depends(get_db)):
     """Create a new secret (not active until confirmed) and return the QR code to scan."""
     import pyotp, segno, io as _io
     if admin.totp_enabled:
         raise HTTPException(400, "2FA is already on. Turn it off first to set up a new device.")
     secret = pyotp.random_base32()
     admin.totp_secret = secret; db.commit()
-    uri = pyotp.TOTP(secret).provisioning_uri(name=admin.username, issuer_name="limeFX Master")
+    uri = pyotp.TOTP(secret).provisioning_uri(name=admin.username, issuer_name="limeFX Master" if admin.is_admin else "limeFX")
     buf = _io.BytesIO(); segno.make(uri, error="m").save(buf, kind="png", scale=10, border=4, dark="#000000", light="#ffffff")
     import base64
     return {"secret": secret, "uri": uri, "qr_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()}
@@ -189,16 +192,18 @@ class CodeIn(BaseModel):
     code: str
 
 
+@app.post("/api/2fa/confirm")
 @app.post("/api/admin/2fa/confirm")
-def twofa_confirm(body: CodeIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def twofa_confirm(body: CodeIn, admin: User = Depends(current_user), db: Session = Depends(get_db)):
     if not admin.totp_secret or not _totp_ok(admin.totp_secret, body.code):
         raise HTTPException(400, "That code didn't match — check the time on your phone and try again")
     admin.totp_enabled = True; db.commit()
     return {"ok": True}
 
 
+@app.post("/api/2fa/disable")
 @app.post("/api/admin/2fa/disable")
-def twofa_disable(body: CodeIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def twofa_disable(body: CodeIn, admin: User = Depends(current_user), db: Session = Depends(get_db)):
     if not _totp_ok(admin.totp_secret, body.code):
         raise HTTPException(400, "Wrong authenticator code")
     admin.totp_enabled = False; admin.totp_secret = ""; db.commit()
@@ -691,6 +696,7 @@ class UserPatch(BaseModel):
     is_active: Optional[bool] = None
     password: Optional[str] = None
     display_name: Optional[str] = None
+    reset_2fa: Optional[bool] = None
 
 
 @app.patch("/api/admin/users/{uid}")
@@ -704,6 +710,8 @@ def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_ad
         u.password_hash = hash_password(body.password)
     if body.display_name is not None:
         u.display_name = body.display_name
+    if body.reset_2fa:
+        u.totp_enabled = False; u.totp_secret = ""
     db.commit()
     return _user_dict(u)
 

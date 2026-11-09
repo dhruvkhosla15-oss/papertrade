@@ -79,6 +79,7 @@ td:first-child,th:first-child{text-align:left}
 .chain td.illq{opacity:.35}
 .depth{width:100%;font-size:12px}.depth th{font-weight:500;color:var(--mut);padding:2px 4px;border:0}.depth td{padding:3px 4px;border:0}.depth td.b{color:#60a5fa}.depth td.a{color:#f87171}
 .chain .atm td.strike{color:#fbbf24}
+.pill.active{background:#14532d;color:#bbf7d0}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;z-index:20}
@@ -136,9 +137,13 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <div class="box">
     <h1><span class="lm">lime</span><span class="fx">FX</span></h1>
     <div style="height:18px"></div>
+    <div id="pwStep">
     <input id="lu" placeholder="Username" autocapitalize="none" autocomplete="username">
     <input id="lp" type="password" placeholder="Password" autocomplete="current-password">
-    <button id="loginBtn" style="width:100%">Log in</button>
+    <button id="loginBtn" style="width:100%">Log in</button></div>
+    <div id="otpStep" class="hidden"><p class="small mut" style="margin-bottom:8px;text-align:left">Enter the 6-digit code from your authenticator app</p>
+    <input id="lcode" inputmode="numeric" autocomplete="one-time-code" placeholder="123 456" style="font-size:22px;letter-spacing:.2em;text-align:center">
+    <button id="otpBtn" style="width:100%">Verify</button><button class="ghost" id="otpBack" style="width:100%;margin-top:8px">‹ Back</button></div>
     <p id="loginErr" class="dn small" style="margin-top:10px;min-height:16px"></p>
     <a class="back" id="loginClose">← Back to live prices</a>
   </div>
@@ -275,6 +280,16 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
+    <div class="card" id="tfaCard">
+      <div class="row" style="align-items:center"><div style="flex:1"><b>Two-factor login</b><div class="small mut" id="tfaStatus">Adds a 6-digit code from Google Authenticator / Authy to your login.</div></div><span class="pill" id="tfaPill" style="flex:0 0 auto">off</span></div>
+      <div id="tfaOff" style="margin-top:10px"><button class="ghost" id="tfaStart" style="width:100%">Turn on two-factor</button>
+        <div id="tfaSetup" class="hidden" style="margin-top:12px">
+          <div id="tfaQr" style="background:#fff;border-radius:10px;padding:6px;line-height:0;width:max-content;margin:0 auto 10px"></div>
+          <p class="small"><b>1.</b> Open <b>Google Authenticator</b> (or Authy) → <b>+</b> → <b>Scan a QR code</b>. Scanning with the plain camera app often does nothing.<br><b>2.</b> On your phone right now? <a id="tfaOpen" href="#">Tap here to add it directly</a>.<br><b>3.</b> Or <button class="ghost small" id="tfaCopy" style="padding:3px 8px">Copy key</button> and paste it under “Enter a setup key”.<br><b>4.</b> Type the 6-digit code the app shows:</p>
+          <div class="row" style="margin-top:8px"><input id="tfaCode" inputmode="numeric" placeholder="123 456" style="font-size:18px;letter-spacing:.15em;text-align:center"><button id="tfaConfirm" style="flex:0 0 auto">Confirm</button></div>
+        </div></div>
+      <div id="tfaOn" class="hidden" style="margin-top:10px"><div class="row"><input id="tfaOffCode" inputmode="numeric" placeholder="current code" style="text-align:center"><button class="ghost" id="tfaDisable" style="flex:0 0 auto">Turn off</button></div><div class="small mut" style="margin-top:6px">Lost your phone? Your trainer can reset it for you.</div></div>
+    </div>
     <h3>My Performance</h3>
     <div class="card">
       <div class="perf3" id="perfCards"></div>
@@ -384,7 +399,7 @@ let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set
 
 async function api(path,opts={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
-  if(r.status===401&&path!=='/login'){if(!opts._quiet)showLogin();throw new Error('Please log in');}
+  if(r.status===401&&!path.startsWith('/login')){if(!opts._quiet)showLogin();throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.detail||r.statusText);
   return j;
@@ -393,11 +408,17 @@ function toast(msg,err){const t=document.createElement('div');t.className='toast
 
 // ---------- auth ----------
 function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
-$('#loginBtn').onclick=async()=>{
+let preTok='';
+$('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';
   try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
-    if(j.needs_2fa||j.is_admin){location.href='/admin';return;}
+    if(j.needs_2fa&&j.is_admin){location.href='/admin';return;}
+    if(j.needs_2fa){preTok=j.pre_token;$('#pwStep').classList.add('hidden');$('#otpStep').classList.remove('hidden');$('#lcode').value='';setTimeout(()=>$('#lcode').focus(),50);return;}
+    if(j.is_admin){location.href='/admin';return;}
     location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
+$('#otpBtn').onclick=async()=>{$('#loginErr').textContent='';try{await api('/login/2fa',{method:'POST',body:{pre_token:preTok,code:$('#lcode').value}});location.reload();}catch(e){$('#loginErr').textContent=e.message;}};
+$('#otpBack').onclick=()=>{$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
+$('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click()});
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#121c2e'},textColor:t==='light'?'#6b7280':'#8da2c0'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1e2a44'},horzLines:{color:t==='light'?'#eef0f3':'#1e2a44'}}});}
 $('#thDark').onclick=()=>setTheme('dark');$('#thLight').onclick=()=>setTheme('light');
@@ -754,6 +775,12 @@ function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSe
 $$('#homeSeg button').forEach(b=>b.onclick=()=>setHome(b.dataset.home));
 $('#brandHome').onclick=()=>{$('#loginView').classList.add('hidden');$('#sheet')?.classList.add('hidden');showTab('watch','pulse');window.scrollTo({top:0,behavior:'smooth'});};
 
+// ---------- two-factor ----------
+function renderTfa(){const on=!!(state.me&&state.me.user&&state.me.user.twofa);$('#tfaPill').textContent=on?'ON':'off';$('#tfaPill').className='pill '+(on?'active':'');$('#tfaOff').classList.toggle('hidden',on);$('#tfaOn').classList.toggle('hidden',!on);$('#tfaStatus').textContent=on?'Your login asks for a code from your authenticator app.':'Adds a 6-digit code from Google Authenticator / Authy to your login.';}
+$('#tfaStart').onclick=async()=>{try{const j=await api('/2fa/setup',{method:'POST'});$('#tfaQr').innerHTML=`<img src="${j.qr_png}" alt="QR" style="width:200px;height:200px;display:block">`;$('#tfaOpen').href=j.uri;$('#tfaCopy').onclick=async()=>{try{await navigator.clipboard.writeText(j.secret);toast('Key copied');}catch(e){prompt('Copy this key',j.secret)}};$('#tfaSetup').classList.remove('hidden');}catch(e){toast(e.message,1)}};
+$('#tfaConfirm').onclick=async()=>{try{await api('/2fa/confirm',{method:'POST',body:{code:$('#tfaCode').value}});toast('Two-factor login is on');$('#tfaSetup').classList.add('hidden');$('#tfaCode').value='';state.me=await api('/me');renderTfa();}catch(e){toast(e.message,1)}};
+$('#tfaDisable').onclick=async()=>{try{await api('/2fa/disable',{method:'POST',body:{code:$('#tfaOffCode').value}});toast('Two-factor login is off');$('#tfaOffCode').value='';state.me=await api('/me');renderTfa();}catch(e){toast(e.message,1)}};
+
 // ---------- performance ----------
 const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 function perfRange(p){const t=new Date(Date.now()+330*60000),d=istDay();if(p==='today')return[d,d];if(p==='week'){const m=new Date(t);m.setUTCDate(t.getUTCDate()-(t.getUTCDay()+6)%7);return[m.toISOString().slice(0,10),d];}if(p==='month')return[d.slice(0,8)+'01',d];return['',''];}
@@ -779,7 +806,7 @@ $('#goMarket').onclick=()=>showTab('market');
 function showTab(tab,home){if(state.guest&&!['watch','market'].includes(tab)){showLogin();return;}state.tab=tab;
   $$('nav.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab&&(tab!=='watch'||x.dataset.home===(home||currentHome()))));
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));
-  if(tab==='orders')loadTrades();if(tab==='account'){loadLedger();loadPerf();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
+  if(tab==='orders')loadTrades();if(tab==='account'){loadLedger();loadPerf();renderTfa();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
 function currentHome(){try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}}
 $$('nav.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab,b.dataset.home));
 $('#hFunds').onclick=()=>showTab('account');

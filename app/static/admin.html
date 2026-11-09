@@ -228,6 +228,7 @@ a{color:var(--acc)}
         <button class="ghost" id="dSquare">Square off all</button>
         <button class="ghost" id="dFreeze"></button>
         <button class="ghost" id="dPass">Reset password</button>
+        <button class="ghost hidden" id="d2fa">Reset 2FA</button>
         <button class="danger" id="dDelete">Delete</button>
         <button class="ghost" id="dClose">✕</button>
       </div>
@@ -395,7 +396,7 @@ async function openDetail(id){detail=id;$('#detail').classList.remove('hidden');
 $('#dRange').onchange=()=>{$('#dCustom').classList.toggle('hidden',$('#dRange').value!=='custom');if($('#dRange').value==='custom'&&!$('#dFrom').value){$('#dFrom').value=rangeFor('month')[0];$('#dTo').value=istToday();}};
 $$('[data-ddl]').forEach(b=>b.onclick=()=>{const p=$('#dRange').value;const[f,t]=p==='custom'?[$('#dFrom').value,$('#dTo').value||istToday()]:rangeFor(p);if(p==='custom'&&!f)return toast('Pick a start date',1);location.href=`/api/admin/export.xlsx?user_id=${detail}&from=${f}&to=${t}${b.dataset.ddl?'&sheets='+b.dataset.ddl:''}`;toast('Preparing Excel…');});
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
-  $('#dName').textContent=`${u.display_name} (${u.username})`;$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
+  $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);
   $('#dFunds').innerHTML=[['Balance',f.balance],['Used margin',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Equity',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'?cls(v):''}">${inr(v)}</b></div>`).join('');
   const T=$('#dTbl');
@@ -408,6 +409,7 @@ async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`
   if(dtab==='ledger'){T.tHead.innerHTML='<tr><th>Time</th><th>Type</th><th>Note</th><th>Amount</th><th>Balance after</th></tr>';
     T.tBodies[0].innerHTML=d.ledger.map(l=>`<tr><td class="small">${new Date(l.created_at).toLocaleString('en-IN')}</td><td style="text-align:left">${KINDS[l.kind]||l.kind}</td><td class="small mut" style="text-align:left">${l.note||''}</td><td class="num ${cls(l.amount)}">${fmt(l.amount)}</td><td class="num">${fmt(l.balance_after)}</td></tr>`).join('')||'<tr><td colspan=5 class="mut">Nothing yet</td></tr>';}
   $('#dFreeze').onclick=async()=>{await api(`/admin/users/${detail}`,{method:'PATCH',body:{is_active:!u.is_active}});toast(u.is_active?'Frozen':'Unfrozen');loadUsers();refreshDetail();};
+  $('#d2fa').onclick=async()=>{if(!confirm('Reset two-factor login for '+u.username+'? They can log in with password only until they set it up again.'))return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{reset_2fa:true}});toast('2FA reset');refreshDetail();};
   $('#dPass').onclick=async()=>{const p=prompt('New password for '+u.username);if(!p)return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{password:p}});toast('Password reset');};
   $('#dDelete').onclick=async()=>{if(!confirm(`Delete ${u.username} and all their history? This cannot be undone.`))return;await api(`/admin/users/${detail}`,{method:'DELETE'});detail=null;$('#detail').classList.add('hidden');loadUsers();};
   $('#dSquare').onclick=async()=>{if(!confirm('Close all open positions for this trainee at market price?'))return;try{const r=await api(`/admin/users/${detail}/squareoff`,{method:'POST'});toast(`Closed ${r.closed}`+(r.errors.length?`, ${r.errors.length} failed`:''),r.errors.length>0);refreshDetail();}catch(e){toast(e.message,1)}};

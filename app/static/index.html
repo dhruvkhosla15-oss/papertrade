@@ -81,6 +81,7 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.costs>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:4px 0;border-bottom:1px dashed var(--line)}.costs>div:last-child{border:0;font-weight:600}
 .cats{display:grid;gap:10px}.cat{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;cursor:pointer}.cat:hover{background:var(--hover,var(--seg))}.cat>div:nth-child(2){flex:1}.cat b{font-size:16px}.cat-ic{font-size:26px;width:40px;text-align:center}.cat>span.mut{font-size:20px}
 .catHead{display:flex;align-items:center;gap:10px;padding:10px 0 2px}
 .dlp{display:flex;flex-wrap:wrap;gap:6px}.dlp button{background:var(--seg);color:var(--mut);padding:7px 12px;font-weight:500}.dlp button.active{background:var(--acc);color:#0f1115;font-weight:600}
@@ -293,8 +294,11 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div id="trigWrap" class="hidden"><label class="small mut">Trigger price</label><input id="oTrig" type="number" step="0.05"></div>
     </div>
     <div class="row" style="margin:12px 0">
-      <div><span class="mut small">Margin required</span><div class="num" id="oMargin">—</div></div>
-      <div style="text-align:right"><span class="mut small">Available</span><div class="num" id="oAvail">—</div></div>
+      <div class="costs" style="flex:1">
+        <div><span class="mut small">Margin required</span><span class="num" id="oMargin">—</span></div>
+        <div><span class="mut small" id="oCommLbl">Commission</span><span class="num mut" id="oComm">—</span></div>
+        <div><span class="mut small">Available</span><span class="num" id="oAvail">—</span></div>
+      </div>
     </div>
     <div class="row"><button class="ghost" id="oCancel">Cancel</button><button id="oSubmit" class="buy">BUY</button></div>
   </div>
@@ -554,7 +558,7 @@ $('#sheet').onclick=e=>{if(e.target.id==='sheet')$('#sheet').classList.add('hidd
 let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
   const price=state.otype==='LIMIT'?+$('#oLimit').value:undefined;
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}`);
-    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'')+(j.commission?` · comm. ₹${fmt(j.commission)}`:'');$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
+    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?'₹'+fmt(j.commission):'—';$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};
   if(state.otype==='LIMIT')b.limit_price=+$('#oLimit').value;if(state.otype==='SL')b.trigger_price=+$('#oTrig').value;

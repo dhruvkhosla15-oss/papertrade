@@ -18,11 +18,13 @@ ADMIN_USER = os.getenv("PT_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("PT_ADMIN_PASSWORD", "admin123")
 
 # Underlyings allowed on the platform (NFO/BFO). MCX: everything.
+# Index underlyings offered for F&O. "STOCKS" = every NSE stock that has F&O (lot sizes from Zerodha's file).
 ALLOWED_UNDERLYINGS = [u.strip().upper() for u in
-                       os.getenv("PT_UNDERLYINGS", "NIFTY,BANKNIFTY,SENSEX").split(",") if u.strip()]
+                       os.getenv("PT_UNDERLYINGS", "NIFTY,BANKNIFTY,SENSEX,STOCKS").split(",") if u.strip()]
+ALLOW_STOCK_FNO = "STOCKS" in ALLOWED_UNDERLYINGS
 
 # Approximate margin % of contract notional for futures / short options
-DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0}
+DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0}  # STK = stock F&O (NFO non-index)
 
 # Exchange trading hours (IST)
 MARKET_HOURS = {

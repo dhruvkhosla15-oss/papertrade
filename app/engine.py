@@ -58,9 +58,11 @@ class Engine:
             self._event_cb(user_id, event)
 
     # ---- helpers -------------------------------------------------------------
-    def margin_pct(self, db: Session, exchange: str) -> float:
-        v = get_setting(db, f"margin_pct_{exchange}")
-        return float(v) if v else DEFAULT_MARGIN_PCT.get(exchange, 12.0)
+    def margin_pct(self, db: Session, exchange: str, name: str = "") -> float:
+        from .feed.base import kind_of
+        key = "STK" if (name and kind_of(exchange, name) == "stock") else exchange
+        v = get_setting(db, f"margin_pct_{key}")
+        return float(v) if v else DEFAULT_MARGIN_PCT.get(key, 12.0)
 
     def market_open(self, exchange: str) -> bool:
         if not ENFORCE_MARKET_HOURS:
@@ -167,7 +169,7 @@ class Engine:
         und = self.feed.ltp(und_tok) if und_tok else None
         if und is None:
             und = ins.strike if ins.instrument_type in ("CE", "PE") else price
-        pct = self.margin_pct(db, ins.exchange)
+        pct = self.margin_pct(db, ins.exchange, ins.name)
         m = und * qty * pct / 100.0
         if ins.instrument_type in ("CE", "PE"):
             m += price * qty  # short option: margin + premium received as collateral
@@ -438,7 +440,8 @@ class Engine:
             toks = {o.token for o in db.query(Order).filter_by(status="OPEN")}
             toks |= {p.token for p in db.query(Position).filter_by(is_closed=False)}
             self._pending_tokens |= {o.token for o in db.query(Order).filter_by(status="OPEN")}
-            idx = [i.token for i in self.feed.instruments.values() if i.segment == "INDICES"]
+            from .feed.base import INDEX_NAMES
+            idx = [i.token for i in self.feed.instruments.values() if i.segment == "INDICES" and i.name in INDEX_NAMES]
             self.feed.pin(list(toks) + idx)
         finally:
             db.close()

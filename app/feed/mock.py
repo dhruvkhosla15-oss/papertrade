@@ -16,6 +16,11 @@ INDICES = {  # name: (exchange for F&O, spot, strike step, lot size, annual vol)
     "NIFTY": ("NFO", 24300.0, 50, 75, 0.14),
     "BANKNIFTY": ("NFO", 52400.0, 100, 35, 0.18),
     "SENSEX": ("BFO", 79800.0, 100, 20, 0.14),
+    # a few stock F&O underlyings for testing (real list comes from Zerodha when live)
+    "RELIANCE": ("NFO", 1285.0, 10, 500, 0.25),
+    "TCS": ("NFO", 4120.0, 20, 175, 0.22),
+    "HDFCBANK": ("NFO", 1740.0, 10, 550, 0.24),
+    "SBIN": ("NFO", 810.0, 5, 750, 0.30),
 }
 MCX = {  # name: (price, tick, lot, vol, strike step)
     "CRUDEOIL": (5800.0, 1.0, 100, 0.35, 50),

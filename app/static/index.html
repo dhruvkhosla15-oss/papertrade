@@ -361,13 +361,18 @@ async function boot(){
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
   renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
-  renderTicker(state.und.filter(u=>u.spot_token));sub(state.tickerTokens);
+  renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));sub(state.tickerTokens);
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
-  const grp=u=>u.exchange==='MCX'?'MCX Commodities':'Index';
+  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='stock'?'Stocks (F&O)':'Index';
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
-    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
-  $('#undList').innerHTML=listHtml(true);$('#undListF').innerHTML=listHtml(false).replace(/id="p(\d+)"/g,'id="fp$1"').replace(/id="c(\d+)"/g,'id="fc$1"');
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+  const nStk=state.und.filter(u=>u.kind==='stock').length;
+  const filt=nStk?`<div style="padding:10px 0 2px"><input class="undFilter" placeholder="Find a scrip — e.g. RELIANCE, GOLD, NIFTY (${nStk} stocks available)" style="padding:9px 10px"></div>`:'';
+  $('#undList').innerHTML=filt+listHtml(true);$('#undListF').innerHTML=filt+listHtml(false).replace(/id="p(\d+)"/g,'id="fp$1"').replace(/id="c(\d+)"/g,'id="fc$1"');
+  $$('.undFilter').forEach(inp=>inp.oninput=()=>{const q=inp.value.trim().toUpperCase();const box=inp.closest('.card');
+    box.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));
+    box.querySelectorAll('h3').forEach(h=>{let n=h.nextElementSibling,vis=false;while(n&&n.tagName!=='H3'){if(!n.classList.contains('hidden'))vis=true;n=n.nextElementSibling;}h.classList.toggle('hidden',!vis);});});
   $$('#undList .wl-item').forEach(el=>el.onclick=()=>{$('#selUnd').value=el.dataset.und;$('#undList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
   $$('#undListF .wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;$('#undListF').classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
   $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
@@ -587,7 +592,7 @@ function initDrag(){const list=$('#wlist');
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${w.segment==='INDICES'?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();

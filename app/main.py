@@ -183,12 +183,14 @@ def _user_dict(u: User):
 @app.get("/api/underlyings")
 def underlyings(user: User = Depends(current_user)):
     out = []
+    from .feed.base import kind_of
     for exch, names in feed.underlyings().items():
         for n in names:
             it = feed.index_token_for(n)
-            out.append({"exchange": exch, "name": n, "spot_token": it})
+            out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
     order = {"NFO": 0, "BFO": 1, "MCX": 2}
-    out.sort(key=lambda x: (order.get(x["exchange"], 9), x["name"]))
+    korder = {"index": 0, "mcx": 1, "stock": 2}
+    out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
     return out
 
 
@@ -240,10 +242,13 @@ def _default_watch_instruments():
 
 
 def _public_tokens():
-    """Tokens a not-logged-in visitor may stream: index spots + nearest future of every underlying."""
+    """Tokens a not-logged-in visitor may stream: index spots + nearest future of every MCX commodity."""
+    from .feed.base import kind_of
     toks = set()
     for ex, names in feed.underlyings().items():
         for n in names:
+            if kind_of(ex, n) == "stock":
+                continue
             t = feed.index_token_for(n)
             if t:
                 toks.add(t)
@@ -255,12 +260,15 @@ def _public_tokens():
 @app.get("/api/public/home")
 def public_home():
     """What a visitor sees before logging in."""
+    from .feed.base import kind_of
     tick = []
     for ex, names in feed.underlyings().items():
         for n in names:
+            if kind_of(ex, n) == "stock":
+                continue
             t = feed.index_token_for(n)
             if t:
-                tick.append({"exchange": ex, "name": n, "spot_token": t})
+                tick.append({"exchange": ex, "name": n, "spot_token": t, "kind": kind_of(ex, n)})
     order = {"NFO": 0, "BFO": 1, "MCX": 2}
     tick.sort(key=lambda x: (order.get(x["exchange"], 9), x["name"]))
     return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status()}
@@ -598,7 +606,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 @app.get("/api/admin/settings")
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
-    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX")},
+    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK")},
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": config.ALLOWED_UNDERLYINGS}

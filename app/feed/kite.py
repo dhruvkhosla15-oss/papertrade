@@ -14,7 +14,8 @@ from typing import List
 from kiteconnect import KiteConnect, KiteTicker
 
 from .base import PriceFeed, Instrument
-from ..config import ALLOWED_UNDERLYINGS
+from ..config import ALLOWED_UNDERLYINGS, ALLOW_STOCK_FNO
+from .base import INDEX_NAMES
 
 log = logging.getLogger("kite")
 
@@ -79,6 +80,7 @@ class KiteFeed(PriceFeed):
     # ---- instruments --------------------------------------------------------
     def download_instruments(self):
         items: List[Instrument] = []
+        eq_rows = {}   # NSE cash rows by tradingsymbol -> used as spot for stock F&O
         for exch in ("NSE", "BSE"):
             for row in self.kite.instruments(exch):
                 if row["segment"] == "INDICES":
@@ -86,16 +88,27 @@ class KiteFeed(PriceFeed):
                         if ex == exch and row["tradingsymbol"] == sym:
                             items.append(Instrument(row["instrument_token"], name, name, exch, "INDICES",
                                                     "EQ", "", 0, 1, 0.05))
+                elif exch == "NSE" and row["instrument_type"] == "EQ" and row["segment"] == "NSE":
+                    eq_rows[row["tradingsymbol"]] = row
+        stock_names = set()
         for exch in ("NFO", "BFO", "MCX"):
             for row in self.kite.instruments(exch):
                 if exch != "MCX" and row["name"] not in ALLOWED_UNDERLYINGS:
-                    continue
+                    if not (ALLOW_STOCK_FNO and exch == "NFO" and row["name"] not in INDEX_NAMES and row["name"] in eq_rows):
+                        continue
+                    stock_names.add(row["name"])
                 exp = row["expiry"]
                 exp_s = exp.isoformat() if isinstance(exp, (date, datetime)) else (str(exp)[:10] if exp else "")
                 items.append(Instrument(row["instrument_token"], row["tradingsymbol"], row["name"], exch,
                                         row["segment"], row["instrument_type"], exp_s,
                                         float(row["strike"] or 0), int(row["lot_size"] or 1),
                                         float(row["tick_size"] or 0.05)))
+        # spot price for each stock underlying = its NSE cash quote (view-only, not tradable)
+        for n in sorted(stock_names):
+            r = eq_rows[n]
+            items.append(Instrument(r["instrument_token"], n, n, "NSE", "INDICES", "EQ", "", 0, 1,
+                                    float(r["tick_size"] or 0.05)))
+        log.info("stock F&O underlyings: %d", len(stock_names))
         # Zerodha's instrument dump quotes MCX quantities in *lots* (lot_size=1) and omits the
         # contract multiplier. P&L and margin need the real multiplier, so apply it here.
         fixed, unknown = 0, set()

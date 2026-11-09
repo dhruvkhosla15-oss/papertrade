@@ -1,7 +1,7 @@
 # LimeFX (paper trading F&O)
 
-A paper-trading platform for NSE/BSE index F&O (Nifty, Bank Nifty, Sensex) and all MCX
-contracts, with live Zerodha prices. A **master** account allocates virtual coins to
+A paper-trading platform for NSE/BSE index F&O (Nifty, Bank Nifty, Sensex), **stock futures &
+options on every F&O stock**, and all MCX contracts, with live Zerodha prices. A **master** account allocates virtual coins to
 **trainees**; trainees buy and sell real contracts (real lot sizes, real live prices)
 with those coins and see their profit/loss. No real money moves anywhere.
 
@@ -118,7 +118,8 @@ The master panel has three tabs: **Trainees**, **Performance**, **Settings**.
   match what you want to teach.
 - Option chain shows strikes for the chosen expiry; Greeks/OI columns are not shown (OI needs Kite "full" mode — easy to add).
 - Data lives in `data/papertrade.db` (SQLite). Back it up by copying the folder.
-- To change which NFO/BFO underlyings are allowed: `PT_UNDERLYINGS=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY,SENSEX,BANKEX`. MCX always includes everything.
+- To change which NFO/BFO underlyings are allowed: `PT_UNDERLYINGS=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY,SENSEX,BANKEX,STOCKS`. `STOCKS` adds futures & options on every NSE stock that has F&O (lot sizes from Zerodha's file; the NSE cash quote is shown as the spot, view-only — no share delivery). Remove `STOCKS` to go back to indices only. MCX always includes everything.
+- Stock F&O has its own margin % in Settings (default 20 %), separate from index F&O (12 %).
 
 ## Security checklist before going live
 

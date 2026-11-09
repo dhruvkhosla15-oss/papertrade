@@ -11,6 +11,16 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Callable
 
 
+INDEX_NAMES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX", "BANKEX", "SENSEX50"}
+
+
+def kind_of(exchange: str, name: str) -> str:
+    """index | stock | mcx — used for grouping, margins and the public ticker."""
+    if exchange == "MCX":
+        return "mcx"
+    return "index" if name in INDEX_NAMES else "stock"
+
+
 @dataclass
 class Instrument:
     token: int
@@ -26,7 +36,9 @@ class Instrument:
     lot_label: str = ""   # e.g. "1 kg (price per 10 g)" for MCX; blank for NSE/BSE
 
     def to_dict(self):
-        return asdict(self)
+        d = asdict(self)
+        d["kind"] = kind_of(self.exchange, self.name)
+        return d
 
 
 class PriceFeed:

@@ -386,9 +386,9 @@ function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$
     $('#dLtt').textContent=pr.ltt?new Date(pr.ltt*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
     const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';const lim=state.me?.liquidity?.max_spread_pct||0;$('#dSpread').className='num '+(sp!=null&&lim>0&&sp>lim?'dn':'');}}
 
-function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
+function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
   $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
-  $('#oLots').value=1;$('#oQty').value=ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
+  $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
   const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';
   sub([ins.token]);$('#sheet').classList.remove('hidden');updateMargin();}
 function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
@@ -451,7 +451,7 @@ function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positi
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
     <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${fmt(p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${fmt(p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
-  $$('[data-close]').forEach(b=>b.onclick=async()=>{if(!confirm('Exit this position at market price?'))return;try{await api(`/positions/${b.dataset.close}/close`,{method:'POST'});}catch(e){toast(e.message,1)}});
+  $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
 function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${o.symbol}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>

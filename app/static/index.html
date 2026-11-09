@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>PaperTrade F&O</title>
+<style>
+:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#3b82f6;--buy:#2563eb;--sell:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);-webkit-tap-highlight-color:transparent}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#fff}
+button.ghost{background:var(--card);border:1px solid var(--line);color:var(--txt)}
+button.buy{background:var(--buy)} button.sell{background:var(--sell)}
+button:disabled{opacity:.5;cursor:default}
+input,select{font:inherit;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;width:100%}
+.hidden{display:none!important}
+.num{font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+header .brand{font-weight:700}
+header .funds{text-align:right;font-size:12px}
+header .funds b{font-size:15px}
+.feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
+.feedlight.ok{background:var(--up)}
+main{padding:12px 14px 80px;max-width:900px;margin:0 auto}
+nav.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:5}
+nav.tabs button{flex:1;background:none;color:var(--mut);border-radius:0;padding:12px 4px;font-size:12px}
+nav.tabs button.active{color:var(--txt);border-top:2px solid var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:500;font-size:12px}
+td:first-child,th:first-child{text-align:left}
+.chain td{padding:6px 4px;font-size:13px}
+.chain .strike{background:#1d2230;font-weight:600;text-align:center;color:#cbd5e1}
+.chain .ce,.chain .pe{cursor:pointer}
+.chain .ce:active,.chain .pe:active{background:#1e293b}
+.chain .itm{background:#141a26}
+.chain .atm td.strike{color:#fbbf24}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
+.pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;z-index:20}
+.sheet .box{background:var(--card);width:100%;max-width:520px;margin:0 auto;border-radius:16px 16px 0 0;padding:16px;max-height:92vh;overflow:auto}
+.seg{display:flex;background:var(--bg);border-radius:8px;padding:3px}
+.seg button{flex:1;background:none;color:var(--mut);padding:8px}
+.seg button.active{background:var(--card);color:var(--txt)}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.toast.err{background:#7f1d1d}
+.login{max-width:360px;margin:12vh auto;padding:0 16px}
+.login h1{margin-bottom:20px;font-size:22px}
+.login input{margin-bottom:10px}
+.big{font-size:22px;font-weight:700}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ulist button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between}
+.sym{font-weight:600}
+.small{font-size:12px}
+h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="login hidden">
+  <h1>PaperTrade <span class="mut">F&O</span></h1>
+  <input id="lu" placeholder="Username" autocapitalize="none">
+  <input id="lp" type="password" placeholder="Password">
+  <button id="loginBtn" style="width:100%">Log in</button>
+  <p id="loginErr" class="dn small" style="margin-top:10px"></p>
+</div>
+
+<div id="appView" class="hidden">
+<header>
+  <div><div class="brand">PaperTrade</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
+  <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div>
+</header>
+<div id="banner" class="banner hidden"></div>
+<main>
+  <!-- WATCH / CHAIN -->
+  <section id="tab-market">
+    <div class="card">
+      <div class="row">
+        <select id="selUnd"></select>
+        <select id="selExp"></select>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div><span class="mut small">Spot </span><b id="spotLtp" class="num">—</b> <span id="spotChg" class="small num"></span></div>
+        <div style="text-align:right"><span class="mut small">Lot </span><b id="lotSize"></b></div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="chain" id="chainTbl">
+        <thead><tr><th>CE LTP</th><th>Chg%</th><th style="text-align:center">Strike</th><th>Chg%</th><th>PE LTP</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Futures</h3>
+      <div id="futList"></div>
+    </div>
+    <div class="card">
+      <h3>Search any contract</h3>
+      <input id="search" placeholder="e.g. BANKNIFTY 52000 CE, CRUDEOIL FUT">
+      <div id="searchRes"></div>
+    </div>
+  </section>
+
+  <!-- POSITIONS -->
+  <section id="tab-positions" class="hidden">
+    <div class="card grid2">
+      <div><div class="mut small">Balance</div><div class="big num" id="fBal"></div></div>
+      <div><div class="mut small">Unrealised P&L</div><div class="big num" id="fUnreal"></div></div>
+      <div><div class="mut small">Used margin</div><div class="num" id="fUsed"></div></div>
+      <div><div class="mut small">Available</div><div class="num" id="fAvail"></div></div>
+    </div>
+    <div id="posList"></div>
+    <p id="posEmpty" class="mut card">No open positions</p>
+  </section>
+
+  <!-- ORDERS -->
+  <section id="tab-orders" class="hidden">
+    <div class="card" style="padding:0;overflow:auto">
+      <table id="ordTbl"><thead><tr><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+    <h3>Trade history</h3>
+    <div class="card" style="padding:0;overflow:auto">
+      <table id="trdTbl"><thead><tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- ACCOUNT -->
+  <section id="tab-account" class="hidden">
+    <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
+    <h3>Coin ledger</h3>
+    <div class="card" style="padding:0;overflow:auto">
+      <table id="ledTbl"><thead><tr><th>Time</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h3>Change password</h3>
+      <input id="pwOld" type="password" placeholder="Current password" style="margin-bottom:8px">
+      <input id="pwNew" type="password" placeholder="New password" style="margin-bottom:8px">
+      <button class="ghost" id="pwBtn">Update</button>
+    </div>
+    <button class="ghost" id="logoutBtn" style="width:100%">Log out</button>
+  </section>
+</main>
+<nav class="tabs">
+  <button data-tab="market" class="active">Market</button>
+  <button data-tab="positions">Positions</button>
+  <button data-tab="orders">Orders</button>
+  <button data-tab="account">Account</button>
+</nav>
+</div>
+
+<!-- ORDER SHEET -->
+<div id="sheet" class="sheet hidden">
+  <div class="box">
+    <div class="row" style="justify-content:space-between">
+      <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div></div>
+    </div>
+    <div class="seg" style="margin:14px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
+    <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
+    <div class="row">
+      <div><label class="small mut">Lots</label><input id="oLots" type="number" min="1" value="1"></div>
+      <div><label class="small mut">Qty</label><input id="oQty" disabled></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div id="limitWrap" class="hidden"><label class="small mut">Limit price</label><input id="oLimit" type="number" step="0.05"></div>
+      <div id="trigWrap" class="hidden"><label class="small mut">Trigger price</label><input id="oTrig" type="number" step="0.05"></div>
+    </div>
+    <div class="row" style="margin:12px 0">
+      <div><span class="mut small">Margin required</span><div class="num" id="oMargin">—</div></div>
+      <div style="text-align:right"><span class="mut small">Available</span><div class="num" id="oAvail">—</div></div>
+    </div>
+    <div class="row"><button class="ghost" id="oCancel">Cancel</button><button id="oSubmit" class="buy">BUY</button></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
+const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
+const pnlCls=n=>n>0?'up':n<0?'dn':'';
+let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set(),positions:[],orders:[],sel:null,side:'BUY',otype:'MARKET',tab:'market'};
+
+async function api(path,opts={}){
+  const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
+  if(r.status===401){showLogin();throw new Error('login');}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.detail||r.statusText);
+  return j;
+}
+function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?4000:2200);}
+
+// ---------- auth ----------
+function showLogin(){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
+$('#loginBtn').onclick=async()=>{
+  try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
+    if(j.is_admin){location.href='/admin';return;}
+    boot();}catch(e){$('#loginErr').textContent=e.message;}
+};
+$('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
+$('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
+$('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
+
+// ---------- boot ----------
+async function boot(){
+  try{state.me=await api('/me');}catch(e){return;}
+  if(state.me.user.is_admin){location.href='/admin';return;}
+  $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
+  $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';
+  renderFunds(state.me.funds);renderFeed(state.me.feed);
+  state.und=await api('/underlyings');
+  $('#selUnd').innerHTML=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} <span>(${u.exchange})</span></option>`).join('');
+  connectWS();
+  await loadUnderlying();
+  refreshAll();
+  setInterval(refreshFunds,5000);
+}
+function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.message;
+  const mo=state.me.market_open||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
+  if(!f.connected){$('#banner').textContent='Live prices not available right now: '+f.message;$('#banner').classList.remove('hidden');}
+  else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
+  else $('#banner').classList.add('hidden');}
+function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
+  const u=f.unrealised;$('#hPnl').textContent=(u>=0?'+':'')+inr(u)+' P&L';$('#hPnl').className='num small '+pnlCls(u);
+  $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
+  $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);}
+async function refreshFunds(){try{const m=await api('/me');state.me=m;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
+async function refreshAll(){
+  try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
+  renderPositions();renderOrders();
+  sub(state.positions.map(p=>p.token));
+  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();
+}
+
+// ---------- websocket ----------
+function connectWS(){
+  const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  state.ws=ws;
+  ws.onopen=()=>{if(state.subs.size)ws.send(JSON.stringify({type:'subscribe',tokens:[...state.subs]}));};
+  ws.onmessage=e=>{const m=JSON.parse(e.data);
+    if(m.type==='ticks'){for(const t of m.ticks){state.prices[t.token]=t;}onPrices(m.ticks);}
+    else if(m.type==='order'){toast(`${m.order.side} ${m.order.symbol} ${m.order.status}${m.order.fill_price?' @ '+m.order.fill_price:''}`,m.order.status==='REJECTED');refreshAll();refreshFunds();}
+    else if(m.type==='refresh'){if(m.message)toast(m.message);refreshAll();refreshFunds();}
+    else if(m.type==='pong'){renderFeed(m.feed);}};
+  ws.onclose=()=>setTimeout(connectWS,2000);
+  setInterval(()=>{if(ws.readyState===1)ws.send(JSON.stringify({type:'ping'}))},15000);
+}
+function sub(tokens){const n=tokens.filter(t=>!state.subs.has(t));n.forEach(t=>state.subs.add(t));
+  if(n.length&&state.ws&&state.ws.readyState===1)state.ws.send(JSON.stringify({type:'subscribe',tokens:n}));}
+function unsub(tokens){const keep=new Set([...state.positions.map(p=>p.token),state.spotToken,state.sel?.token]);
+  const g=tokens.filter(t=>state.subs.has(t)&&!keep.has(t));g.forEach(t=>state.subs.delete(t));
+  if(g.length&&state.ws&&state.ws.readyState===1)state.ws.send(JSON.stringify({type:'unsubscribe',tokens:g}));}
+
+// ---------- market tab ----------
+$('#selUnd').onchange=loadUnderlying;$('#selExp').onchange=loadChain;
+async function loadUnderlying(){
+  const [ex,name]=$('#selUnd').value.split('|');
+  const exps=await api(`/expiries?exchange=${ex}&name=${name}`);
+  $('#selExp').innerHTML=exps.map(e=>`<option>${e}</option>`).join('');
+  await loadChain();
+}
+async function loadChain(){
+  const [ex,name]=$('#selUnd').value.split('|');const exp=$('#selExp').value;
+  const old=state.chain.map(i=>i.token);
+  const j=await api(`/chain?exchange=${ex}&name=${name}&expiry=${exp}`);
+  state.chain=j.instruments;state.spotToken=j.spot_token;
+  const lot=state.chain[0]?.lot_size;$('#lotSize').textContent=lot||'—';
+  // build table
+  const strikes=[...new Set(state.chain.filter(i=>i.strike).map(i=>i.strike))].sort((a,b)=>a-b);
+  const ce={},pe={};state.chain.forEach(i=>{if(i.instrument_type==='CE')ce[i.strike]=i;if(i.instrument_type==='PE')pe[i.strike]=i;});
+  $('#chainTbl tbody').innerHTML=strikes.map(s=>`<tr data-strike="${s}">
+    <td class="ce num" data-tok="${ce[s]?.token||''}" id="p${ce[s]?.token}">—</td><td class="ce num small mut" id="c${ce[s]?.token}"></td>
+    <td class="strike num">${s}</td>
+    <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
+  $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
+  const futs=state.chain.filter(i=>i.instrument_type==='FUT');
+  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span class="sym">${f.symbol}</span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures for this expiry</span>';
+  $$('#futList .wl-item').forEach(el=>el.onclick=()=>openSheet(state.chain.find(x=>x.token==el.dataset.tok)));
+  unsub(old);
+  const toks=state.chain.map(i=>i.token);if(state.spotToken)toks.push(state.spotToken);
+  sub(toks);
+  // show cached prices
+  onPrices(toks.map(t=>state.prices[t]).filter(Boolean));
+  highlightATM();
+}
+function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)return;
+  const rows=$$('#chainTbl tbody tr');let best=null,bd=1e18;
+  rows.forEach(r=>{const d=Math.abs(+r.dataset.strike-sp);if(d<bd){bd=d;best=r;}});
+  rows.forEach(r=>{r.classList.toggle('atm',r===best);
+    const s=+r.dataset.strike;r.children[0].classList.toggle('itm',s<sp);r.children[1].classList.toggle('itm',s<sp);r.children[3].classList.toggle('itm',s>sp);r.children[4].classList.toggle('itm',s>sp);});
+  if(!state._scrolled&&best){best.scrollIntoView({block:'center'});state._scrolled=true;}}
+function onPrices(ticks){
+  for(const t of ticks){
+    const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);}
+    const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
+    if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
+    if(state.sel&&t.token===state.sel.token){$('#oLtp').textContent=fmt(t.ltp);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
+  }
+  // live P&L on positions
+  let unreal=0,touched=false;
+  for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;const u=(pr.ltp-p.avg_price)*p.qty;unreal+=u;
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){l.textContent=(u>=0?'+':'')+fmt(u);l.className='num '+pnlCls(u);}if(lt)lt.textContent=fmt(pr.ltp);}
+  if(touched&&state.funds){const f={...state.funds,unrealised:unreal};$('#hPnl').textContent=(unreal>=0?'+':'')+inr(unreal)+' P&L';$('#hPnl').className='num small '+pnlCls(unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);}
+}
+let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
+  const r=await api('/search?q='+encodeURIComponent(q));
+  $('#searchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><span class="num" id="p${i.token}">—</span></div>`).join('');
+  $$('#searchRes .wl-item').forEach(el=>el.onclick=()=>openSheet(r.find(x=>x.token==el.dataset.tok)));
+  sub(r.map(i=>i.token));onPrices(r.map(i=>state.prices[i.token]).filter(Boolean));},300);};
+
+// ---------- order sheet ----------
+function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
+  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
+  $('#oLots').value=1;$('#oQty').value=ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
+  const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';
+  sub([ins.token]);$('#sheet').classList.remove('hidden');updateMargin();}
+function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
+  $('#oSubmit').textContent=s;$('#oSubmit').className=s==='BUY'?'buy':'sell';updateMargin();}
+function setOT(t){state.otype=t;$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
+  $('#limitWrap').classList.toggle('hidden',t!=='LIMIT');$('#trigWrap').classList.toggle('hidden',t!=='SL');
+  const pr=state.prices[state.sel?.token]?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=pr;if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=pr;updateMargin();}
+$('#sideBuy').onclick=()=>setSide('BUY');$('#sideSell').onclick=()=>setSide('SELL');
+$$('[data-ot]').forEach(b=>b.onclick=()=>setOT(b.dataset.ot));
+$('#oLots').oninput=()=>{$('#oQty').value=(+$('#oLots').value||0)*state.sel.lot_size;updateMargin();};
+$('#oLimit').oninput=updateMargin;
+$('#oCancel').onclick=()=>$('#sheet').classList.add('hidden');
+$('#sheet').onclick=e=>{if(e.target.id==='sheet')$('#sheet').classList.add('hidden');};
+let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
+  const price=state.otype==='LIMIT'?+$('#oLimit').value:undefined;
+  try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}`);
+    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
+$('#oSubmit').onclick=async()=>{
+  const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};
+  if(state.otype==='LIMIT')b.limit_price=+$('#oLimit').value;if(state.otype==='SL')b.trigger_price=+$('#oTrig').value;
+  $('#oSubmit').disabled=true;
+  try{const j=await api('/orders',{method:'POST',body:b});renderFunds(j.funds);$('#sheet').classList.add('hidden');
+    if(j.order.status==='FILLED')toast(`${j.order.side} ${j.order.qty} ${j.order.symbol} filled @ ${j.order.fill_price}`);else toast('Order placed');refreshAll();}
+  catch(e){toast(e.message,1);}finally{$('#oSubmit').disabled=false;}};
+
+// ---------- positions / orders ----------
+function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);
+  $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · exp ${p.expiry}</div></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
+    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${fmt(p.avg_price)}</span> &nbsp; <span class="mut">LTP</span> <b class="num" id="pltp${p.id}">${fmt(p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
+      <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
+  $$('[data-close]').forEach(b=>b.onclick=async()=>{if(!confirm('Exit this position at market price?'))return;try{await api(`/positions/${b.dataset.close}/close`,{method:'POST'});}catch(e){toast(e.message,1)}});
+  $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
+function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${o.symbol}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
+  <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>
+  <td class="num">${o.fill_price!=null?fmt(o.fill_price):(o.limit_price?fmt(o.limit_price):o.trigger_price?'trg '+fmt(o.trigger_price):'MKT')}</td>
+  <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small dn">${o.reason}</div>`:''}</td>
+  <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';
+  $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
+async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades yet</td></tr>';}
+async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${x.kind.replace('_',' ').toLowerCase()}<div class="small mut">${x.note||''}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
+
+// ---------- tabs ----------
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
+  ['market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
+  if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();});
+
+boot();
+</script>
+</body>
+</html>

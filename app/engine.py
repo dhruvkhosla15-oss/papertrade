@@ -1,0 +1,356 @@
+"""
+Order / position engine.
+
+Rules
+- MARKET orders fill instantly at the exact current LTP (no slippage).
+- LIMIT orders rest; a BUY fills when LTP <= limit, a SELL when LTP >= limit, at the limit price.
+- SL orders (stop-loss market): BUY triggers when LTP >= trigger, SELL when LTP <= trigger; fills at LTP.
+- Quantities are always whole lots using the exchange lot size.
+- Margin: long options block full premium; futures and short options block
+  margin_pct% of notional (underlying LTP x qty). Blocked margin is released when the position closes.
+- Positions are netted per contract (long + short -> flat). Realised P&L credits/debits the coin balance.
+- At expiry the position is squared off at the last traded price and the balance settled.
+"""
+import asyncio
+import json
+import logging
+import time
+from datetime import datetime, timedelta, date
+from typing import Optional
+
+from sqlalchemy.orm import Session
+
+from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting
+from .feed.base import PriceFeed
+from .config import DEFAULT_MARGIN_PCT, MARKET_HOURS, ENFORCE_MARKET_HOURS, IST_OFFSET_HOURS
+
+log = logging.getLogger("engine")
+
+
+class EngineError(Exception):
+    pass
+
+
+def ist_now() -> datetime:
+    return datetime.utcnow() + timedelta(hours=IST_OFFSET_HOURS)
+
+
+class Engine:
+    def __init__(self, feed: PriceFeed):
+        self.feed = feed
+        self.events: list = []            # (user_id, dict) to push to websockets
+        self._event_cb = None
+        self._lock = asyncio.Lock()
+        feed.on_tick(self._on_tick)
+        self._pending_tokens = set()
+
+    def set_event_callback(self, cb):
+        self._event_cb = cb
+
+    def _emit(self, user_id: int, event: dict):
+        if self._event_cb:
+            self._event_cb(user_id, event)
+
+    # ---- helpers -------------------------------------------------------------
+    def margin_pct(self, db: Session, exchange: str) -> float:
+        v = get_setting(db, f"margin_pct_{exchange}")
+        return float(v) if v else DEFAULT_MARGIN_PCT.get(exchange, 12.0)
+
+    def market_open(self, exchange: str) -> bool:
+        if not ENFORCE_MARKET_HOURS:
+            return True
+        n = ist_now()
+        if n.weekday() >= 5:
+            return False
+        o, c = MARKET_HOURS.get(exchange, ("09:15", "15:30"))
+        hm = n.strftime("%H:%M")
+        return o <= hm <= c
+
+    def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
+        if ins.instrument_type in ("CE", "PE") and side == "BUY":
+            return round(price * qty, 2)
+        und_tok = self.feed.index_token_for(ins.name)
+        und = self.feed.ltp(und_tok) if und_tok else None
+        if und is None:
+            und = ins.strike if ins.instrument_type in ("CE", "PE") else price
+        pct = self.margin_pct(db, ins.exchange)
+        m = und * qty * pct / 100.0
+        if ins.instrument_type in ("CE", "PE"):
+            m += price * qty  # short option: margin + premium received as collateral
+        return round(m, 2)
+
+    def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
+        return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
+                .order_by(Position.id.desc()).first())
+
+    def _ledger(self, db: Session, user: User, amount: float, kind: str, note: str = ""):
+        user.balance = round(user.balance + amount, 2)
+        db.add(Ledger(user_id=user.id, amount=round(amount, 2), balance_after=user.balance, kind=kind, note=note))
+
+    def funds(self, db: Session, user: User) -> dict:
+        used = sum(p.margin_blocked for p in db.query(Position).filter_by(user_id=user.id, is_closed=False))
+        used += sum(o.margin_blocked for o in db.query(Order).filter_by(user_id=user.id, status="OPEN"))
+        unreal = 0.0
+        for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
+            ltp = self.feed.ltp(p.token)
+            if ltp is not None:
+                unreal += (ltp - p.avg_price) * p.qty
+        return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
+                "available": round(user.balance - used, 2), "unrealised": round(unreal, 2),
+                "equity": round(user.balance + unreal, 2)}
+
+    # ---- orders ----------------------------------------------------------------
+    def place_order(self, db: Session, user: User, token: int, side: str, lots: int,
+                    order_type: str = "MARKET", limit_price: float = None, trigger_price: float = None) -> Order:
+        ins = self.feed.instruments.get(token)
+        if not ins or ins.segment == "INDICES":
+            raise EngineError("Unknown or non-tradable instrument")
+        if not user.is_active:
+            raise EngineError("Account is frozen")
+        side = side.upper(); order_type = order_type.upper()
+        if side not in ("BUY", "SELL"):
+            raise EngineError("side must be BUY or SELL")
+        if order_type not in ("MARKET", "LIMIT", "SL"):
+            raise EngineError("order_type must be MARKET, LIMIT or SL")
+        if lots < 1 or lots > 500:
+            raise EngineError("lots must be 1..500")
+        if not self.market_open(ins.exchange):
+            raise EngineError(f"{ins.exchange} market is closed")
+        ltp = self.feed.ltp(token)
+        if ltp is None or (self.feed.tick_age(token) or 0) > 300:
+            # Not yet subscribed / stale. Subscribe and ask client to retry.
+            self.feed.pin([token])
+            raise EngineError("No live price yet for this contract — try again in a second")
+        if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
+            raise EngineError("limit_price required")
+        if order_type == "SL" and (trigger_price is None or trigger_price <= 0):
+            raise EngineError("trigger_price required")
+
+        qty = lots * ins.lot_size
+        order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
+                      order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
+                      trigger_price=trigger_price, status="OPEN")
+        db.add(order)
+        db.flush()
+
+        if order_type == "MARKET":
+            self._fill(db, user, order, ltp)
+        else:
+            # reserve margin for the opening part so user can't over-commit
+            ref_price = limit_price if order_type == "LIMIT" else ltp
+            need = self._opening_margin(db, user, ins, side, qty, ref_price)
+            f = self.funds(db, user)
+            if need > f["available"] + 1e-6:
+                order.status = "REJECTED"; order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{f['available']:,.2f}"
+            else:
+                order.margin_blocked = need
+                self.feed.pin([token])
+                self._pending_tokens.add(token)
+        db.commit()
+        self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
+        if order.status == "REJECTED":
+            raise EngineError(order.reason)
+        return order
+
+    def _opening_margin(self, db, user, ins, side, qty, price) -> float:
+        """Margin needed for the part of this order that opens new exposure (netting against existing)."""
+        pos = self._position(db, user.id, ins.token)
+        cur = pos.qty if pos else 0
+        signed = qty if side == "BUY" else -qty
+        new = cur + signed
+        if cur == 0 or (cur > 0) == (signed > 0):
+            opening = qty
+        else:
+            opening = max(0, abs(new)) if (new > 0) != (cur > 0) else 0
+        if opening == 0:
+            return 0.0
+        return self.required_margin(db, ins, side, opening, price)
+
+    def cancel_order(self, db: Session, user: User, order_id: int):
+        o = db.query(Order).filter_by(id=order_id, user_id=user.id).first()
+        if not o or o.status != "OPEN":
+            raise EngineError("Order not open")
+        o.status = "CANCELLED"; o.margin_blocked = 0.0
+        db.commit()
+        self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
+
+    def _fill(self, db: Session, user: User, order: Order, price: float):
+        ins = self.feed.instruments[order.token]
+        qty = order.qty
+        signed = qty if order.side == "BUY" else -qty
+        pos = self._position(db, user.id, order.token)
+        reserved = order.margin_blocked or 0.0  # pending reservation, replaced by position margin below
+        order.margin_blocked = 0.0
+
+        cur = pos.qty if pos else 0
+        new = cur + signed
+        realised = 0.0
+
+        # margin check on the opening part
+        if cur == 0 or (cur > 0) == (signed > 0):
+            opening_qty = qty
+        else:
+            opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
+        need = self.required_margin(db, ins, order.side, opening_qty, price) if opening_qty else 0.0
+        db.flush()
+        f = self.funds(db, user)  # reservation already zeroed above, so not double counted
+        avail = f["available"]
+        if need > avail + 1e-6:
+            order.status = "REJECTED"
+            order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{avail:,.2f}"
+            return
+
+        if pos is None:
+            pos = Position(user_id=user.id, token=order.token, symbol=ins.symbol, exchange=ins.exchange,
+                           lot_size=ins.lot_size, qty=0, avg_price=0.0, expiry=ins.expiry)
+            db.add(pos); db.flush()
+
+        if cur == 0 or (cur > 0) == (signed > 0):
+            # adding to position
+            total = abs(cur) + qty
+            pos.avg_price = (pos.avg_price * abs(cur) + price * qty) / total
+            pos.qty = new
+            pos.margin_blocked = round(pos.margin_blocked + need, 2)
+        else:
+            # reducing / closing / flipping
+            closing = min(abs(cur), qty)
+            realised = (price - pos.avg_price) * closing * (1 if cur > 0 else -1)
+            pos.realised_pnl = round(pos.realised_pnl + realised, 2)
+            # release margin proportionally
+            released = pos.margin_blocked * closing / abs(cur)
+            pos.margin_blocked = round(pos.margin_blocked - released, 2)
+            if new == 0:
+                pos.qty = 0; pos.margin_blocked = 0.0; pos.is_closed = True
+            elif (new > 0) != (cur > 0):
+                # flipped: remaining qty opens new position at fill price
+                pos.is_closed = True; pos.qty = 0; pos.margin_blocked = 0.0
+                npos = Position(user_id=user.id, token=order.token, symbol=ins.symbol, exchange=ins.exchange,
+                                lot_size=ins.lot_size, qty=new, avg_price=price, expiry=ins.expiry,
+                                margin_blocked=need)
+                db.add(npos)
+            else:
+                pos.qty = new
+            if realised:
+                self._ledger(db, user, realised, "REALISED_PNL", f"{order.side} {closing} {ins.symbol} @ {price}")
+
+        order.status = "FILLED"; order.fill_price = price
+        db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
+                     exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2)))
+        self.feed.pin([order.token])
+
+    # ---- tick handling: pending orders ------------------------------------------
+    def _on_tick(self, tick: dict):
+        tok = tick["token"]
+        if tok not in self._pending_tokens:
+            return
+        asyncio.get_event_loop().create_task(self._process_pending(tok, tick["ltp"]))
+
+    async def _process_pending(self, token: int, ltp: float):
+        async with self._lock:
+            db = SessionLocal()
+            try:
+                orders = db.query(Order).filter_by(token=token, status="OPEN").all()
+                if not orders:
+                    self._pending_tokens.discard(token)
+                    return
+                ins = self.feed.instruments.get(token)
+                for o in orders:
+                    if not self.market_open(ins.exchange):
+                        continue
+                    fill_at = None
+                    if o.order_type == "LIMIT":
+                        if (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
+                            fill_at = o.limit_price
+                    elif o.order_type == "SL":
+                        if (o.side == "BUY" and ltp >= o.trigger_price) or (o.side == "SELL" and ltp <= o.trigger_price):
+                            fill_at = ltp
+                    if fill_at is None:
+                        continue
+                    user = db.get(User, o.user_id)
+                    self._fill(db, user, o, fill_at)
+                    db.commit()
+                    self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
+                    self._emit(user.id, {"type": "refresh"})
+            except Exception:
+                log.exception("pending order processing failed")
+                db.rollback()
+            finally:
+                db.close()
+
+    def load_pending(self):
+        db = SessionLocal()
+        try:
+            toks = {o.token for o in db.query(Order).filter_by(status="OPEN")}
+            toks |= {p.token for p in db.query(Position).filter_by(is_closed=False)}
+            self._pending_tokens |= {o.token for o in db.query(Order).filter_by(status="OPEN")}
+            idx = [i.token for i in self.feed.instruments.values() if i.segment == "INDICES"]
+            self.feed.pin(list(toks) + idx)
+        finally:
+            db.close()
+
+    # ---- expiry settlement ------------------------------------------------------
+    async def expiry_loop(self):
+        while True:
+            try:
+                await self._settle_expired()
+            except Exception:
+                log.exception("expiry settlement failed")
+            await asyncio.sleep(60)
+
+    async def _settle_expired(self):
+        n = ist_now()
+        today = n.date().isoformat()
+        hm = n.strftime("%H:%M")
+        async with self._lock:
+            db = SessionLocal()
+            try:
+                for p in db.query(Position).filter_by(is_closed=False).all():
+                    if not p.expiry:
+                        continue
+                    close_time = MARKET_HOURS.get(p.exchange, ("09:15", "15:30"))[1]
+                    if p.expiry < today or (p.expiry == today and hm >= close_time):
+                        ltp = self.feed.ltp(p.token)
+                        if ltp is None:
+                            ins = self.feed.instruments.get(p.token)
+                            # expired & no price (instrument gone): settle at intrinsic if option, else skip
+                            if ins and ins.instrument_type in ("CE", "PE"):
+                                und = self.feed.ltp(self.feed.index_token_for(ins.name) or -1)
+                                if und is None:
+                                    continue
+                                ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
+                            else:
+                                ltp = p.avg_price
+                        user = db.get(User, p.user_id)
+                        realised = (ltp - p.avg_price) * p.qty
+                        p.realised_pnl = round(p.realised_pnl + realised, 2)
+                        db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
+                                     side="SELL" if p.qty > 0 else "BUY", qty=abs(p.qty), price=ltp,
+                                     realised_pnl=round(realised, 2)))
+                        self._ledger(db, user, realised, "EXPIRY_SETTLEMENT", f"{p.symbol} settled @ {ltp}")
+                        p.qty = 0; p.margin_blocked = 0.0; p.is_closed = True
+                        db.commit()
+                        self._emit(user.id, {"type": "refresh", "message": f"{p.symbol} expired and settled at {ltp}"})
+                # cancel open orders on expired contracts
+                for o in db.query(Order).filter_by(status="OPEN").all():
+                    ins = self.feed.instruments.get(o.token)
+                    if ins and ins.expiry and ins.expiry < today:
+                        o.status = "CANCELLED"; o.reason = "contract expired"; o.margin_blocked = 0.0
+                db.commit()
+            finally:
+                db.close()
+
+    # ---- serialisers ----------------------------------------------------------------
+    @staticmethod
+    def order_dict(o: Order) -> dict:
+        return {"id": o.id, "token": o.token, "symbol": o.symbol, "exchange": o.exchange, "side": o.side,
+                "order_type": o.order_type, "lots": o.lots, "qty": o.qty, "limit_price": o.limit_price,
+                "trigger_price": o.trigger_price, "status": o.status, "fill_price": o.fill_price,
+                "reason": o.reason, "created_at": o.created_at.isoformat() + "Z"}
+
+    def position_dict(self, p: Position) -> dict:
+        ltp = self.feed.ltp(p.token)
+        unreal = round((ltp - p.avg_price) * p.qty, 2) if (ltp is not None and p.qty) else 0.0
+        return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size,
+                "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 2),
+                "ltp": ltp, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
+                "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}

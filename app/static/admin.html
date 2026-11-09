@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperTrade — Master</title>
+<style>
+:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e6e8ee;--mut:#8b93a7;--up:#22c55e;--dn:#ef4444;--acc:#3b82f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:9px 14px;background:var(--acc);color:#fff}
+button.ghost{background:var(--card);border:1px solid var(--line);color:var(--txt)}
+button.danger{background:#7f1d1d}
+button.ok{background:#14532d}
+input,select{font:inherit;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:9px;width:100%}
+.hidden{display:none!important}
+.num{font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-weight:700}
+.feedlight{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dn);margin-right:6px}
+.feedlight.ok{background:var(--up)}
+main{padding:16px 18px 40px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.row>*{flex:1;min-width:120px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:500;font-size:12px}
+td:first-child,th:first-child{text-align:left}
+tr.clickable{cursor:pointer}tr.clickable:hover{background:#1d2230}
+h2{font-size:16px;margin-bottom:10px}
+h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.small{font-size:12px}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
+.pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
+.pill.frozen{background:#7f1d1d;color:#fecaca}.pill.active{background:#14532d;color:#bbf7d0}
+.login{max-width:360px;margin:12vh auto;padding:0 16px}.login input{margin-bottom:10px}
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30}
+.toast.err{background:#7f1d1d}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+.modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:1000px;max-height:90vh;overflow:auto}
+.kite{padding:10px 14px;border-radius:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.kite.ok{background:#14532d}.kite.bad{background:#7f1d1d}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.stat{background:var(--bg);border-radius:10px;padding:10px}.stat b{font-size:18px;display:block}
+.tabs{display:flex;gap:6px;margin-bottom:10px}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#fff;background:var(--acc);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<div id="loginView" class="login hidden">
+  <h2>Master login</h2>
+  <input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
+  <button id="loginBtn" style="width:100%">Log in</button><p id="loginErr" class="dn small" style="margin-top:10px"></p>
+</div>
+
+<div id="appView" class="hidden">
+<header>
+  <div><div class="brand">PaperTrade · Master</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
+  <div class="row" style="flex:0 0 auto"><a href="/" class="small mut" style="align-self:center">Trader view</a><button class="ghost" id="logoutBtn">Log out</button></div>
+</header>
+<main>
+  <div id="kiteBox" class="card kite hidden">
+    <div style="flex:1"><b id="kiteTitle"></b><div class="small" id="kiteMsg"></div></div>
+    <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
+  </div>
+
+  <div class="card grid">
+    <div class="stat"><span class="mut small">Trainees</span><b id="sUsers">—</b></div>
+    <div class="stat"><span class="mut small">Coins allocated</span><b id="sCredited" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Total equity</span><b id="sEquity" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Net P&L (all)</span><b id="sPnl" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
+  </div>
+
+  <div class="card">
+    <h2>Add trainee</h2>
+    <div class="row">
+      <div><label class="small mut">Username</label><input id="nUser" autocapitalize="none"></div>
+      <div><label class="small mut">Display name</label><input id="nName"></div>
+      <div><label class="small mut">Password</label><input id="nPass"></div>
+      <div><label class="small mut">Initial coins (₹)</label><input id="nCoins" type="number" value="500000"></div>
+      <button id="nBtn" style="flex:0 0 auto">Create</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <table id="uTbl"><thead><tr><th>Trainee</th><th>Status</th><th>Allocated</th><th>Balance</th><th>Used margin</th><th>Unrealised</th><th>Equity</th><th>Net P&L</th><th>Open pos</th><th>Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Settings</h2>
+    <h3>Margin % of contract value (futures & short options)</h3>
+    <div class="row">
+      <div><label class="small mut">NFO (Nifty/BankNifty)</label><input id="mNFO" type="number" step="0.5"></div>
+      <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
+      <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
+      <button id="mSave" class="ghost" style="flex:0 0 auto">Save</button>
+    </div>
+    <p class="small mut" style="margin-top:8px" id="setInfo"></p>
+  </div>
+</main>
+</div>
+
+<div id="detail" class="modal hidden">
+  <div class="box">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h2 id="dName" style="margin:0"></h2>
+      <div style="flex:0 0 auto;display:flex;gap:8px">
+        <button class="ghost" id="dSquare">Square off all</button>
+        <button class="ghost" id="dFreeze"></button>
+        <button class="ghost" id="dPass">Reset password</button>
+        <button class="danger" id="dDelete">Delete</button>
+        <button class="ghost" id="dClose">✕</button>
+      </div>
+    </div>
+    <div class="grid" style="margin:12px 0" id="dFunds"></div>
+    <div class="tabs"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div>
+    <div style="overflow:auto"><table id="dTbl"><thead></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
+const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';
+let users=[],detail=null,dtab='positions';
+async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
+  if(r.status===401){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('login');}
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;}
+function toast(m,e){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),e?4000:2200);}
+
+$('#loginBtn').onclick=async()=>{try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});if(!j.is_admin){location.href='/';return;}boot();}catch(e){$('#loginErr').textContent=e.message;}};
+$('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
+$('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
+
+async function boot(){
+  let me;try{me=await api('/me');}catch(e){return;}
+  if(!me.user.is_admin){location.href='/';return;}
+  $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
+  const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
+  await Promise.all([loadUsers(),loadSettings()]);
+  setInterval(loadUsers,5000);setInterval(loadSettings,15000);
+}
+async function loadSettings(){const s=await api('/admin/settings');
+  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;
+  $('#setInfo').textContent=`Feed: ${s.feed.feed} · ${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · underlyings: ${s.underlyings.join(', ')} + all MCX`;
+  const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.message;
+  const kb=$('#kiteBox');
+  if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
+    $('#kiteTitle').textContent=f.connected?'Zerodha live feed connected':'Zerodha not connected';
+    $('#kiteMsg').textContent=f.needs_login?'Today\'s login is pending. Zerodha requires a manual login every morning (token expires ~6 AM). Click to log in — takes 10 seconds.':f.message;
+    $('#kiteBtn').classList.toggle('hidden',f.connected&&!f.needs_login);}
+  else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent='Simulated price feed';$('#kiteMsg').textContent='Set PT_FEED=kite in .env to use live Zerodha prices.';$('#kiteBtn').classList.add('hidden');}
+}
+$('#mSave').onclick=async()=>{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value}}});toast('Saved');};
+
+async function loadUsers(){users=await api('/admin/users');
+  const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0);
+  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);
+  $('#sPnl').textContent=(te-tc>=0?'+':'')+inr(te-tc);$('#sPnl').className='num '+cls(te-tc);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+  $('#uTbl tbody').innerHTML=users.map(u=>{const pnl=u.equity-u.total_credited;return `<tr class="clickable" data-id="${u.id}">
+    <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
+    <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
+    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.balance)}</td><td class="num">${inr(u.used_margin)}</td>
+    <td class="num ${cls(u.unrealised)}">${inr(u.unrealised)}</td><td class="num">${inr(u.equity)}</td>
+    <td class="num ${cls(pnl)}">${pnl>=0?'+':''}${inr(pnl)}<div class="small mut">${u.total_credited?fmt(pnl/u.total_credited*100,1)+'%':''}</div></td>
+    <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
+    <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
+    <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`;}).join('')||'<tr><td colspan=12 class="mut">No trainees yet</td></tr>';
+  $$('[data-add],[data-sub]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.add||b.dataset.sub;const inp=$(`.coinIn[data-id="${id}"]`);let amt=+inp.value;if(!amt)return toast('Enter an amount',1);if(b.dataset.sub)amt=-amt;
+    const note=prompt('Note (optional)','')??'';try{await api(`/admin/users/${id}/coins`,{method:'POST',body:{amount:amt,note}});toast(`${amt>0?'Added':'Removed'} ${inr(Math.abs(amt))}`);inp.value='';loadUsers();}catch(e){toast(e.message,1)}});
+  $$('[data-view]').forEach(b=>b.onclick=e=>{e.stopPropagation();openDetail(+b.dataset.view)});
+  $$('tr.clickable').forEach(r=>r.onclick=e=>{if(e.target.tagName==='INPUT')return;openDetail(+r.dataset.id)});
+  if(detail)refreshDetail();
+}
+$('#nBtn').onclick=async()=>{try{await api('/admin/users',{method:'POST',body:{username:$('#nUser').value,display_name:$('#nName').value,password:$('#nPass').value,initial_coins:+$('#nCoins').value}});toast('Trainee created');$('#nUser').value=$('#nName').value=$('#nPass').value='';loadUsers();}catch(e){toast(e.message,1)}};
+
+async function openDetail(id){detail=id;$('#detail').classList.remove('hidden');await refreshDetail();}
+async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
+  $('#dName').textContent=`${u.display_name} (${u.username})`;$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
+  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);
+  $('#dFunds').innerHTML=[['Balance',f.balance],['Used margin',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Equity',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'?cls(v):''}">${inr(v)}</b></div>`).join('');
+  const T=$('#dTbl');
+  if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Qty</th><th>Avg</th><th>LTP</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';
+    T.tBodies[0].innerHTML=d.positions.map(p=>`<tr><td>${p.symbol}</td><td class="num ${p.qty>0?'up':'dn'}">${p.qty}</td><td class="num">${fmt(p.avg_price)}</td><td class="num">${fmt(p.ltp)}</td><td class="num ${cls(p.unrealised)}">${fmt(p.unrealised)}</td><td class="num">${inr(p.margin)}</td><td>${p.expiry}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No open positions</td></tr>';}
+  if(dtab==='orders'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th></tr>';
+    T.tBodies[0].innerHTML=d.orders.map(o=>`<tr><td class="small">${new Date(o.created_at).toLocaleString('en-IN')}</td><td>${o.symbol}</td><td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td><td class="num">${o.fill_price!=null?fmt(o.fill_price):fmt(o.limit_price||o.trigger_price)}</td><td><span class="pill ${o.status}">${o.status}</span> <span class="small dn">${o.reason||''}</span></td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders</td></tr>';}
+  if(dtab==='trades'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th></tr>';
+    T.tBodies[0].innerHTML=d.trades.map(t=>`<tr><td class="small">${new Date(t.created_at).toLocaleString('en-IN')}</td><td>${t.symbol}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${t.qty}</td><td class="num">${fmt(t.price)}</td><td class="num ${cls(t.realised_pnl)}">${t.realised_pnl?fmt(t.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades</td></tr>';}
+  if(dtab==='ledger'){T.tHead.innerHTML='<tr><th>Time</th><th>Type</th><th>Note</th><th>Amount</th><th>Balance after</th></tr>';
+    T.tBodies[0].innerHTML=d.ledger.map(l=>`<tr><td class="small">${new Date(l.created_at).toLocaleString('en-IN')}</td><td>${l.kind}</td><td class="small mut" style="text-align:left">${l.note||''}</td><td class="num ${cls(l.amount)}">${fmt(l.amount)}</td><td class="num">${fmt(l.balance_after)}</td></tr>`).join('');}
+  $('#dFreeze').onclick=async()=>{await api(`/admin/users/${detail}`,{method:'PATCH',body:{is_active:!u.is_active}});toast(u.is_active?'Frozen':'Unfrozen');loadUsers();refreshDetail();};
+  $('#dPass').onclick=async()=>{const p=prompt('New password for '+u.username);if(!p)return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{password:p}});toast('Password reset');};
+  $('#dDelete').onclick=async()=>{if(!confirm(`Delete ${u.username} and all their history? This cannot be undone.`))return;await api(`/admin/users/${detail}`,{method:'DELETE'});detail=null;$('#detail').classList.add('hidden');loadUsers();};
+  $('#dSquare').onclick=async()=>{if(!confirm('Close all open positions for this trainee at market price?'))return;try{const r=await api(`/admin/users/${detail}/squareoff`,{method:'POST'});toast(`Closed ${r.closed}`+(r.errors.length?`, ${r.errors.length} failed`:''),r.errors.length>0);refreshDetail();}catch(e){toast(e.message,1)}};
+}
+$$('[data-dt]').forEach(b=>b.onclick=()=>{dtab=b.dataset.dt;$$('[data-dt]').forEach(x=>x.classList.toggle('active',x===b));refreshDetail();});
+$('#dClose').onclick=()=>{detail=null;$('#detail').classList.add('hidden');};
+$('#detail').onclick=e=>{if(e.target.id==='detail'){detail=null;$('#detail').classList.add('hidden');}};
+boot();
+</script>
+</body>
+</html>

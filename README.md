@@ -36,6 +36,9 @@ with those coins and see their profit/loss. No real money moves anywhere.
   — Zerodha's file quotes MCX in lots, so the multiplier table in `app/feed/kite.py` converts to units; override with `PT_MCX_MULTIPLIERS=NAME:units,...`.
 - **Margin:** buying options blocks the full premium. Futures and short options block
   *margin % × underlying price × qty* (default 12 % NFO/BFO, 10 % MCX — change in Settings).
+- **Commission:** 0.02 % of traded value (price × quantity) is debited on every buy and every sell, like real
+  brokerage + charges, so only a genuine edge shows up as profit. Change or zero it in Settings; it appears in
+  the ledger, trades, performance tables and the Excel statements (net P&L is after commission).
 - Positions net per contract; realised P&L credits/debits the coin balance immediately.
 - Orders are only accepted during exchange hours (NFO/BFO 09:15–15:30, MCX 09:00–23:55 IST).
 - On expiry day after close, open positions are **auto-settled** at the last traded price.

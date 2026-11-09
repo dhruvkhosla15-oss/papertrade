@@ -389,7 +389,8 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None,
     p = price or feed.ltp(token) or 0
     qty = lots * ins.lot_size
     return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p), "qty": qty,
-            "full_margin": engine.required_margin(db, ins, side.upper(), qty, p)}
+            "full_margin": engine.required_margin(db, ins, side.upper(), qty, p),
+            "commission": round(p * qty * engine.commission_pct(db) / 100.0, 2), "commission_pct": engine.commission_pct(db)}
 
 
 @app.delete("/api/orders/{order_id}")
@@ -431,8 +432,8 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
 def list_trades(user: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.query(Trade).filter_by(user_id=user.id).order_by(Trade.id.desc()).limit(300).all()
     return [{"id": t.id, "symbol": t.symbol, "exchange": t.exchange, "side": t.side, "qty": t.qty,
-             "price": t.price, "realised_pnl": t.realised_pnl, "created_at": t.created_at.isoformat() + "Z"}
-            for t in rows]
+             "price": t.price, "realised_pnl": t.realised_pnl, "commission": t.commission or 0.0,
+             "created_at": t.created_at.isoformat() + "Z"} for t in rows]
 
 
 @app.get("/api/ledger")
@@ -583,7 +584,7 @@ def admin_user_detail(uid: int, admin: User = Depends(current_admin), db: Sessio
             "positions": [engine.position_dict(p) for p in db.query(Position).filter_by(user_id=uid, is_closed=False)],
             "orders": [engine.order_dict(o) for o in db.query(Order).filter_by(user_id=uid).order_by(Order.id.desc()).limit(100)],
             "trades": [{"id": t.id, "symbol": t.symbol, "side": t.side, "qty": t.qty, "price": t.price,
-                        "realised_pnl": t.realised_pnl, "created_at": t.created_at.isoformat() + "Z"}
+                        "realised_pnl": t.realised_pnl, "commission": t.commission or 0.0, "created_at": t.created_at.isoformat() + "Z"}
                        for t in db.query(Trade).filter_by(user_id=uid).order_by(Trade.id.desc()).limit(200)],
             "ledger": [{"amount": l.amount, "balance_after": l.balance_after, "kind": l.kind, "note": l.note,
                         "created_at": l.created_at.isoformat() + "Z"}
@@ -610,6 +611,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
     return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK")},
+            "commission_pct": engine.commission_pct(db),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
@@ -617,6 +619,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
 
 class SettingsIn(BaseModel):
     margin_pct: dict
+    commission_pct: Optional[float] = None
     liquidity_check: Optional[bool] = None
     max_spread_pct: Optional[float] = None
     stale_minutes: Optional[int] = None
@@ -626,6 +629,8 @@ class SettingsIn(BaseModel):
 def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     for ex, v in body.margin_pct.items():
         set_setting(db, f"margin_pct_{ex}", str(float(v)))
+    if body.commission_pct is not None:
+        set_setting(db, "commission_pct", str(max(0.0, float(body.commission_pct))))
     if body.liquidity_check is not None:
         set_setting(db, "liquidity_check", "true" if body.liquidity_check else "false")
     if body.max_spread_pct is not None:
@@ -677,19 +682,21 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
         closing = [x for x in trades if x.realised_pnl]
         wins = [x.realised_pnl for x in closing if x.realised_pnl > 0]
         losses = [x.realised_pnl for x in closing if x.realised_pnl < 0]
-        pnl = round(sum(x.realised_pnl for x in trades), 2)
+        comm_total = round(sum(x.commission or 0 for x in trades), 2)
+        pnl = round(sum(x.realised_pnl for x in trades) - comm_total, 2)   # net of commission
         daily = {}
         for x in trades:
             d = _ist_date(x.created_at)
-            daily[d] = round(daily.get(d, 0) + (x.realised_pnl or 0), 2)
-            all_days[d] = round(all_days.get(d, 0) + (x.realised_pnl or 0), 2)
+            v = (x.realised_pnl or 0) - (x.commission or 0)
+            daily[d] = round(daily.get(d, 0) + v, 2)
+            all_days[d] = round(all_days.get(d, 0) + v, 2)
         credited = sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
         funds = engine.funds(db, u)
         out["users"].append({
             "id": u.id, "username": u.username, "display_name": u.display_name,
             "trades": len(trades), "closing_trades": len(closing), "wins": len(wins), "losses": len(losses),
             "win_rate": round(len(wins) / len(closing) * 100, 1) if closing else None,
-            "gross_profit": round(sum(wins), 2), "gross_loss": round(sum(losses), 2), "net_pnl": pnl,
+            "gross_profit": round(sum(wins), 2), "gross_loss": round(sum(losses), 2), "commission": comm_total, "net_pnl": pnl,
             "best": round(max(wins), 2) if wins else 0, "worst": round(min(losses), 2) if losses else 0,
             "avg_win": round(sum(wins) / len(wins), 2) if wins else 0, "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
             "profit_factor": round(sum(wins) / abs(sum(losses)), 2) if losses else None,
@@ -778,14 +785,15 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
     # ---- P&L statement -----------------------------------------------------------------------
     if only in (None, "pnl"):
         trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
-        net = round(sum(x.realised_pnl or 0 for x in trades), 2)
+        cm = round(sum(x.commission or 0 for x in trades), 2)
+        net = round(sum(x.realised_pnl or 0 for x in trades) - cm, 2)
         gp = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) > 0), 2)
         gl = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) < 0), 2)
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Commission", "Realised P&L", "Net"],
               [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
-                x.side, x.qty, x.price, x.realised_pnl] for x in trades],
-              money_cols=(sh(7), sh(8)), statement="Profit & Loss Statement",
-              totals=[f"{len(trades)} trades", f"Gross profit {gp:,.2f} / Gross loss {gl:,.2f}"] + [""] * (sh(5)) + ["Net P&L", net])
+                x.side, x.qty, x.price, round(x.price * x.qty, 2), -(x.commission or 0), x.realised_pnl, round((x.realised_pnl or 0) - (x.commission or 0), 2)] for x in trades],
+              money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), statement="Profit & Loss Statement",
+              totals=[f"{len(trades)} trades", f"Gross profit {gp:,.2f} / Gross loss {gl:,.2f}"] + [""] * (sh(6)) + [-cm, round(gp + gl, 2), net])
         days = sorted({d for u in rep["users"] for d in u["daily"]})
         cum = 0; rows = []
         for d in days:
@@ -794,14 +802,14 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         sheet("Daily P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative"], rows,
               money_cols=tuple(range(2, (len(rep["users"]) if many else 0) + 4)), statement="Day-wise Profit & Loss")
         sheet("Summary", ["Trainee", "Username", "Trades", "Closing trades", "Wins", "Losses", "Win rate %", "Gross profit", "Gross loss",
-                          "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss", "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
+                          "Commission paid", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss", "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
               [[u["display_name"], u["username"], u["trades"], u["closing_trades"], u["wins"], u["losses"], u["win_rate"], u["gross_profit"], u["gross_loss"],
-                u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
-              money_cols=(8, 9, 10, 11, 12, 13, 14, 16, 17, 18), statement="Performance Summary")
+                -u["commission"], u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
+              money_cols=(8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19), statement="Performance Summary")
     # ---- Ledger statement ------------------------------------------------------------------------
     if only in (None, "ledger"):
         kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
-                 "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction"}
+                 "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction", "COMMISSION": "Commission"}
         led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
         rows = []
         if not many:
@@ -810,11 +818,12 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
-        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT")), 2)
+        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION")), 2)
+        cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
         closing = led[-1].balance_after if (led and not many) else (rows[0][4] if rows and not many else None)
         sheet("Ledger", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance after", "Note"], rows, money_cols=(sh(4), sh(5)),
               statement="Coin Ledger Statement",
-              totals=[f"{len(led)} entries", f"Added {cr:,.0f} / Removed {dr:,.0f} / P&L {pnl:,.2f}"] + [""] * (sh(1)) + ["Closing balance" if not many else "", closing if not many else "", ""])
+              totals=[f"{len(led)} entries", f"Added {cr:,.0f} / Removed {dr:,.0f} / P&L {pnl:,.2f} / Commission {cmm:,.2f}"] + [""] * (sh(1)) + ["Closing balance" if not many else "", closing if not many else "", ""])
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 

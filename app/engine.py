@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting
 from .feed.base import PriceFeed
-from .config import DEFAULT_MARGIN_PCT, MARKET_HOURS, ENFORCE_MARKET_HOURS, IST_OFFSET_HOURS
+from .config import DEFAULT_MARGIN_PCT, DEFAULT_COMMISSION_PCT, MARKET_HOURS, ENFORCE_MARKET_HOURS, IST_OFFSET_HOURS
 
 log = logging.getLogger("engine")
 
@@ -58,6 +58,10 @@ class Engine:
             self._event_cb(user_id, event)
 
     # ---- helpers -------------------------------------------------------------
+    def commission_pct(self, db: Session) -> float:
+        v = get_setting(db, "commission_pct")
+        return float(v) if v not in (None, "") else DEFAULT_COMMISSION_PCT
+
     def margin_pct(self, db: Session, exchange: str, name: str = "") -> float:
         from .feed.base import kind_of
         key = "STK" if (name and kind_of(exchange, name) == "stock") else exchange
@@ -314,12 +318,13 @@ class Engine:
         else:
             opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
         need = self.required_margin(db, ins, order.side, opening_qty, price) if opening_qty else 0.0
+        comm = round(price * qty * self.commission_pct(db) / 100.0, 2)
         db.flush()
         f = self.funds(db, user)  # reservation already zeroed above, so not double counted
         avail = f["available"]
-        if need > avail + 1e-6:
+        if need + comm > avail + 1e-6:
             order.status = "REJECTED"
-            order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{avail:,.2f}"
+            order.reason = f"Insufficient coins: need ₹{need + comm:,.2f} (incl. ₹{comm:,.2f} commission), available ₹{avail:,.2f}"
             return
 
         if pos is None:
@@ -355,9 +360,13 @@ class Engine:
             if realised:
                 self._ledger(db, user, realised, "REALISED_PNL", f"{order.side} {closing} {ins.symbol} @ {price}")
 
+        if comm > 0:
+            self._ledger(db, user, -comm, "COMMISSION",
+                         f"{self.commission_pct(db):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty:,.0f})")
         order.status = "FILLED"; order.fill_price = price
         db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
-                     exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2)))
+                     exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
+                     commission=comm))
         self.feed.pin([order.token])
 
     # ---- tick handling: pending orders ------------------------------------------

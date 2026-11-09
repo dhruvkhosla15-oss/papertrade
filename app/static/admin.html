@@ -133,7 +133,7 @@ a{color:var(--acc)}
   <div class="card"><h2>Daily P&L</h2><div id="dailyChart"></div></div>
   <div class="card" style="padding:0;overflow:auto">
     <div style="padding:10px 12px"><h2 style="margin:0">Trainee ranking</h2></div>
-    <table id="pTbl"><thead><tr><th>#</th><th>Trainee</th><th>Trades</th><th>Closed</th><th>Wins</th><th>Losses</th><th>Win %</th><th>Gross profit</th><th>Gross loss</th><th>Net P&L</th><th>Best trade</th><th>Worst trade</th><th>Profit factor</th><th>Equity now</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="pTbl"><thead><tr><th>#</th><th>Trainee</th><th>Trades</th><th>Closed</th><th>Wins</th><th>Losses</th><th>Win %</th><th>Gross profit</th><th>Gross loss</th><th>Commission</th><th>Net P&L</th><th>Best trade</th><th>Worst trade</th><th>Profit factor</th><th>Equity now</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   <div class="card" style="padding:0;overflow:auto">
     <div style="padding:10px 12px"><h2 style="margin:0">Day by day</h2></div>
@@ -150,6 +150,11 @@ a{color:var(--acc)}
       <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
       <div><label class="small mut">Stock F&O (Reliance, TCS…)</label><input id="mSTK" type="number" step="0.5"></div>
       <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
+    </div>
+    <h2 style="margin-top:18px">Commission</h2>
+    <div class="row">
+      <div><label class="small mut">% of traded value, charged on every buy and sell (0 = free)</label><input id="commPct" type="number" step="0.005" min="0"></div>
+      <div class="small mut" style="flex:2;align-self:center">Realistic brokerage + charges so only a true edge shows up as profit. Debited from coins at fill time and shown in the trainee's ledger and P&L statements.</div>
     </div>
     <h2 style="margin-top:18px">Liquidity rules (order-book fills)</h2>
     <div class="row">
@@ -195,7 +200,7 @@ a{color:var(--acc)}
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';const sgn=n=>(n>0?'+':'')+inr(n);
-const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction'};
+const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'};
 let users=[],detail=null,dtab='positions',sortK='pnl',sortDir=-1,filterQ='';
 async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
   if(r.status===401&&p!=='/login'){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
@@ -224,7 +229,7 @@ async function boot(){
 }
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
-  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;
+  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#commPct').value=s.commission_pct;
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
   const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live prices':'Prices offline';
@@ -236,7 +241,7 @@ async function loadSettings(){const s=await api('/admin/settings');
   else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent='Simulated price feed';$('#kiteMsg').textContent='Simulated prices (test mode).';$('#kiteBtn').classList.add('hidden');}
 }
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
-$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value},liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
+$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value},commission_pct:+$('#commPct').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}
@@ -308,9 +313,9 @@ async function loadPerf(){
   const ranked=[...r.users].sort((a,b)=>b.net_pnl-a.net_pnl);
   $('#pTbl tbody').innerHTML=ranked.map((u,i)=>`<tr class="clickable" data-id="${u.id}"><td>${i+1}</td><td style="text-align:left"><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td class="num">${u.trades}</td><td class="num">${u.closing_trades}</td><td class="num up">${u.wins}</td><td class="num dn">${u.losses}</td><td class="num">${u.win_rate==null?'—':fmt(u.win_rate,1)+'%'}</td>
-    <td class="num up">${inr(u.gross_profit)}</td><td class="num dn">${inr(u.gross_loss)}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
+    <td class="num up">${inr(u.gross_profit)}</td><td class="num dn">${inr(u.gross_loss)}</td><td class="num mut">${u.commission?'-'+inr(u.commission):'—'}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
     <td class="num ${cls(u.best)}">${u.best?inr(u.best):'—'}</td><td class="num ${cls(u.worst)}">${u.worst?inr(u.worst):'—'}</td><td class="num">${u.profit_factor==null?(u.gross_profit?'∞':'—'):fmt(u.profit_factor)}</td><td class="num">${inr(u.equity)}</td>
-    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=15 class="mut">No trades in this period</td></tr>';
+    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=16 class="mut">No trades in this period</td></tr>';
   $$('#pTbl tr.clickable').forEach(x=>x.onclick=()=>openDetail(+x.dataset.id));
   let cum=0;const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   $('#dTblDaily tbody').innerHTML=days.map(([d,v])=>{cum+=v;return`<tr><td>${d}</td><td style="text-align:left" class="mut">${DN[new Date(d+'T00:00:00Z').getUTCDay()]}</td><td class="num ${cls(v)}">${sgn(v)}</td><td class="num ${cls(cum)}">${sgn(cum)}</td></tr>`;}).reverse().join('')||'<tr><td colspan=4 class="mut">No trading days in this period</td></tr>';
@@ -329,8 +334,8 @@ async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`
     T.tBodies[0].innerHTML=d.positions.map(p=>`<tr><td>${p.symbol}</td><td class="num ${p.qty>0?'up':'dn'}">${p.qty}</td><td class="num">${fmt(p.avg_price)}</td><td class="num">${fmt(p.ltp)}</td><td class="num ${cls(p.unrealised)}">${fmt(p.unrealised)}</td><td class="num">${inr(p.margin)}</td><td>${p.expiry}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No open positions</td></tr>';}
   if(dtab==='orders'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th></tr>';
     T.tBodies[0].innerHTML=d.orders.map(o=>`<tr><td class="small">${new Date(o.created_at).toLocaleString('en-IN')}</td><td>${o.symbol}</td><td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td><td class="num">${o.fill_price!=null?fmt(o.fill_price):fmt(o.limit_price||o.trigger_price)}</td><td><span class="pill ${o.status}">${o.status}</span> <span class="small dn">${o.reason||''}</span></td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders</td></tr>';}
-  if(dtab==='trades'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th></tr>';
-    T.tBodies[0].innerHTML=d.trades.map(t=>`<tr><td class="small">${new Date(t.created_at).toLocaleString('en-IN')}</td><td>${t.symbol}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${t.qty}</td><td class="num">${fmt(t.price)}</td><td class="num ${cls(t.realised_pnl)}">${t.realised_pnl?fmt(t.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades</td></tr>';}
+  if(dtab==='trades'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Comm.</th><th>Realised</th></tr>';
+    T.tBodies[0].innerHTML=d.trades.map(t=>`<tr><td class="small">${new Date(t.created_at).toLocaleString('en-IN')}</td><td>${t.symbol}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${t.qty}</td><td class="num">${fmt(t.price)}</td><td class="num mut">${t.commission?'-'+fmt(t.commission):'—'}</td><td class="num ${cls(t.realised_pnl)}">${t.realised_pnl?fmt(t.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades</td></tr>';}
   if(dtab==='ledger'){T.tHead.innerHTML='<tr><th>Time</th><th>Type</th><th>Note</th><th>Amount</th><th>Balance after</th></tr>';
     T.tBodies[0].innerHTML=d.ledger.map(l=>`<tr><td class="small">${new Date(l.created_at).toLocaleString('en-IN')}</td><td style="text-align:left">${KINDS[l.kind]||l.kind}</td><td class="small mut" style="text-align:left">${l.note||''}</td><td class="num ${cls(l.amount)}">${fmt(l.amount)}</td><td class="num">${fmt(l.balance_after)}</td></tr>`).join('')||'<tr><td colspan=5 class="mut">Nothing yet</td></tr>';}
   $('#dFreeze').onclick=async()=>{await api(`/admin/users/${detail}`,{method:'PATCH',body:{is_active:!u.is_active}});toast(u.is_active?'Frozen':'Unfrozen');loadUsers();refreshDetail();};

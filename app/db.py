@@ -109,6 +109,7 @@ class Trade(Base):
     qty = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     realised_pnl = Column(Float, default=0.0)
+    commission = Column(Float, default=0.0)
     created_at = Column(DateTime, default=now)
 
 
@@ -138,6 +139,10 @@ def init_db():
         with engine.begin() as con:
             con.execute(text("ALTER TABLE watchlist ADD COLUMN position INTEGER DEFAULT 0"))
             con.execute(text("UPDATE watchlist SET position = id"))
+    tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
+    if "commission" not in tcols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE trades ADD COLUMN commission FLOAT DEFAULT 0"))
 
 
 def get_setting(db, key, default=None):

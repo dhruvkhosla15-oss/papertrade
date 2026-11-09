@@ -25,6 +25,7 @@ ALLOWED_UNDERLYINGS = [u.strip().upper() for u in
 ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "false", "no", "off") or "STOCKS" in ALLOWED_UNDERLYINGS
 
 # Approximate margin % of contract notional for futures / short options
+DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy and sell)
 DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0}  # STK = stock F&O (NFO non-index)
 
 # Exchange trading hours (IST)

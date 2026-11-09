@@ -118,7 +118,7 @@ a{color:var(--acc)}
         <div id="customRange" class="bar hidden"><input type="date" id="pFrom" style="width:auto;padding:7px"><span class="mut">to</span><input type="date" id="pTo" style="width:auto;padding:7px"><button class="ghost" id="pApply" style="padding:7px 12px">Apply</button></div>
         <select id="pUser" style="width:auto;padding:7px 10px;min-width:160px"><option value="">All trainees</option></select>
       </div>
-      <button id="xlsBtn">⬇ Download Excel</button>
+      <div class="bar" style="flex:0 0 auto"><button class="ghost" id="ordAllBtn">⬇ Order book</button><button id="xlsBtn">⬇ Full report (Excel)</button></div>
     </div>
     <p class="small mut" id="pRangeTxt" style="margin-top:8px"></p>
   </div>
@@ -184,7 +184,7 @@ a{color:var(--acc)}
       </div>
     </div>
     <div class="grid" style="margin:12px 0" id="dFunds"></div>
-    <div class="tabs"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div>
+    <div class="tabs" style="justify-content:space-between"><div style="display:flex;gap:6px;flex-wrap:wrap"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div><button class="ghost" id="dOrdXls">⬇ Order book (Excel)</button></div>
     <div style="overflow:auto"><table id="dTbl"><thead></thead><tbody></tbody></table></div>
   </div>
 </div>
@@ -284,6 +284,7 @@ $$('#presets button').forEach(b=>b.onclick=()=>{preset=b.dataset.p;$$('#presets 
 $('#pApply').onclick=loadPerf;$('#pUser').onchange=loadPerf;
 function qs(){const[f,t]=rangeFor(preset);const u=$('#pUser').value;return `from=${f}&to=${t}${u?'&user_id='+u:''}`;}
 $('#xlsBtn').onclick=()=>{location.href='/api/admin/export.xlsx?'+qs();toast('Preparing Excel…');};
+$('#ordAllBtn').onclick=()=>{location.href='/api/admin/export.xlsx?'+qs()+'&sheets=orders,trades';toast('Preparing order book…');};
 function styleChart(){const light=document.documentElement.getAttribute('data-theme')==='light';chart.applyOptions({layout:{background:{color:'transparent'},textColor:light?'#6b7280':'#8b93a7'},grid:{vertLines:{color:light?'#eef0f3':'#1d2230'},horzLines:{color:light?'#eef0f3':'#1d2230'}}});}
 function ensureChart(){if(chart)return;chart=LightweightCharts.createChart($('#dailyChart'),{height:220,rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false,tickMarkFormatter:t=>{const d=new Date(t*1000);return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'UTC'})}},localization:{timeFormatter:t=>new Date(t*1000).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})},handleScroll:false,handleScale:false});
   series=chart.addHistogramSeries({priceFormat:{type:'volume'}});styleChart();new ResizeObserver(()=>chart.applyOptions({width:$('#dailyChart').clientWidth})).observe($('#dailyChart'));}
@@ -314,6 +315,7 @@ async function loadPerf(){
 
 // ----- detail modal -----
 async function openDetail(id){detail=id;$('#detail').classList.remove('hidden');await refreshDetail();}
+$('#dOrdXls').onclick=()=>{location.href=`/api/admin/export.xlsx?user_id=${detail}&sheets=orders,trades`;toast('Preparing order book…');};
 $('#dXls').onclick=()=>{location.href=`/api/admin/export.xlsx?user_id=${detail}`;toast('Preparing Excel…');};
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`;$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';

@@ -674,7 +674,7 @@ def my_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str
     return build_report(db, [user], from_, to)
 
 
-def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str]) -> bytes:
+def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str], only: Optional[str] = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -700,7 +700,8 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         ws.freeze_panes = "A2"
         return ws
 
-    sheet("Summary", ["Trainee", "Username", "Period", "Trades", "Closing trades", "Wins", "Losses", "Win rate %",
+    want = lambda name: not only or name in only.split(",")
+    if want("summary"): sheet("Summary", ["Trainee", "Username", "Period", "Trades", "Closing trades", "Wins", "Losses", "Win rate %",
                       "Gross profit", "Gross loss", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss",
                       "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
           [[u["display_name"], u["username"], f"{rep['from']} to {rep['to']}", u["trades"], u["closing_trades"], u["wins"], u["losses"],
@@ -709,23 +710,23 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
           money_cols=(9, 10, 11, 12, 13, 14, 15, 17, 18, 19))
     # daily pivot
     days = sorted({d for u in rep["users"] for d in u["daily"]})
-    sheet("Daily P&L", ["Date"] + [u["display_name"] for u in rep["users"]] + ["Total"],
+    if want("daily"): sheet("Daily P&L", ["Date"] + [u["display_name"] for u in rep["users"]] + ["Total"],
           [[d] + [u["daily"].get(d, 0) for u in rep["users"]] + [rep["daily"].get(d, 0)] for d in days],
           money_cols=tuple(range(2, len(rep["users"]) + 3)))
     uid2name = {u.id: u.display_name for u in users}
     ids = [u.id for u in users]
     trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
-    sheet("Trades", ["Date", "Time (IST)", "Trainee", "Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
-          [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S"), uid2name.get(x.user_id, ""), x.symbol, x.exchange,
-            x.side, x.qty, x.price, x.realised_pnl] for x in trades], money_cols=(8, 9))
     orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
-    sheet("Orders", ["Date", "Time (IST)", "Trainee", "Contract", "Side", "Type", "Lots", "Qty", "Limit", "Trigger", "Status", "Fill price", "Note"],
+    if want("orders"): sheet("Orders", ["Date", "Time (IST)", "Trainee", "Contract", "Side", "Type", "Lots", "Qty", "Limit", "Trigger", "Status", "Fill price", "Note"],
           [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S"), uid2name.get(o.user_id, ""), o.symbol, o.side, o.order_type,
             o.lots, o.qty, o.limit_price, o.trigger_price, o.status, o.fill_price, o.reason] for o in orders], money_cols=(9, 10, 12))
-    led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
+    if want("trades"): sheet("Trades", ["Date", "Time (IST)", "Trainee", "Contract", "Exchange", "Side", "Qty", "Price", "Realised P&L"],
+          [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S"), uid2name.get(x.user_id, ""), x.symbol, x.exchange,
+            x.side, x.qty, x.price, x.realised_pnl] for x in trades], money_cols=(8, 9))
+    led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all() if want("ledger") else []
     kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
              "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction"}
-    sheet("Coin ledger", ["Date", "Time (IST)", "Trainee", "Type", "Amount", "Balance after", "Note"],
+    if want("ledger"): sheet("Coin ledger", ["Date", "Time (IST)", "Trainee", "Type", "Amount", "Balance after", "Note"],
           [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S"), uid2name.get(l.user_id, ""), kinds.get(l.kind, l.kind),
             l.amount, l.balance_after, l.note] for l in led], money_cols=(5, 6))
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
@@ -738,19 +739,21 @@ def _xlsx_response(data: bytes, name: str):
 
 @app.get("/api/admin/export.xlsx")
 def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
-                 admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+                 sheets: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     q = db.query(User).filter_by(is_admin=False)
     if user_id:
         q = q.filter_by(id=user_id)
     users = q.order_by(User.id).all()
-    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
-    return _xlsx_response(build_xlsx(db, users, from_, to), rep_name)
+    tag = f"_{sheets.replace(',', '_')}" if sheets else ""
+    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}{tag}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
+    return _xlsx_response(build_xlsx(db, users, from_, to, sheets), rep_name)
 
 
 @app.get("/api/export.xlsx")
-def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, sheets: Optional[str] = None,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return _xlsx_response(build_xlsx(db, [user], from_, to), f"limefx_{user.username}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
+    tag = f"_{sheets.replace(',', '_')}" if sheets else ""
+    return _xlsx_response(build_xlsx(db, [user], from_, to, sheets), f"limefx_{user.username}{tag}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
 
 
 # ---- Zerodha connect -----------------------------------------------------------------------

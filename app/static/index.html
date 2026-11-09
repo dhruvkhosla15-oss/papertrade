@@ -187,6 +187,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
   <!-- ORDERS -->
   <section id="tab-orders" class="hidden">
+    <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download Excel</button></div>
     <div class="card" style="padding:0;overflow:auto">
       <table id="ordTbl"><thead><tr><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
     </div>
@@ -597,6 +598,7 @@ async function loadPerf(){try{const d=istDay();const[w]=perfRange('week'),[m]=pe
   const v=r=>r.users[0]?r.users[0].net_pnl:0,u=rm.users[0]||{};
   $('#perfCards').innerHTML=[['Today',v(rt)],['This week',v(rw)],['This month',v(rm)]].map(([k,x])=>`<div class="stat"><span class="small mut">${k}</span><b class="num ${x>0?'up':x<0?'dn':''}">${(x>0?'+':'')+inr(x)}</b></div>`).join('');
   $('#perfMeta').textContent=u.closing_trades?`This month: ${u.closing_trades} closed trades · ${u.win_rate}% winners · best ${inr(u.best)} · worst ${inr(u.worst)}`:'No closed trades this month yet.';}catch(e){}}
+$('#ordXls').onclick=()=>{location.href='/api/export.xlsx?sheets=orders,trades';toast('Preparing your order book…');};
 $('#xlsBtn').onclick=()=>{const[f,t]=perfRange($('#xRange').value);location.href=`/api/export.xlsx?from=${f}&to=${t}`;toast('Preparing your Excel…');};
 
 // ---------- tabs ----------

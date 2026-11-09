@@ -89,13 +89,19 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </div>
 
   <div class="card">
-    <h2>Settings</h2>
+    <h2>Settings</h2><p class="small mut" style="margin-bottom:10px">One Save button applies everything in this section.</p>
     <h3>Margin % of contract value (futures & short options)</h3>
     <div class="row">
       <div><label class="small mut">NFO (Nifty/BankNifty)</label><input id="mNFO" type="number" step="0.5"></div>
       <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
       <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
       <button id="mSave" class="ghost" style="flex:0 0 auto">Save</button>
+    </div>
+    <h3 style="margin-top:16px">Liquidity rules (order-book fills)</h3>
+    <div class="row">
+      <div><label class="small mut">Reject illiquid trades</label><select id="lqOn"><option value="true">On — fill from bid/ask, block illiquid</option><option value="false">Off — fill at last traded price</option></select></div>
+      <div><label class="small mut">Max bid-ask spread (% of price)</label><input id="lqSpread" type="number" step="0.5"></div>
+      <div><label class="small mut">Reject if no trade for (minutes)</label><input id="lqStale" type="number" step="1"></div>
     </div>
     <p class="small mut" style="margin-top:8px" id="setInfo"></p>
     <h3 style="margin-top:16px">Master password</h3>
@@ -150,6 +156,7 @@ async function boot(){
 }
 async function loadSettings(){const s=await api('/admin/settings');
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;
+  $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;
   $('#setInfo').textContent=`Feed: ${s.feed.feed} · ${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · underlyings: ${s.underlyings.join(', ')} + all MCX`;
   const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.message;
   const kb=$('#kiteBox');
@@ -160,7 +167,7 @@ async function loadSettings(){const s=await api('/admin/settings');
   else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent='Simulated price feed';$('#kiteMsg').textContent='Simulated prices (test mode).';$('#kiteBtn').classList.add('hidden');}
 }
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
-$('#mSave').onclick=async()=>{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value}}});toast('Saved');};
+$('#mSave').onclick=async()=>{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value},liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Saved');};
 
 async function loadUsers(){users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0);

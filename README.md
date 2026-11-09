@@ -18,9 +18,13 @@ with those coins and see their profit/loss. No real money moves anywhere.
 
 ## Rules the engine follows
 
-- **Market orders fill instantly at the exact current LTP.** No slippage, no spread.
-- **Limit orders** rest until LTP touches the limit and fill at the limit price.
-- **Stop-loss orders** trigger at the trigger price and fill at LTP.
+- **Market orders fill against the live order book** (Zerodha 5-level depth): buys pay the best ask,
+  sells get the best bid, walking levels at average price if one level isn't enough — like a real exchange.
+- **Illiquid contracts are rejected** with the reason shown: no bid/ask, bid-ask spread wider than the
+  master's limit (default 5 %), not enough depth for the quantity, or no trade in the last N minutes
+  (default 5). Master can tune or switch this off in Settings. Illiquid strikes appear greyed out.
+- **Limit orders** rest until the opposite side of the book reaches the price (buy fills when best ask ≤ limit).
+- **Stop-loss orders** trigger at the trigger price, then fill like a market order.
 - Quantities are whole lots using the exchange lot size (Nifty 75, Bank Nifty 35, Sensex 20, MCX per contract).
 - **Margin:** buying options blocks the full premium. Futures and short options block
   *margin % × underlying price × qty* (default 12 % NFO/BFO, 10 % MCX — change in Settings).

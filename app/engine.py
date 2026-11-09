@@ -2,9 +2,11 @@
 Order / position engine.
 
 Rules
-- MARKET orders fill instantly at the exact current LTP (no slippage).
-- LIMIT orders rest; a BUY fills when LTP <= limit, a SELL when LTP >= limit, at the limit price.
-- SL orders (stop-loss market): BUY triggers when LTP >= trigger, SELL when LTP <= trigger; fills at LTP.
+- MARKET orders fill against the live order book: BUY walks the asks, SELL walks the bids (avg price
+  across levels, like a real market order). Rejected when the book is empty, the spread is too wide,
+  depth is insufficient for the quantity, or the contract hasn't traded recently.
+- LIMIT orders rest; a BUY fills when the best ask <= limit, a SELL when the best bid >= limit, at the limit price.
+- SL orders (stop-loss market): BUY triggers when LTP >= trigger, SELL when LTP <= trigger; then fills like a market order.
 - Quantities are always whole lots using the exchange lot size.
 - Margin: long options block full premium; futures and short options block
   margin_pct% of notional (underlying LTP x qty). Blocked margin is released when the position closes.
@@ -65,6 +67,50 @@ class Engine:
         o, c = MARKET_HOURS.get(exchange, ("09:15", "15:30"))
         hm = n.strftime("%H:%M")
         return o <= hm <= c
+
+    # ---- liquidity / order book ------------------------------------------------
+    def liquidity_settings(self, db: Session):
+        on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
+        spread = float(get_setting(db, "max_spread_pct", "5") or 5)
+        stale = int(get_setting(db, "stale_minutes", "5") or 5)
+        return on, spread, stale
+
+    def book_fill(self, db: Session, ins, side: str, qty: int):
+        """Price a market order against the order book. Returns (avg_price, note) or raises EngineError."""
+        tick = self.feed.prices.get(ins.token) or {}
+        on, max_spread, stale_min = self.liquidity_settings(db)
+        ltp = tick.get("ltp")
+        if ltp is None:
+            raise EngineError("No live price for this contract")
+        if not on:
+            return ltp, ""
+        bids, asks = tick.get("bids") or [], tick.get("asks") or []
+        if side == "BUY" and not asks:
+            raise EngineError("Illiquid: no sellers in the order book for this contract")
+        if side == "SELL" and not bids:
+            raise EngineError("Illiquid: no buyers in the order book for this contract")
+        if bids and asks:
+            mid = (bids[0][0] + asks[0][0]) / 2
+            spread_pct = (asks[0][0] - bids[0][0]) / mid * 100 if mid else 0
+            if spread_pct > max_spread:
+                raise EngineError(f"Illiquid: bid {bids[0][0]} / ask {asks[0][0]} — spread {spread_pct:.1f}% exceeds {max_spread:g}% limit")
+        ltt = tick.get("ltt")
+        if ltt and time.time() - ltt > stale_min * 60 and self.market_open(ins.exchange):
+            raise EngineError(f"Illiquid: no trade in this contract for {int((time.time() - ltt) // 60)} minutes")
+        levels = asks if side == "BUY" else bids
+        remaining, cost = qty, 0.0
+        for price, avail in levels:
+            take = min(remaining, avail)
+            cost += take * price
+            remaining -= take
+            if remaining <= 0:
+                break
+        if remaining > 0:
+            avail_lots = (qty - remaining) // ins.lot_size
+            raise EngineError(f"Not enough liquidity: only {avail_lots} lot(s) available in the order book, you asked for {qty // ins.lot_size}")
+        avg = round(cost / qty / ins.tick_size) * ins.tick_size
+        note = "" if abs(avg - levels[0][0]) < 1e-9 else f"filled across {sum(1 for _ in levels)} levels"
+        return round(avg, 2), note
 
     def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
         if ins.instrument_type in ("CE", "PE") and side == "BUY":
@@ -134,7 +180,16 @@ class Engine:
         db.flush()
 
         if order_type == "MARKET":
-            self._fill(db, user, order, ltp)
+            try:
+                px, note = self.book_fill(db, ins, side, qty)
+            except EngineError as err:
+                order.status = "REJECTED"; order.reason = str(err)
+                db.commit()
+                self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
+                raise
+            self._fill(db, user, order, px)
+            if note and order.status == "FILLED":
+                order.reason = note
         else:
             # reserve margin for the opening part so user can't over-commit
             ref_price = limit_price if order_type == "LIMIT" else ltp
@@ -254,16 +309,31 @@ class Engine:
                     self._pending_tokens.discard(token)
                     return
                 ins = self.feed.instruments.get(token)
+                tick = self.feed.prices.get(token) or {}
+                on, _, _ = self.liquidity_settings(db)
+                bid, ask = tick.get("bid"), tick.get("ask")
                 for o in orders:
                     if not self.market_open(ins.exchange):
                         continue
                     fill_at = None
                     if o.order_type == "LIMIT":
-                        if (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
+                        if on:
+                            # real matching: a buy fills only when someone is offering at/below our price
+                            if o.side == "BUY" and ask is not None and ask <= o.limit_price:
+                                fill_at = o.limit_price
+                            elif o.side == "SELL" and bid is not None and bid >= o.limit_price:
+                                fill_at = o.limit_price
+                        elif (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
                             fill_at = o.limit_price
                     elif o.order_type == "SL":
                         if (o.side == "BUY" and ltp >= o.trigger_price) or (o.side == "SELL" and ltp <= o.trigger_price):
-                            fill_at = ltp
+                            try:
+                                fill_at, _ = self.book_fill(db, ins, o.side, o.qty)
+                            except EngineError as err:
+                                o.status = "REJECTED"; o.reason = f"Stop-loss triggered but {err}"; o.margin_blocked = 0.0
+                                db.commit()
+                                self._emit(o.user_id, {"type": "order", "order": self.order_dict(o)})
+                                continue
                     if fill_at is None:
                         continue
                     user = db.get(User, o.user_id)

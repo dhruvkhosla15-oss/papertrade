@@ -135,8 +135,10 @@ def logout(response: Response):
 
 @app.get("/api/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    on, spread, stale = engine.liquidity_settings(db)
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": feed.status(),
-            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}}
+            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS},
+            "liquidity": {"on": on, "max_spread_pct": spread}}
 
 
 class PasswordIn(BaseModel):
@@ -211,10 +213,11 @@ def search(q: str, user: User = Depends(current_user)):
 
 
 @app.get("/api/instrument/{token}")
-def instrument(token: int, user: User = Depends(current_user)):
+async def instrument(token: int, user: User = Depends(current_user)):
     i = feed.instruments.get(token)
     if not i:
         raise HTTPException(404, "unknown instrument")
+    await _ensure_price(token)
     return {**i.to_dict(), "price": feed.prices.get(token)}
 
 
@@ -474,19 +477,30 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 
 @app.get("/api/admin/settings")
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    on, spread, stale = engine.liquidity_settings(db)
     return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX")},
+            "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": config.ALLOWED_UNDERLYINGS}
 
 
 class SettingsIn(BaseModel):
     margin_pct: dict
+    liquidity_check: Optional[bool] = None
+    max_spread_pct: Optional[float] = None
+    stale_minutes: Optional[int] = None
 
 
 @app.post("/api/admin/settings")
 def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     for ex, v in body.margin_pct.items():
         set_setting(db, f"margin_pct_{ex}", str(float(v)))
+    if body.liquidity_check is not None:
+        set_setting(db, "liquidity_check", "true" if body.liquidity_check else "false")
+    if body.max_spread_pct is not None:
+        set_setting(db, "max_spread_pct", str(float(body.max_spread_pct)))
+    if body.stale_minutes is not None:
+        set_setting(db, "stale_minutes", str(int(body.stale_minutes)))
     return {"ok": True}
 
 

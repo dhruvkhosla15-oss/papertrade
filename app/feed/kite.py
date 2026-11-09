@@ -115,7 +115,7 @@ class KiteFeed(PriceFeed):
         toks = list(self._refcount)
         if toks:
             ws.subscribe(toks)
-            ws.set_mode(ws.MODE_QUOTE, toks)
+            ws.set_mode(ws.MODE_FULL, toks)
 
     def _on_close(self, ws, code, reason):
         self._set_status(False, "Market data disconnected — reconnecting")
@@ -133,6 +133,18 @@ class KiteFeed(PriceFeed):
                 d["volume"] = t["volume_traded"]
             if "oi" in t:
                 d["oi"] = t["oi"]
+            depth = t.get("depth") or {}
+            bids = [(float(x["price"]), int(x["quantity"])) for x in depth.get("buy", []) if x.get("quantity")]
+            asks = [(float(x["price"]), int(x["quantity"])) for x in depth.get("sell", []) if x.get("quantity")]
+            d["bids"] = bids; d["asks"] = asks
+            d["bid"] = bids[0][0] if bids else None
+            d["ask"] = asks[0][0] if asks else None
+            ltt = t.get("last_trade_time")
+            if ltt:
+                try:
+                    d["ltt"] = ltt.timestamp() if hasattr(ltt, "timestamp") else None
+                except Exception:
+                    pass
             out.append(d)
         if self.loop:
             self.loop.call_soon_threadsafe(lambda: [self._publish(d) for d in out])
@@ -141,7 +153,7 @@ class KiteFeed(PriceFeed):
         if self.ticker and self.connected:
             try:
                 self.ticker.subscribe(tokens)
-                self.ticker.set_mode(self.ticker.MODE_QUOTE, tokens)
+                self.ticker.set_mode(self.ticker.MODE_FULL, tokens)
             except Exception as e:
                 log.warning("subscribe failed: %s", e)
 

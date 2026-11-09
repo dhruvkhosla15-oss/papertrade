@@ -175,8 +175,23 @@ class MockFeed(PriceFeed):
                 ltp = self._price(ins)
                 prev = self.prices.get(t, {})
                 close = prev.get("close") or ltp * (1 + random.uniform(-0.01, 0.01))
+                # synthetic order book: liquid near ATM, wide/empty far OTM (to exercise liquidity rules)
+                tick = ins.tick_size
+                dist = 0
+                if ins.instrument_type in ("CE", "PE"):
+                    dist = abs(ins.strike - self.spot[ins.name]) / self.spot[ins.name]
+                if dist > 0.09 and ins.exchange != "MCX":
+                    bids, asks = [], []            # dead strike: no book at all
+                elif dist > 0.06:
+                    bids = [(round(ltp * 0.9, 2), ins.lot_size)]; asks = [(round(ltp * 1.1, 2), ins.lot_size)]
+                else:
+                    lots = ins.lot_size
+                    bids = [(round(max(tick, ltp - tick * (i + 1)), 2), lots * random.randint(3, 40)) for i in range(5)]
+                    asks = [(round(ltp + tick * (i + 1), 2), lots * random.randint(3, 40)) for i in range(5)]
                 self._publish({"token": t, "ltp": ltp, "ts": now, "close": round(close, 2),
                                "change": round((ltp - close) / close * 100, 2) if close else 0,
                                "volume": prev.get("volume", random.randint(100, 50000)) + random.randint(0, 50),
-                               "oi": prev.get("oi", random.randint(1000, 900000))})
+                               "oi": prev.get("oi", random.randint(1000, 900000)),
+                               "bids": bids, "asks": asks, "bid": bids[0][0] if bids else None,
+                               "ask": asks[0][0] if asks else None, "ltt": now})
             await asyncio.sleep(dt)

@@ -39,6 +39,7 @@ td:first-child,th:first-child{text-align:left}
 .chain .ce,.chain .pe{cursor:pointer}
 .chain .ce:active,.chain .pe:active{background:#1e293b}
 .chain .itm{background:#141a26}
+.chain td.illq{opacity:.35}
 .chain .atm td.strike{color:#fbbf24}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -175,7 +176,9 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div></div>
     </div>
-    <button class="ghost" id="oChart" style="width:100%;margin-top:12px">📈 Chart</button>
+    <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
+    <div id="oIlliq" class="small dn hidden" style="margin-top:6px"></div>
+    <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
     <div class="seg" style="margin:10px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
     <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
     <div class="row">
@@ -338,12 +341,12 @@ function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)retur
   if(!state._scrolled&&best){const w=$('#chainWrap');w.scrollTop=best.offsetTop-w.clientHeight/2;state._scrolled=true;}}
 function onPrices(ticks){
   for(const t of ticks){
-    const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);}
+    const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
     chartTick(t);
-    if(state.sel&&t.token===state.sel.token){$('#oLtp').textContent=fmt(t.ltp);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
+    if(state.sel&&t.token===state.sel.token){renderBook(t);$('#oLtp').textContent=fmt(t.ltp);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
   }
   // live P&L on positions
   let unreal=0,touched=false;
@@ -358,7 +361,11 @@ let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const 
   sub(r.map(i=>i.token));onPrices(r.map(i=>state.prices[i.token]).filter(Boolean));},300);};
 
 // ---------- order sheet ----------
-function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
+function illiq(pr){if(!state.me?.liquidity?.on||!pr)return null;const b=pr.bid,a=pr.ask;if(b==null||a==null)return 'No bid/ask — illiquid';const sp=(a-b)/((a+b)/2)*100;if(sp>state.me.liquidity.max_spread_pct)return `Spread ${sp.toFixed(1)}% — illiquid`;return null;}
+function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$('#oAsk').textContent=pr?.ask!=null?fmt(pr.ask):'—';
+  $('#oBidQ').textContent=pr?.bids?.[0]?`(${pr.bids[0][1]})`:'';$('#oAskQ').textContent=pr?.asks?.[0]?`(${pr.asks[0][1]})`:'';
+  const w=illiq(pr);$('#oIlliq').classList.toggle('hidden',!w);$('#oIlliq').textContent=w?'⚠ '+w+' — market orders will be rejected':'';}
+function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
   $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
   $('#oLots').value=1;$('#oQty').value=ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
   const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';

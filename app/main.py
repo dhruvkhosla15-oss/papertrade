@@ -609,7 +609,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
     return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK")},
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
-            "underlyings": config.ALLOWED_UNDERLYINGS}
+            "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
 
 
 class SettingsIn(BaseModel):

@@ -21,7 +21,8 @@ ADMIN_PASSWORD = os.getenv("PT_ADMIN_PASSWORD", "admin123")
 # Index underlyings offered for F&O. "STOCKS" = every NSE stock that has F&O (lot sizes from Zerodha's file).
 ALLOWED_UNDERLYINGS = [u.strip().upper() for u in
                        os.getenv("PT_UNDERLYINGS", "NIFTY,BANKNIFTY,SENSEX,STOCKS").split(",") if u.strip()]
-ALLOW_STOCK_FNO = "STOCKS" in ALLOWED_UNDERLYINGS
+# Stock F&O is on unless PT_STOCK_FNO=0 (the STOCKS keyword above also turns it on).
+ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "false", "no", "off") or "STOCKS" in ALLOWED_UNDERLYINGS
 
 # Approximate margin % of contract notional for futures / short options
 DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0}  # STK = stock F&O (NFO non-index)

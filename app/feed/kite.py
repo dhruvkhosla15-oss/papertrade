@@ -134,8 +134,11 @@ class KiteFeed(PriceFeed):
             if "oi" in t:
                 d["oi"] = t["oi"]
             depth = t.get("depth") or {}
-            bids = [(float(x["price"]), int(x["quantity"])) for x in depth.get("buy", []) if x.get("quantity")]
-            asks = [(float(x["price"]), int(x["quantity"])) for x in depth.get("sell", []) if x.get("quantity")]
+            bids = [(float(x["price"]), int(x["quantity"]), int(x.get("orders", 0))) for x in depth.get("buy", []) if x.get("quantity")]
+            asks = [(float(x["price"]), int(x["quantity"]), int(x.get("orders", 0))) for x in depth.get("sell", []) if x.get("quantity")]
+            if ohlc:
+                d["open"], d["high"], d["low"] = ohlc.get("open"), ohlc.get("high"), ohlc.get("low")
+            d["tbq"] = t.get("total_buy_quantity"); d["tsq"] = t.get("total_sell_quantity")
             d["bids"] = bids; d["asks"] = asks
             d["bid"] = bids[0][0] if bids else None
             d["ask"] = asks[0][0] if asks else None

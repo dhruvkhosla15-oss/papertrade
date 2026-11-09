@@ -183,15 +183,17 @@ class MockFeed(PriceFeed):
                 if dist > 0.09 and ins.exchange != "MCX":
                     bids, asks = [], []            # dead strike: no book at all
                 elif dist > 0.06:
-                    bids = [(round(ltp * 0.9, 2), ins.lot_size)]; asks = [(round(ltp * 1.1, 2), ins.lot_size)]
+                    bids = [(round(ltp * 0.9, 2), ins.lot_size, 1)]; asks = [(round(ltp * 1.1, 2), ins.lot_size, 1)]
                 else:
                     lots = ins.lot_size
-                    bids = [(round(max(tick, ltp - tick * (i + 1)), 2), lots * random.randint(3, 40)) for i in range(5)]
-                    asks = [(round(ltp + tick * (i + 1), 2), lots * random.randint(3, 40)) for i in range(5)]
+                    bids = [(round(max(tick, ltp - tick * (i + 1)), 2), lots * random.randint(3, 40), random.randint(1, 30)) for i in range(5)]
+                    asks = [(round(ltp + tick * (i + 1), 2), lots * random.randint(3, 40), random.randint(1, 30)) for i in range(5)]
                 self._publish({"token": t, "ltp": ltp, "ts": now, "close": round(close, 2),
                                "change": round((ltp - close) / close * 100, 2) if close else 0,
                                "volume": prev.get("volume", random.randint(100, 50000)) + random.randint(0, 50),
                                "oi": prev.get("oi", random.randint(1000, 900000)),
                                "bids": bids, "asks": asks, "bid": bids[0][0] if bids else None,
+                               "open": round(close * 1.002, 2), "high": round(max(ltp, close) * 1.01, 2), "low": round(min(ltp, close) * 0.99, 2),
+                               "tbq": sum(b[1] for b in bids), "tsq": sum(a[1] for a in asks),
                                "ask": asks[0][0] if asks else None, "ltt": now})
             await asyncio.sleep(dt)

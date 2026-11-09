@@ -99,7 +99,8 @@ class Engine:
             raise EngineError(f"Illiquid: no trade in this contract for {int((time.time() - ltt) // 60)} minutes")
         levels = asks if side == "BUY" else bids
         remaining, cost = qty, 0.0
-        for price, avail in levels:
+        for lvl in levels:
+            price, avail = lvl[0], lvl[1]
             take = min(remaining, avail)
             cost += take * price
             remaining -= take

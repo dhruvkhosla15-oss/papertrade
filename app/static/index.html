@@ -40,6 +40,7 @@ td:first-child,th:first-child{text-align:left}
 .chain .ce:active,.chain .pe:active{background:#1e293b}
 .chain .itm{background:#141a26}
 .chain td.illq{opacity:.35}
+.depth{width:100%;font-size:12px}.depth th{font-weight:500;color:var(--mut);padding:2px 4px;border:0}.depth td{padding:3px 4px;border:0}.depth td.b{color:#60a5fa}.depth td.a{color:#f87171}
 .chain .atm td.strike{color:#fbbf24}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -176,8 +177,18 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div></div>
     </div>
-    <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
+    <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:center"><button class="ghost small" id="oDepthBtn" style="padding:4px 10px">Market depth ▾</button></div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
     <div id="oIlliq" class="small dn hidden" style="margin-top:6px"></div>
+    <div id="depth" class="hidden" style="margin-top:10px;background:var(--bg);border-radius:10px;padding:8px">
+      <table class="depth"><thead><tr><th style="text-align:left">Bid</th><th>Orders</th><th>Qty</th><th style="text-align:left;padding-left:14px">Offer</th><th>Orders</th><th>Qty</th></tr></thead><tbody id="depthBody"></tbody>
+      <tfoot><tr><td class="up" style="text-align:left">Total</td><td></td><td class="num up" id="dTbq"></td><td class="dn" style="text-align:left;padding-left:14px">Total</td><td></td><td class="num dn" id="dTsq"></td></tr></tfoot></table>
+      <div class="grid2 small" style="margin-top:8px;gap:4px 12px">
+        <div><span class="mut">Open</span> <span class="num" id="dOpen">—</span></div><div style="text-align:right"><span class="mut">Prev. close</span> <span class="num" id="dClose">—</span></div>
+        <div><span class="mut">Low</span> <span class="num" id="dLow">—</span></div><div style="text-align:right"><span class="mut">High</span> <span class="num" id="dHigh">—</span></div>
+        <div><span class="mut">Volume</span> <span class="num" id="dVol">—</span></div><div style="text-align:right"><span class="mut">OI</span> <span class="num" id="dOi">—</span></div>
+        <div><span class="mut">Last trade</span> <span class="num" id="dLtt">—</span></div><div style="text-align:right"><span class="mut">Spread</span> <span class="num" id="dSpread">—</span></div>
+      </div>
+    </div>
     <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
     <div class="seg" style="margin:10px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
     <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
@@ -364,7 +375,15 @@ let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const 
 function illiq(pr){if(!state.me?.liquidity?.on||!pr)return null;const b=pr.bid,a=pr.ask;if(b==null||a==null)return 'No bid/ask — illiquid';const sp=(a-b)/((a+b)/2)*100;if(sp>state.me.liquidity.max_spread_pct)return `Spread ${sp.toFixed(1)}% — illiquid`;return null;}
 function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$('#oAsk').textContent=pr?.ask!=null?fmt(pr.ask):'—';
   $('#oBidQ').textContent=pr?.bids?.[0]?`(${pr.bids[0][1]})`:'';$('#oAskQ').textContent=pr?.asks?.[0]?`(${pr.asks[0][1]})`:'';
-  const w=illiq(pr);$('#oIlliq').classList.toggle('hidden',!w);$('#oIlliq').textContent=w?'⚠ '+w+' — market orders will be rejected':'';}
+  const w=illiq(pr);$('#oIlliq').classList.toggle('hidden',!w);$('#oIlliq').textContent=w?'⚠ '+w+' — market orders will be rejected':'';
+  if(pr&&!$('#depth').classList.contains('hidden')){const B=pr.bids||[],A=pr.asks||[];let rows='';
+    for(let i=0;i<5;i++){const b=B[i],a=A[i];rows+=`<tr><td class="b num" style="text-align:left">${b?fmt(b[0]):'—'}</td><td class="num" style="text-align:center">${b?b[2]||'':''}</td><td class="num" style="text-align:right">${b?b[1]:''}</td><td class="a num" style="text-align:left;padding-left:14px">${a?fmt(a[0]):'—'}</td><td class="num" style="text-align:center">${a?a[2]||'':''}</td><td class="num" style="text-align:right">${a?a[1]:''}</td></tr>`;}
+    $('#depthBody').innerHTML=rows;$('#dTbq').textContent=pr.tbq??B.reduce((x,y)=>x+y[1],0);$('#dTsq').textContent=pr.tsq??A.reduce((x,y)=>x+y[1],0);
+    $('#dOpen').textContent=fmt(pr.open);$('#dClose').textContent=fmt(pr.close);$('#dLow').textContent=fmt(pr.low);$('#dHigh').textContent=fmt(pr.high);
+    $('#dVol').textContent=pr.volume!=null?Number(pr.volume).toLocaleString('en-IN'):'—';$('#dOi').textContent=pr.oi!=null?Number(pr.oi).toLocaleString('en-IN'):'—';
+    $('#dLtt').textContent=pr.ltt?new Date(pr.ltt*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';$('#dSpread').className='num '+(sp!=null&&sp>(state.me?.liquidity?.max_spread_pct||5)?'dn':'');}}
+$('#oDepthBtn').onclick=()=>{const d=$('#depth');d.classList.toggle('hidden');$('#oDepthBtn').textContent=d.classList.contains('hidden')?'Market depth ▾':'Market depth ▴';renderBook(state.prices[state.sel?.token]);};
 function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
   $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
   $('#oLots').value=1;$('#oQty').value=ins.lot_size;$('#oLimit').value=$('#oTrig').value='';

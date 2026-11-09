@@ -85,6 +85,21 @@ td:first-child,th:first-child{text-align:left}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
+.homeSeg{display:flex;width:100%;margin-bottom:12px}.homeSeg button{flex:1;padding:10px;font-size:14px;font-weight:600}.homeSeg button.active,#pPeriod button.active{background:var(--acc);color:#0f1115}
+#pPeriod{display:inline-flex;border-radius:999px}#pPeriod button{flex:0 0 auto;padding:8px 14px;font-size:13px;font-weight:600;border-radius:999px}
+.pctl{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:12px}.pctl .seg{justify-self:start}
+.selwrap{position:relative;justify-self:end;min-width:160px}.selwrap:after{content:'⌄';position:absolute;right:12px;top:7px;color:var(--mut);pointer-events:none}
+.selwrap select{appearance:none;-webkit-appearance:none;width:100%;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:8px 32px 8px 14px;font-weight:600;font-size:13px}
+@media(max-width:480px){.pctl{grid-template-columns:1fr}.selwrap{justify-self:stretch}}
+.hero3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.hero3 .hs{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
+.hero3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}.hero3 .v{font-size:15px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .s{font-size:12px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:700px){.pgrid{grid-template-columns:1fr}}
+.pcard{padding:0;overflow:hidden}.pcard h3{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;padding:12px 14px 6px;margin:0;display:flex;justify-content:space-between}.pcard h3 span{color:var(--txt);font-weight:600;text-transform:none;letter-spacing:0}
+.prow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer}.prow:hover{background:var(--strike)}
+.prow .rk{width:16px;color:var(--mut);font-size:12px;text-align:center}.prow .nm{flex:1;min-width:0}.prow .nm b{display:block;font-size:14px}.prow .nm small{color:var(--mut);font-size:11px}
+.prow .px{text-align:right;font-variant-numeric:tabular-nums}.prow .px b{display:block}.prow .px small{font-size:12px}
+.spark{width:64px;height:24px;flex:0 0 auto}.tbar{height:4px;border-radius:2px;background:var(--line);margin-top:4px;overflow:hidden}.tbar i{display:block;height:100%;background:var(--acc)}
+.pempty{padding:14px;color:var(--mut);font-size:13px;border-top:1px solid var(--line)}
 .costs>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:4px 0;border-bottom:1px dashed var(--line)}.costs>div:last-child{border:0;font-weight:600}
 .cats{display:grid;gap:10px}.cat{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;cursor:pointer}.cat:hover{background:var(--hover,var(--seg))}.cat>div:nth-child(2){flex:1}.cat b{font-size:16px}.cat-ic{font-size:26px;width:40px;text-align:center}.cat>span.mut{font-size:20px}
 .catHead{display:flex;align-items:center;gap:10px;padding:10px 0 2px}
@@ -119,7 +134,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div><div class="brand"><span class="lm">lime</span><span class="fx">FX</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
+  <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">FX</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <div class="funds" id="hFunds"><div class="mut">Available Balance</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
@@ -129,13 +144,29 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <main>
   <!-- WATCHLIST -->
   <section id="tab-watch">
+    <div class="seg homeSeg" id="homeSeg"><button data-home="pulse" class="active">Pulse</button><button data-home="watch">Watchlist</button></div>
+    <div id="pulseView">
+      <div class="pctl">
+        <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
+        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option></select></div>
+      </div>
+      <div class="hero3" id="pHero"></div>
+      <div class="pgrid">
+        <div class="card pcard"><h3>Top gainers <span id="pLblG"></span></h3><div id="pGain"></div></div>
+        <div class="card pcard"><h3>Top losers <span id="pLblL"></span></h3><div id="pLose"></div></div>
+        <div class="card pcard"><h3>Most traded <span>futures turnover · today</span></h3><div id="pTraded"></div></div>
+      </div>
+      <p class="small mut" id="pNote" style="margin:8px 2px"></p>
+    </div>
+    <div id="watchView" class="hidden">
     <div class="card" style="padding:8px">
       <input id="wsearch" placeholder="Add a scrip — e.g. RELIANCE, NIFTY 24300 CE, GOLDM FUT">
       <div id="wsearchRes"></div>
     </div>
     <div class="card" style="padding:0 12px" id="wlist"></div>
     <div id="wEmpty" class="card" style="text-align:center;padding:24px 14px"><div class="mut" style="margin-bottom:12px">Your watchlist is empty. Add a scrip above or browse the Market tab — refresh to bring back the default list.</div><button id="goMarket">Browse Market →</button></div>
-  </section>
+      </div>
+</section>
 
   <!-- WATCH / CHAIN -->
   <section id="tab-market" class="hidden">
@@ -242,7 +273,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   </section>
 </main>
 <nav class="tabs">
-  <button data-tab="watch" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg><span>Watchlist</span></button>
+  <button data-tab="watch" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
   <button data-tab="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-8M22 19H2"/></svg><span>Market</span></button>
   <button data-tab="positions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg><span>Positions</span></button>
   <button data-tab="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg><span>Orders</span></button>
@@ -371,6 +402,7 @@ async function bootGuest(){
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
   try{state.und=await api('/underlyings');buildMarket();}catch(e){}
+  setHome((()=>{try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}})());
   setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());renderFeed(h.feed);}catch(e){}},10000);
 }
 function buildMarket(){
@@ -406,6 +438,7 @@ async function boot(){
   state.und=await api('/underlyings');
   try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
   buildMarket();
+  setHome((()=>{try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}})());
   $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
   $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');$('#undListF').classList.remove('hidden');};
   state.tickerTokens=[...new Set([...(state.tickerTokens||[]),...state.und.map(u=>u.spot_token).filter(Boolean)])];
@@ -658,6 +691,32 @@ function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><t
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
 async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num mut">${x.commission?'-'+fmt(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
 async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
+
+// ---------- Pulse (home) ----------
+let pulseP='today',pulseK='all',pulseTimer=null;
+function sparkSvg(v,up){if(!v||v.length<2)return '<svg class="spark"></svg>';const mn=Math.min(...v),mx=Math.max(...v),r=(mx-mn)||1;const pts=v.map((x,i)=>`${(i/(v.length-1)*64).toFixed(1)},${(22-(x-mn)/r*20).toFixed(1)}`).join(' ');return `<svg class="spark" viewBox="0 0 64 24"><polyline fill="none" stroke="${up?'var(--up)':'var(--dn)'}" stroke-width="1.5" points="${pts}"/></svg>`;}
+const fmtCr=n=>n>=1e12?'₹'+(n/1e12).toFixed(1)+' L Cr':n>=1e7?'₹'+Math.round(n/1e7).toLocaleString('en-IN')+' Cr':n>=1e5?'₹'+(n/1e5).toFixed(1)+' L':'₹'+Math.round(n).toLocaleString('en-IN');
+const pctS=p=>p==null?'—':(p>0?'+':'')+p.toFixed(2)+'%';
+function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;
+  if(mode==='traded')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}"><div class="rk">${i+1}</div><div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="tbar"><i style="width:${Math.max(4,Math.round(r.turnover/maxT*100))}%"></i></div></div><div class="px"><b>${fmtCr(r.turnover)}</b><small class="mut">${r.lots.toLocaleString('en-IN')} lots</small></div></div>`;
+  return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}"><div class="rk">${i+1}</div><div class="nm"><b>${r.name}</b><small>${r.label}</small></div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
+async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
+  const lbl={today:'Today',week:'This week',month:'This month'}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
+  const h=d.hero;const hs=(k,r,cls,sub)=>r?`<div class="hs" data-name="${r.name}" data-ex="${r.exchange}"><div class="k">${k}</div><div class="v">${r.name}</div><div class="s ${cls}">${sub}</div></div>`:`<div class="hs"><div class="k">${k}</div><div class="v mut">—</div></div>`;
+  $('#pHero').innerHTML=hs('Top gainer',h.gainer,'up',h.gainer?pctS(h.gainer.pct)+' · '+fmt(h.gainer.ltp):'')+hs('Top loser',h.loser,'dn',h.loser?pctS(h.loser.pct)+' · '+fmt(h.loser.ltp):'')+hs('Most traded',h.traded,'mut',h.traded?fmtCr(h.traded.turnover)+' turnover':'');
+  const maxT=d.traded[0]?.turnover||1;
+  $('#pGain').innerHTML=d.gainers.map((r,i)=>pulseRow(r,i,'g')).join('')||'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>';
+  $('#pLose').innerHTML=d.losers.map((r,i)=>pulseRow(r,i,'l')).join('')||'<div class="pempty">—</div>';
+  $('#pTraded').innerHTML=d.traded.map((r,i)=>pulseRow(r,i,'traded',maxT)).join('')||'<div class="pempty">No volume yet today</div>';
+  $('#pNote').textContent=pulseP==='today'?'Change vs previous close · live':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago · prices live';
+  $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
+function openScrip(ex,name){if(state.guest){showLogin();return;}$('nav.tabs button[data-tab="market"]').click();$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
+$$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});
+$('#pKind').onchange=()=>{pulseK=$('#pKind').value;loadPulse();};
+function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');
+  if(v==='pulse'){loadPulse();if(!pulseTimer)pulseTimer=setInterval(()=>{if(state.tab==='watch'&&!$('#pulseView').classList.contains('hidden'))loadPulse();},20000);}else if(!state.guest)loadWatch();}
+$$('#homeSeg button').forEach(b=>b.onclick=()=>setHome(b.dataset.home));
+$('#brandHome').onclick=()=>{$('#loginView').classList.add('hidden');$('#sheet')?.classList.add('hidden');$('nav.tabs button[data-tab="watch"]').click();setHome('pulse');window.scrollTo({top:0,behavior:'smooth'});};
 
 // ---------- performance ----------
 const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);

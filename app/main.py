@@ -1001,6 +1001,20 @@ def my_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str
     return _xlsx_response(build_xlsx(db, [user], from_, to, sheets), f"limefx_{user.username}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx")
 
 
+# ---- Pulse (public): gainers / losers / most traded ---------------------------------------------
+from .pulse import Pulse
+pulse = Pulse(feed)
+
+
+@app.get("/api/public/pulse")
+def public_pulse(period: str = "today", kind: str = "all"):
+    if period not in ("today", "week", "month"):
+        period = "today"
+    if kind not in ("all", "index", "stock", "mcx"):
+        kind = "all"
+    return pulse.snapshot(period, kind)
+
+
 # ---- feed control (master) ----------------------------------------------------------------------
 @app.post("/api/admin/feed/disconnect")
 def feed_disconnect(admin: User = Depends(current_admin)):

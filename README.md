@@ -87,6 +87,14 @@ The feed bar also has **Disconnect feed** / **Reconnect feed** buttons: disconne
 everyone (trainees see OFFLINE, orders are rejected); reconnect restores it using the day's token, no Zerodha
 login needed.
 
+## Home: Pulse
+
+The landing tab is **Home**, with a **Pulse | Watchlist** toggle. Pulse shows top gainers, top losers and most
+traded (futures turnover) for **Today / This week / This month**, filterable by All / Indices / Stocks / MCX, with
+10-day sparklines. Today's change is live from the feed; week/month use daily closes pulled once a day from
+Zerodha's historical API (`app/pulse.py`). Tapping a row opens that scrip's option chain (login required).
+Visitors can see Pulse without logging in. The limeFX logo always returns to Home.
+
 ## Public home page
 
 Visitors who are not logged in see the watchlist page with live spot prices and the scrolling ticker, and can

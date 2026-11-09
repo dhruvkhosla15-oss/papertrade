@@ -454,7 +454,7 @@ function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positi
 function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${o.symbol}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>
   <td class="num">${o.fill_price!=null?fmt(o.fill_price):(o.limit_price?fmt(o.limit_price):o.trigger_price?'trg '+fmt(o.trigger_price):'MKT')}</td>
-  <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small dn">${o.reason}</div>`:''}</td>
+  <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
 async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">No trades yet</td></tr>';}

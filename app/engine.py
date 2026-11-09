@@ -110,7 +110,8 @@ class Engine:
             avail_lots = (qty - remaining) // ins.lot_size
             raise EngineError(f"Not enough liquidity: only {avail_lots} lot(s) available in the order book, you asked for {qty // ins.lot_size}")
         avg = round(cost / qty / ins.tick_size) * ins.tick_size
-        note = "" if abs(avg - levels[0][0]) < 1e-9 else f"filled across {sum(1 for _ in levels)} levels"
+        b = f"{bids[0][0]:g}" if bids else "—"; a = f"{asks[0][0]:g}" if asks else "—"
+        note = f"matched vs book: bid {b} / ask {a}" + ("" if abs(avg - levels[0][0]) < 1e-9 else ", filled across levels")
         return round(avg, 2), note
 
     def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
@@ -191,6 +192,8 @@ class Engine:
             self._fill(db, user, order, px)
             if note and order.status == "FILLED":
                 order.reason = note
+            if order.status == "FILLED":
+                order.fill_price = px  # always the counterparty price, never LTP
         else:
             # reserve margin for the opening part so user can't over-commit
             ref_price = limit_price if order_type == "LIMIT" else ltp

@@ -99,9 +99,9 @@ h3{font-size:12px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     </div>
     <h3 style="margin-top:16px">Liquidity rules (order-book fills)</h3>
     <div class="row">
-      <div><label class="small mut">Reject illiquid trades</label><select id="lqOn"><option value="true">On — fill from bid/ask, block illiquid</option><option value="false">Off — fill at last traded price</option></select></div>
-      <div><label class="small mut">Max bid-ask spread (% of price)</label><input id="lqSpread" type="number" step="0.5"></div>
-      <div><label class="small mut">Reject if no trade for (minutes)</label><input id="lqStale" type="number" step="1"></div>
+      <div><label class="small mut">Reject illiquid trades</label><select id="lqOn"><option value="true">On — fill only against real bids/offers</option><option value="false">Off — fill at last traded price</option></select></div>
+      <div><label class="small mut">Max bid-ask spread % (0 = no limit, real market)</label><input id="lqSpread" type="number" step="0.5"></div>
+      <div><label class="small mut">Reject if no trade for N minutes (0 = off)</label><input id="lqStale" type="number" step="1"></div>
     </div>
     <p class="small mut" style="margin-top:8px" id="setInfo"></p>
     <h3 style="margin-top:16px">Master password</h3>

@@ -71,19 +71,19 @@ class Engine:
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
-        spread = float(get_setting(db, "max_spread_pct", "5") or 5)
-        stale = int(get_setting(db, "stale_minutes", "5") or 5)
+        spread = float(get_setting(db, "max_spread_pct", "0") or 0)   # 0 = no spread limit (real-market mode)
+        stale = int(get_setting(db, "stale_minutes", "0") or 0)        # 0 = no staleness check
         return on, spread, stale
 
     def book_fill(self, db: Session, ins, side: str, qty: int):
-        """Price a market order against the order book. Returns (avg_price, note) or raises EngineError."""
+        """Price a market order against the order book. Returns (avg_price, note, filled_qty) or raises EngineError."""
         tick = self.feed.prices.get(ins.token) or {}
         on, max_spread, stale_min = self.liquidity_settings(db)
         ltp = tick.get("ltp")
         if ltp is None:
             raise EngineError("No live price for this contract")
         if not on:
-            return ltp, ""
+            return ltp, "", qty
         bids, asks = tick.get("bids") or [], tick.get("asks") or []
         if side == "BUY" and not asks:
             raise EngineError("Illiquid: no sellers in the order book for this contract")
@@ -92,10 +92,10 @@ class Engine:
         if bids and asks:
             mid = (bids[0][0] + asks[0][0]) / 2
             spread_pct = (asks[0][0] - bids[0][0]) / mid * 100 if mid else 0
-            if spread_pct > max_spread:
+            if max_spread > 0 and spread_pct > max_spread:
                 raise EngineError(f"Illiquid: bid {bids[0][0]} / ask {asks[0][0]} — spread {spread_pct:.1f}% exceeds {max_spread:g}% limit")
         ltt = tick.get("ltt")
-        if ltt and time.time() - ltt > stale_min * 60 and self.market_open(ins.exchange):
+        if stale_min > 0 and ltt and time.time() - ltt > stale_min * 60 and self.market_open(ins.exchange):
             raise EngineError(f"Illiquid: no trade in this contract for {int((time.time() - ltt) // 60)} minutes")
         levels = asks if side == "BUY" else bids
         remaining, cost = qty, 0.0
@@ -106,13 +106,25 @@ class Engine:
             remaining -= take
             if remaining <= 0:
                 break
-        if remaining > 0:
-            avail_lots = (qty - remaining) // ins.lot_size
-            raise EngineError(f"Not enough liquidity: only {avail_lots} lot(s) available in the order book, you asked for {qty // ins.lot_size}")
-        avg = round(cost / qty / ins.tick_size) * ins.tick_size
+        filled = qty - remaining
+        # whole lots only (like the exchange)
+        filled = (filled // ins.lot_size) * ins.lot_size
+        if filled <= 0:
+            raise EngineError(f"Not enough liquidity: less than one lot available in the order book")
+        if filled < qty:
+            # recompute cost for the lots we can actually fill
+            remaining, cost = filled, 0.0
+            for lvl in levels:
+                take = min(remaining, lvl[1]); cost += take * lvl[0]; remaining -= take
+                if remaining <= 0: break
+        avg = round(cost / filled / ins.tick_size) * ins.tick_size
         b = f"{bids[0][0]:g}" if bids else "—"; a = f"{asks[0][0]:g}" if asks else "—"
-        note = f"matched vs book: bid {b} / ask {a}" + ("" if abs(avg - levels[0][0]) < 1e-9 else ", filled across levels")
-        return round(avg, 2), note
+        note = f"matched vs book: bid {b} / ask {a}"
+        if abs(avg - levels[0][0]) > 1e-9:
+            note += ", filled across levels"
+        if filled < qty:
+            note += f"; partial: {filled // ins.lot_size}/{qty // ins.lot_size} lots filled, rest cancelled (no more depth)"
+        return round(avg, 2), note, filled
 
     def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
         if ins.instrument_type in ("CE", "PE") and side == "BUY":
@@ -183,12 +195,14 @@ class Engine:
 
         if order_type == "MARKET":
             try:
-                px, note = self.book_fill(db, ins, side, qty)
+                px, note, filled = self.book_fill(db, ins, side, qty)
             except EngineError as err:
                 order.status = "REJECTED"; order.reason = str(err)
                 db.commit()
                 self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
                 raise
+            if filled < qty:
+                order.qty = filled; order.lots = filled // ins.lot_size
             self._fill(db, user, order, px)
             if note and order.status == "FILLED":
                 order.reason = note
@@ -332,7 +346,9 @@ class Engine:
                     elif o.order_type == "SL":
                         if (o.side == "BUY" and ltp >= o.trigger_price) or (o.side == "SELL" and ltp <= o.trigger_price):
                             try:
-                                fill_at, _ = self.book_fill(db, ins, o.side, o.qty)
+                                fill_at, _n, _f = self.book_fill(db, ins, o.side, o.qty)
+                                if _f < o.qty:
+                                    o.qty = _f; o.lots = _f // ins.lot_size
                             except EngineError as err:
                                 o.status = "REJECTED"; o.reason = f"Stop-loss triggered but {err}"; o.margin_blocked = 0.0
                                 db.commit()

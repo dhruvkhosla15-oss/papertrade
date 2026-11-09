@@ -372,17 +372,17 @@ let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const 
   sub(r.map(i=>i.token));onPrices(r.map(i=>state.prices[i.token]).filter(Boolean));},300);};
 
 // ---------- order sheet ----------
-function illiq(pr){if(!state.me?.liquidity?.on||!pr)return null;const b=pr.bid,a=pr.ask;if(b==null||a==null)return 'No bid/ask — illiquid';const sp=(a-b)/((a+b)/2)*100;if(sp>state.me.liquidity.max_spread_pct)return `Spread ${sp.toFixed(1)}% — illiquid`;return null;}
+function illiq(pr){if(!state.me?.liquidity?.on||!pr)return null;const b=pr.bid,a=pr.ask;if(b==null&&a==null)return 'No bids or offers — cannot trade';if(b==null)return 'No bids — you cannot sell';if(a==null)return 'No offers — you cannot buy';const lim=state.me.liquidity.max_spread_pct;const sp=(a-b)/((a+b)/2)*100;if(lim>0&&sp>lim)return `Spread ${sp.toFixed(1)}% exceeds ${lim}% limit`;return null;}
 function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$('#oAsk').textContent=pr?.ask!=null?fmt(pr.ask):'—';
   $('#oBidQ').textContent=pr?.bids?.[0]?`(${pr.bids[0][1]})`:'';$('#oAskQ').textContent=pr?.asks?.[0]?`(${pr.asks[0][1]})`:'';
-  const w=illiq(pr);$('#oIlliq').classList.toggle('hidden',!w);$('#oIlliq').textContent=w?'⚠ '+w+' — market orders will be rejected':'';
+  const w=illiq(pr);$('#oIlliq').classList.toggle('hidden',!w);$('#oIlliq').textContent=w?'⚠ '+w:'';
   if(pr&&!$('#depth').classList.contains('hidden')){const B=pr.bids||[],A=pr.asks||[];let rows='';
     for(let i=0;i<5;i++){const b=B[i],a=A[i];rows+=`<tr><td class="b num" style="text-align:left">${b?fmt(b[0]):'—'}</td><td class="num" style="text-align:center">${b?b[2]||'':''}</td><td class="num" style="text-align:right">${b?b[1]:''}</td><td class="a num" style="text-align:left;padding-left:14px">${a?fmt(a[0]):'—'}</td><td class="num" style="text-align:center">${a?a[2]||'':''}</td><td class="num" style="text-align:right">${a?a[1]:''}</td></tr>`;}
     $('#depthBody').innerHTML=rows;$('#dTbq').textContent=pr.tbq??B.reduce((x,y)=>x+y[1],0);$('#dTsq').textContent=pr.tsq??A.reduce((x,y)=>x+y[1],0);
     $('#dOpen').textContent=fmt(pr.open);$('#dClose').textContent=fmt(pr.close);$('#dLow').textContent=fmt(pr.low);$('#dHigh').textContent=fmt(pr.high);
     $('#dVol').textContent=pr.volume!=null?Number(pr.volume).toLocaleString('en-IN'):'—';$('#dOi').textContent=pr.oi!=null?Number(pr.oi).toLocaleString('en-IN'):'—';
     $('#dLtt').textContent=pr.ltt?new Date(pr.ltt*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-    const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';$('#dSpread').className='num '+(sp!=null&&sp>(state.me?.liquidity?.max_spread_pct||5)?'dn':'');}}
+    const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';const lim=state.me?.liquidity?.max_spread_pct||0;$('#dSpread').className='num '+(sp!=null&&lim>0&&sp>lim?'dn':'');}}
 $('#oDepthBtn').onclick=()=>{const d=$('#depth');d.classList.toggle('hidden');$('#oDepthBtn').textContent=d.classList.contains('hidden')?'Market depth ▾':'Market depth ▴';renderBook(state.prices[state.sel?.token]);};
 function openSheet(ins,side){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
   $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;

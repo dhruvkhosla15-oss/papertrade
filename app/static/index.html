@@ -25,7 +25,9 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand{font-weight:800;letter-spacing:-.02em;font-size:16px}
+header .brand{font-weight:800;letter-spacing:-.03em;font-size:24px;line-height:1.1}
+.livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.15);color:var(--dn)}
+.livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
 header .funds b{font-size:15px}
 .feedlight{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dn);margin-right:6px}
@@ -85,7 +87,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView" class="hidden">
 <header>
-  <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div class="small mut"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
+  <div><div class="brand"><span style="color:var(--acc)">Lime</span>FX</div><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div></div>
   <div style="display:flex;align-items:center;gap:10px"><button class="thbtn" id="thToggle" title="Light / dark">☾</button>
   <div class="funds"><div class="mut">Available</div><b id="hAvail" class="num">—</b><div id="hPnl" class="num small">—</div></div></div>
 </header>
@@ -99,7 +101,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div id="wsearchRes"></div>
     </div>
     <div class="card" style="padding:0 12px" id="wlist"></div>
-    <p id="wEmpty" class="mut card">Your watchlist is empty. Search above, or add from the Market tab.</p>
+    <div id="wEmpty" class="card" style="text-align:center;padding:24px 14px"><div class="mut" style="margin-bottom:12px">Your watchlist is empty. Search a contract above, or browse everything in the Market tab.</div><button id="goMarket">Browse Market →</button></div>
   </section>
 
   <!-- WATCH / CHAIN -->
@@ -311,7 +313,7 @@ async function boot(){
   refreshAll();
   setInterval(refreshFunds,5000);
 }
-function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live':'Offline';
+function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'LIVE':'OFFLINE';$('#livePill').className='livepill'+(f.connected?' ok':'');
   const mo=state.me.market_open||{};const closed=Object.entries(mo).filter(([k,v])=>!v).map(([k])=>k);
   if(!f.connected){$('#banner').textContent='Live prices are not available right now. Please check back shortly.';$('#banner').classList.remove('hidden');}
   else if(closed.length===3){$('#banner').textContent='Markets are closed. You can browse but orders will be rejected until the market opens.';$('#banner').classList.remove('hidden');}
@@ -536,6 +538,7 @@ async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').inne
 async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${x.kind.replace('_',' ').toLowerCase()}<div class="small mut">${x.note||''}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
 
 // ---------- tabs ----------
+$('#goMarket').onclick=()=>$('nav.tabs button[data-tab="market"]').click();
 $$('nav.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;$$('nav.tabs button').forEach(x=>x.classList.toggle('active',x===b));
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==state.tab));
   if(state.tab==='orders')loadTrades();if(state.tab==='account')loadLedger();if(state.tab==='positions')refreshAll();if(state.tab==='watch')loadWatch();});

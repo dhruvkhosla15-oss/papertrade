@@ -87,6 +87,13 @@ a{color:var(--acc)}
       <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
     </div>
   </div>
+  <div id="cryptoBox" class="card kite hidden">
+    <div style="flex:1"><b id="cryptoTitle"></b><div class="small" id="cryptoMsg"></div></div>
+    <div class="bar" style="flex:0 0 auto">
+      <button class="ghost" id="cryptoReconnect" style="display:none">Reconnect crypto</button>
+      <button class="ghost" id="cryptoDisconnect" style="display:none">Disconnect crypto</button>
+    </div>
+  </div>
 
   <div class="nav"><button data-nav="trainees" class="active">Trainees</button><button data-nav="perf">Performance</button><button data-nav="settings">Settings</button></div>
 
@@ -285,6 +292,7 @@ async function loadSettings(){const s=await api('/admin/settings');
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
   const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live prices':'Prices offline';
+  renderCrypto(f.crypto);
   const kb=$('#kiteBox');
   if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
     $('#kiteTitle').textContent=f.connected?'Zerodha live feed connected':'Zerodha not connected';
@@ -295,6 +303,12 @@ async function loadSettings(){const s=await api('/admin/settings');
     if(f.paused){kb.className='card kite';$('#kiteTitle').textContent='Live feed paused';}}
   else{kb.classList.remove('hidden');kb.className='card kite';$('#kiteTitle').textContent=f.paused?'Live feed paused':'Simulated price feed';$('#kiteMsg').textContent=f.message;$('#kiteBtn').classList.add('hidden');$('#feedDisconnect').style.display=f.connected?'':'none';$('#feedReconnect').style.display=f.connected?'none':'';}
 }
+function renderCrypto(c){const b=$('#cryptoBox');if(!c){b.classList.add('hidden');return;}b.classList.remove('hidden');b.className='card kite '+(c.connected?'ok':(c.paused?'':'bad'));
+  $('#cryptoTitle').textContent=c.connected?'Crypto feed connected (Delta Exchange)':c.paused?'Crypto feed paused':'Crypto feed not connected';
+  $('#cryptoMsg').textContent=`${c.message} · ${c.instruments} contracts · USDINR ${c.usdinr?c.usdinr.toFixed(4):'—'} used for ₹ conversion`;
+  $('#cryptoDisconnect').style.display=c.connected?'':'none';$('#cryptoReconnect').style.display=c.paused?'':'none';}
+$('#cryptoDisconnect').onclick=async()=>{if(!confirm('Disconnect crypto prices? Trainees will not be able to trade crypto until you reconnect.'))return;try{await api('/admin/feed/crypto/disconnect',{method:'POST'});toast('Crypto feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
+$('#cryptoReconnect').onclick=async()=>{try{await api('/admin/feed/crypto/reconnect',{method:'POST'});toast('Reconnecting crypto…');setTimeout(loadSettings,3000);}catch(e){toast(e.message,1)}};
 $('#feedDisconnect').onclick=async()=>{if(!confirm('Disconnect the live price feed? Trainees will see OFFLINE and orders will be rejected until you reconnect.'))return;try{await api('/admin/feed/disconnect',{method:'POST'});toast('Live feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
 $('#feedReconnect').onclick=async()=>{try{await api('/admin/feed/reconnect',{method:'POST'});toast('Reconnecting…');setTimeout(loadSettings,2500);}catch(e){toast(e.message,1)}};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};

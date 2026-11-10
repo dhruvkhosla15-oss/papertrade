@@ -246,6 +246,9 @@ class Engine:
             raise EngineError("lots must be 1..500")
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
+        cry = getattr(self.feed, "crypto", None)
+        if cry and token in cry.items and not cry.connected:
+            raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
         ltp = self.feed.ltp(token)
         if ltp is None or (self.feed.tick_age(token) or 0) > 300:
             # Not yet subscribed / stale. Subscribe and ask client to retry.

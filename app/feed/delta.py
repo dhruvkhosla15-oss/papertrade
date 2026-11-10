@@ -45,6 +45,7 @@ class DeltaCrypto:
         self._ws = None
         self._loop = None
         self.connected = False
+        self.paused = False
         self.message = "not started"
         self._refresh_task = None
         # --- wire into the primary feed ---
@@ -199,9 +200,23 @@ class DeltaCrypto:
             except Exception as e:
                 log.warning("delta: refresh failed: %s", e)
 
+    def disconnect(self):
+        """Master control: stop crypto prices (trainees see OFFLINE on crypto, orders rejected)."""
+        self.paused = True
+        if self._ws and self._loop:
+            asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
+        self.connected = False; self.message = "paused by master"
+
+    def reconnect(self):
+        self.paused = False; self.message = "reconnecting"
+        return True
+
     async def _run(self):
         import websockets
         while True:
+            if self.paused:
+                await asyncio.sleep(1)
+                continue
             try:
                 async with websockets.connect(WS, ping_interval=20, ping_timeout=20, max_size=8_000_000) as ws:
                     self._ws = ws
@@ -214,9 +229,12 @@ class DeltaCrypto:
                         except Exception:
                             log.exception("delta: bad message")
             except Exception as e:
-                log.warning("delta: websocket dropped: %s", e)
-            self.connected = False; self._ws = None; self.message = "reconnecting"
-            await asyncio.sleep(5)
+                if not self.paused:
+                    log.warning("delta: websocket dropped: %s", e)
+            self.connected = False; self._ws = None
+            if not self.paused:
+                self.message = "reconnecting"
+            await asyncio.sleep(1 if self.paused else 5)
 
     def _handle(self, m):
         t = m.get("type")
@@ -294,5 +312,5 @@ class DeltaCrypto:
                  "close": float(x["close"]), "volume": float(x.get("volume") or 0), "oi": 0} for x in rows]
 
     def status(self):
-        return {"connected": self.connected, "message": self.message, "instruments": len(self.items),
+        return {"connected": self.connected, "paused": self.paused, "message": self.message, "instruments": len(self.items),
                 "subscribed": len(self._subs), "usdinr": self.usdinr()}

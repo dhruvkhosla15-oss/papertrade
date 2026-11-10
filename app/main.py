@@ -290,7 +290,7 @@ def logout(response: Response):
 @app.get("/api/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
-    return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": feed.status(),
+    return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}}
@@ -426,7 +426,7 @@ def _ticker():
 def public_home():
     """What a visitor sees before logging in."""
     tick = _ticker()
-    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status(),
+    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
@@ -651,7 +651,7 @@ async def ws_endpoint(ws: WebSocket):
                 feed.unsubscribe(list(gone))
                 c.tokens -= gone
             elif msg.get("type") == "ping":
-                await ws.send_text(json.dumps({"type": "pong", "feed": feed.status()}))
+                await ws.send_text(json.dumps({"type": "pong", "feed": _feed_status()}))
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -790,7 +790,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
     return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")},
             "commission_pct": engine.commission_pct(db),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
-            "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
+            "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
 
 
@@ -1057,6 +1057,24 @@ def feed_disconnect(admin: User = Depends(current_admin)):
     return feed.status()
 
 
+@app.post("/api/admin/feed/crypto/disconnect")
+def crypto_disconnect(admin: User = Depends(current_admin)):
+    if not crypto:
+        raise HTTPException(400, "Crypto feed is not enabled")
+    crypto.disconnect()
+    log.info("crypto feed disconnected by master %s", admin.username)
+    return crypto.status()
+
+
+@app.post("/api/admin/feed/crypto/reconnect")
+def crypto_reconnect(admin: User = Depends(current_admin)):
+    if not crypto:
+        raise HTTPException(400, "Crypto feed is not enabled")
+    crypto.reconnect()
+    log.info("crypto feed reconnect by master %s", admin.username)
+    return crypto.status()
+
+
 @app.post("/api/admin/feed/reconnect")
 def feed_reconnect(admin: User = Depends(current_admin)):
     if not hasattr(feed, "reconnect"):
@@ -1096,6 +1114,10 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
 
 @app.get("/api/feed/status")
 def feed_status(user: User = Depends(current_user)):
+    return _feed_status()
+
+
+def _feed_status():
     s = feed.status()
     if crypto:
         s["crypto"] = crypto.status()

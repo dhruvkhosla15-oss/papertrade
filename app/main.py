@@ -374,7 +374,7 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
 # Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
 _SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
                      "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
-                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR", "BTC", "ETH"]
+                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR", "BTC", "ETH", "SOL"]
 SHOWCASE = [s.strip().upper() for s in os.environ.get("PT_SHOWCASE", ",".join(_SHOWCASE_DEFAULT)).split(",") if s.strip()]
 DEFAULT_WATCH = [(None, n) for n in SHOWCASE]
 
@@ -437,17 +437,17 @@ def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db))
         # empty watchlist (new trainee, or everything removed) -> start from the showcase list
         for n, ins in enumerate(_default_watch_instruments()):
             db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
-        set_setting(db, f"watch_seeded_{user.id}", "1"); set_setting(db, f"watch_showcase_{user.id}", "1")
+        set_setting(db, f"watch_seeded_{user.id}", "1"); set_setting(db, f"watch_showcase_{user.id}", "1"); set_setting(db, f"watch_showcase2_{user.id}", "1")
         db.commit()
-    elif not get_setting(db, f"watch_showcase_{user.id}") and feed.instruments:
-        # one-time: add the showcase scrips (top stocks etc.) to watchlists created before they existed
+    elif (not get_setting(db, f"watch_showcase_{user.id}") or not get_setting(db, f"watch_showcase2_{user.id}")) and feed.instruments:
+        # one-time: add the showcase scrips (top stocks, then currency + crypto) to watchlists created before they existed
         have = {w.token for w in db.query(Watch).filter_by(user_id=user.id).all()}
         last = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position.desc()).first()
         pos = (last.position + 1) if last else 0
         for ins in _default_watch_instruments():
             if ins.token not in have:
                 db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=pos)); pos += 1
-        set_setting(db, f"watch_showcase_{user.id}", "1")
+        set_setting(db, f"watch_showcase_{user.id}", "1"); set_setting(db, f"watch_showcase2_{user.id}", "1")
         db.commit()
     rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position, Watch.id).all()
     out = []

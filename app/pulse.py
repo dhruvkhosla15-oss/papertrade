@@ -245,9 +245,12 @@ class Pulse:
             spark = [c for _, c in hist_closes[-10:]] + [ltp]
             ins_mult = (self.feed.instruments.get(u["fut_token"]).multiplier if (u["kind"] == "crypto" and self.feed.instruments.get(u["fut_token"])) else 1)
             if u["kind"] == "crypto":
-                # Delta's ticker volume is in coins and turnover_usd is the 24h notional -> rupees via USDINR
-                fx = getattr(self.feed, "usdinr", lambda: 1.0)()
+                # Delta's ticker volume is in coins and turnover_usd is the 24h notional -> rupees via USDINR;
+                # daily candles count contracts, so scale the 20-day average to coins before comparing
+                fx = getattr(self.feed, "usdinr", lambda: 1.0)() or 0
                 turnover = (f.get("turnover_usd") or (vol * fltp)) * fx
+                avg_vol = avg_vol * (ins_mult or 1)
+                vol_x = round(vol / avg_vol, 2) if avg_vol and vol else None
             else:
                 turnover = vol * fltp
             vol_x = round(vol / avg_vol, 2) if avg_vol and vol else None
@@ -261,7 +264,8 @@ class Pulse:
             rows.append({"name": u["name"], "kind": u["kind"], "exchange": u["exchange"], "token": u["spot_token"] or u["price_token"],
                          "label": u["label"], "ltp": ltp, "pct": pct, "day_pct": dchg, "high": high, "low": low,
                          "prev_close": prev_close, "turnover": round(turnover, 2),
-                         "lots": (int(vol / (ins_mult or 1)) if u["kind"] == "crypto" else (int(vol / u["lot_size"]) if u["lot_size"] else vol)), "spark": spark,
+                         "lots": (round(vol, 2) if u["kind"] == "crypto" else (int(vol / u["lot_size"]) if u["lot_size"] else vol)),
+                         "unit": (u["name"] if u["kind"] == "crypto" else "lots"), "spark": spark,
                          "vol_x": vol_x, "oi": oi, "oi_chg": oi_chg, "buildup": buildup,
                          "hi52": hi52, "lo52": lo52, "from_hi": from_hi, "from_lo": from_lo})
         ranked = [r for r in rows if r["pct"] is not None]

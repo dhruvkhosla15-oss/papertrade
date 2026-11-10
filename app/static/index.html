@@ -197,7 +197,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div class="seg homeSeg hidden" id="homeSeg"><button data-home="pulse" class="active">Pulse</button><button data-home="watch">Watchlist</button></div>
     <div id="pulseView">
       <div class="pctl">
-        <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
+        <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button><button data-p="custom" title="Compare any two dates">📅 Dates</button></div>
+        <div class="row hidden" id="pDates" style="margin:6px 0 10px;align-items:center;gap:8px"><input type="date" id="pFrom" style="flex:1"><span class="mut small">to</span><input type="date" id="pTo" style="flex:1"></div>
         <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option><option value="crypto">Crypto</option><option value="forex">Forex</option></select></div>
       </div>
       <div class="card breadth" id="pBreadth"></div>
@@ -894,12 +895,13 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
 function cvRow(r){if(r.exchange!=='CRYPTO'||!inrOn())return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
-async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
+function pulseQS(){let q=`period=${pulseP}&kind=${pulseK}`;if(pulseP==='custom'){const f=$('#pFrom').value,t=$('#pTo').value;if(!f)return null;q+=`&date_from=${f}`+(t?`&date_to=${t}`:'');}return q;}
+async function loadPulse(){const qs=pulseQS();if(!qs)return;let d;try{d=await fetch('/api/public/pulse?'+qs).then(r=>r.json());}catch(e){return;}
   for(const k of ['gainers','losers','traded','shockers','oi','near_hi','near_lo'])d[k]=(d[k]||[]).map(cvRow);for(const k of ['gainer','loser','traded'])if(d.hero[k])d.hero[k]=cvRow(d.hero[k]);
   const live=!d.session||d.session.live!==false||!d.session.date;
   const sd=!live?new Date(d.session.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}):'';
   const day=live?'Today':'Last session · '+sd;
-  const lbl={today:day,week:'This week',month:'This month'}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
+  const fmtD=s=>s?new Date(s+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'}):'';const lbl={today:day,week:'This week',month:'This month',custom:fmtD($('#pFrom').value)+' → '+(fmtD($('#pTo').value)||'now')}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
   $('#pLblT').textContent='futures turnover · '+(live?'today':sd);$('#pLblS').textContent=(live?'today':sd)+' vs 20-day average';$('#pLblO').textContent='futures OI change vs '+(live?'yesterday':'previous session');
   const h=d.hero;const hs=(k,r,cls,sub)=>r?`<div class="hs" data-name="${r.name}" data-ex="${r.exchange}"><div class="k">${k}</div><div class="v">${r.name}</div><div class="s ${cls}">${sub}</div></div>`:`<div class="hs"><div class="k">${k}</div><div class="v mut">—</div></div>`;
   $('#pHero').innerHTML=hs('Top gainer',h.gainer,'up',h.gainer?pctS(h.gainer.pct)+' · '+fmt(h.gainer.ltp):'')+hs('Top loser',h.loser,'dn',h.loser?pctS(h.loser.pct)+' · '+fmt(h.loser.ltp):'')+hs('Most traded',h.traded,'mut',h.traded?fmtCr(h.traded.turnover):'');
@@ -914,10 +916,12 @@ async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${p
   const n52=[...d.near_hi.map(r=>({...r,_near:'hi'})),...d.near_lo.map(r=>({...r,_near:'lo'}))].slice(0,10);
   $('#p52').innerHTML=n52.map((r,i)=>pulseRow(r,i,'52')).join('')||(d.history_ready?'<div class="pempty">Nothing within 3% of a 52-week high or low</div>':hl);
   const src=live?'prices live':'last completed session ('+sd+') · updates once the market opens';
-  $('#pNote').textContent=(pulseP==='today'?'Change vs previous close':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago')+' · '+src;
+  $('#pNote').textContent=(pulseP==='today'?'Change vs previous close':pulseP==='custom'?'Change from the close on '+fmtD($('#pFrom').value)+' to '+(fmtD($('#pTo').value)||'the live price'):'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago')+' · '+src;
   $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
 function openScrip(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
-$$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});
+$$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));$('#pDates').classList.toggle('hidden',pulseP!=='custom');
+  if(pulseP==='custom'&&!$('#pFrom').value){const t=new Date(),f=new Date(t-14*864e5);$('#pTo').value=t.toISOString().slice(0,10);$('#pFrom').value=f.toISOString().slice(0,10);}loadPulse();});
+$('#pFrom').onchange=loadPulse;$('#pTo').onchange=loadPulse;
 $('#pKind').onchange=()=>{pulseK=$('#pKind').value;loadPulse();};
 function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));if(state.tab==='watch')$$('nav.tabs button[data-tab="watch"]').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');
   if(v==='pulse'){loadPulse();if(!pulseTimer)pulseTimer=setInterval(()=>{if(state.tab==='watch'&&!$('#pulseView').classList.contains('hidden'))loadPulse();},20000);}else if(!state.guest)loadWatch();}

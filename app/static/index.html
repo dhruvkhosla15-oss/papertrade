@@ -447,10 +447,13 @@ const PXF=['ltp','bid','ask','open','high','low','close'];
 const dsym=(ex,s)=>(ex==='CRYPTO'&&inrOn()&&/USD$/.test(s||''))?s.replace(/USD$/,'INR'):s;   // BTCUSD -> BTCINR in the ₹ view
 function dispTick(t){if(!t||!isCryptoTok(t.token)||!inrOn())return t;const r=cRate();const d={...t};for(const k of PXF)if(d[k]!=null)d[k]=d[k]*r;if(d.bids)d.bids=d.bids.map(x=>[x[0]*r,x[1],x[2]]);if(d.asks)d.asks=d.asks.map(x=>[x[0]*r,x[1],x[2]]);return d;}
 const ccyToggleHtml=()=>`<div class="seg ccyseg" style="flex:0 0 auto;padding:2px"><button data-ccy="INR" class="${CCCY==='INR'?'active':''}" style="padding:4px 12px">₹ INR</button><button data-ccy="USD" class="${CCCY==='USD'?'active':''}" style="padding:4px 12px">$ USD</button></div>`;
-function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));if(typeof renderWatch==='function')renderWatch();if(state.sel)$('#oSym').textContent=dsym(state.sel.exchange,state.sel.symbol);
+function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));if(typeof renderWatch==='function')renderWatch();if(state.sel)$('#oSym').textContent=dsym(state.sel.exchange,state.sel.symbol);if(state.sel)updateMargin();
   onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
 function bindCcyToggles(){$$('.ccyseg button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));}
 const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+// rupee amount shown in $ when the trainee is viewing a crypto contract in the $ mode
+const usdOn=ex=>ex==='CRYPTO'&&CCCY==='USD'&&!!state.usdinr;
+const money=(ex,v,dec)=>v==null?'—':(usdOn(ex)?'$'+Number(v/state.usdinr).toLocaleString('en-IN',{minimumFractionDigits:dec??2,maximumFractionDigits:dec??2}):(dec===0?inr(v):'₹'+fmt2(v)));
 // currency contracts tick in 0.0025, so show 4 decimals when a price actually carries them (84.8725) and 2 otherwise
 const fmt=(n,d=2)=>{if(n==null)return '—';const x=Number(n);if(d===2&&Math.abs(x)<1000){for(const k of [2,3,4,5]){const y=x*10**k;if(Math.abs(y-Math.round(y))<1e-6){d=k;break;}d=5;}}return x.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});};
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
@@ -707,7 +710,7 @@ function onPrices(ticks){
   for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty*(p.value_factor||1);unreal+=u;
-    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt2(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);}
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(u/state.usdinr):fmt2(u));l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);}
   if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);const rt=state.funds.realised_today||0;$('#fTot').textContent=((rt+unreal)>=0?'+':'')+inr(rt+unreal);$('#fTot').className='big num '+pnlCls(rt+unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
@@ -768,7 +771,7 @@ const toUsd=v=>(state.sel?.exchange==='CRYPTO'&&v)?+(v/cRate()).toFixed(6):v;   
 let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
   const price=state.otype==='LIMIT'?toUsd(+$('#oLimit').value):undefined;
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
-    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?'₹'+fmt2(j.commission):'—';$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
+    const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
@@ -845,8 +848,8 @@ $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`E
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
     <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange)} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
-      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
-    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${usdOn(p.exchange)?'$'+fmt2(p.unrealised/state.usdinr):fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
+    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}

@@ -596,7 +596,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
-function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');m.innerHTML=`<div class="mtrack">${html}</div>`;
+function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');if(m.dataset.h===html){const b=$('#banner');b.className='banner hidden';return;}m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;
   const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');const b=$('#banner');b.className='banner hidden';return;
   const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};
   const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+':'+String(x.getMinutes()).padStart(2,'0')+(x.getHours()<12?' am':' pm');};

@@ -187,7 +187,7 @@ class Pulse:
         except Exception:
             return True
 
-    def snapshot(self, period="today", kind="all", n=10, date_from=None, date_to=None):
+    def snapshot(self, period="today", kind="all", n=10):
         uni = self.universe()
         self.ensure_history()
         rows = []
@@ -240,13 +240,6 @@ class Pulse:
             pct = None
             if period == "today":
                 pct = dchg
-            elif period == "custom" and date_from:
-                # change between two dates: last close on/before date_from -> close on/before date_to (today = live)
-                ref = next((c for d_, c in reversed(hist_closes) if d_ <= date_from), None)
-                end = ltp
-                if date_to and date_to < (datetime.utcnow() + IST).date().isoformat():
-                    end = next((c for d_, c in reversed(hist_closes) if d_ <= date_to), None)
-                pct = round((end - ref) / ref * 100, 2) if (ref and end) else None
             else:
                 back = 5 if period == "week" else 21
                 if len(hist_closes) >= back:
@@ -305,7 +298,7 @@ class Pulse:
         near_hi = sorted([r for r in rows if r["from_hi"] is not None and r["from_hi"] >= -3], key=lambda r: -r["from_hi"])[:n]
         near_lo = sorted([r for r in rows if r["from_lo"] is not None and r["from_lo"] <= 3], key=lambda r: r["from_lo"])[:n]
         uni_toks = [u["price_token"] for u in uni]
-        return {"period": period, "kind": kind, "date_from": date_from, "date_to": date_to, "asof": time.time(), "history_ready": bool(self._hist),
+        return {"period": period, "kind": kind, "asof": time.time(), "history_ready": bool(self._hist),
                 "hist": {"day": self._hist_day, "tokens": len(self._hist), "universe": len(uni_toks),
                          "missing": sum(1 for t in uni_toks if t not in self._hist), "building": self._building,
                          "last_attempt_age": int(time.time() - getattr(self, "_last_attempt", 0))},

@@ -1059,16 +1059,12 @@ pulse = Pulse(feed)
 
 
 @app.get("/api/public/pulse")
-def public_pulse(period: str = "today", kind: str = "all", date_from: Optional[str] = None, date_to: Optional[str] = None):
-    import re as _re
-    if period not in ("today", "week", "month", "custom"):
+def public_pulse(period: str = "today", kind: str = "all"):
+    if period not in ("today", "week", "month"):
         period = "today"
     if kind not in ("all", "index", "stock", "mcx", "currency", "crypto", "forex"):
         kind = "all"
-    ok = lambda s: bool(s and _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s))
-    if period == "custom" and not ok(date_from):
-        period = "today"
-    return pulse.snapshot(period, kind, date_from=date_from if ok(date_from) else None, date_to=date_to if ok(date_to) else None)
+    return pulse.snapshot(period, kind)
 
 
 # ---- feed control (master) ----------------------------------------------------------------------

@@ -28,7 +28,19 @@ ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "f
 DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy and sell)
 # Forex: IC Markets Raw charges USD 3.5 per 100,000 lot per side = 0.0035 % of notional
 DEFAULT_COMMISSION_PCT_FOREX = 0.0035
-DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0, "CRYPTO": 0.5, "FOREX": 1.0}  # CRYPTO 0.5% = 200x, Delta's own max  # STK = stock F&O (NFO non-index); CDS = NSE currency
+DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0, "CRYPTO": 0.5, "FOREX": 1.0,
+                      # MCX per-commodity groups (roughly SPAN + exposure as Zerodha shows them, Nov 2026)
+                      "MCX_SILVER": 15.0, "MCX_GOLD": 8.0, "MCX_CRUDE": 12.0, "MCX_NATGAS": 16.0, "MCX_METALS": 10.0}
+MCX_GROUPS = {"SILVER": "MCX_SILVER", "SILVERM": "MCX_SILVER", "SILVERMIC": "MCX_SILVER",
+              "GOLD": "MCX_GOLD", "GOLDM": "MCX_GOLD", "GOLDGUINEA": "MCX_GOLD", "GOLDPETAL": "MCX_GOLD", "GOLDTEN": "MCX_GOLD",
+              "CRUDEOIL": "MCX_CRUDE", "CRUDEOILM": "MCX_CRUDE",
+              "NATURALGAS": "MCX_NATGAS", "NATGASMINI": "MCX_NATGAS",
+              "COPPER": "MCX_METALS", "ZINC": "MCX_METALS", "ZINCMINI": "MCX_METALS", "ALUMINIUM": "MCX_METALS", "ALUMINI": "MCX_METALS",
+              "LEAD": "MCX_METALS", "LEADMINI": "MCX_METALS", "NICKEL": "MCX_METALS"}
+MCX_GROUP_LABELS = {"MCX_SILVER": "Silver (SILVER · SILVERM · SILVERMIC)", "MCX_GOLD": "Gold (GOLD · GOLDM · GUINEA · PETAL)",
+                    "MCX_CRUDE": "Crude (CRUDEOIL · CRUDEOILM)", "MCX_NATGAS": "Natural gas (NATURALGAS · NATGASMINI)",
+                    "MCX_METALS": "Base metals (COPPER · ZINC · ALU · LEAD · NICKEL)"}
+DEFAULT_MCX_OPTION_FACTOR = 0.87   # short MCX options: SPAN charges a bit less than the future for OTM delta  # CRYPTO 0.5% = 200x, Delta's own max  # STK = stock F&O (NFO non-index); CDS = NSE currency
 # NSE currency derivatives offered (CDS segment). Set PT_CURRENCIES= to turn off.
 CURRENCY_PAIRS = [c.strip().upper() for c in os.getenv("PT_CURRENCIES", "USDINR,EURINR,GBPINR,JPYINR").split(",") if c.strip()]
 

@@ -176,10 +176,13 @@ a{color:var(--acc)}
       <div><label class="small mut">NFO (Nifty / Bank Nifty)</label><input id="mNFO" type="number" step="0.5"></div>
       <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
       <div><label class="small mut">Stock F&O (Reliance, TCS…)</label><input id="mSTK" type="number" step="0.5"></div>
-      <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
+      <div><label class="small mut">MCX (other commodities)</label><input id="mMCX" type="number" step="0.5"></div>
       <div><label class="small mut">Currency (USDINR…)</label><input id="mCDS" type="number" step="0.5"></div>
       <div><label class="small mut">Crypto</label><input id="mCRYPTO" type="number" step="0.1" disabled title="Delta's own per-contract margins are used"><div class="small mut">Delta's per-contract margins apply (BTC/ETH 0.5% = 200×, others as published)</div></div>
     </div>
+    <h3 style="margin-top:14px">MCX by commodity</h3><p class="small mut" style="margin-bottom:8px">Futures margin as % of contract value — set from Zerodha's margin calculator and revisit when volatility changes. Open positions keep the margin they were filled at.</p>
+    <div class="row" id="mcxGroups"></div>
+    <div class="row" style="margin-top:8px"><div><label class="small mut">Short MCX options: fraction of the futures rate (SPAN charges a little less for OTM delta)</label><input id="mOptF" type="number" step="0.01" min="0.3" max="1"></div></div>
     <h2 style="margin-top:18px">Commission</h2>
     <div class="row">
       <div><label class="small mut">% of traded value, charged on every buy and sell (0 = free)</label><input id="commPct" type="number" step="0.005" min="0"></div>
@@ -300,7 +303,7 @@ async function boot(){
 }
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
-  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;
+  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
   const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live prices':'Prices offline';
@@ -331,7 +334,7 @@ $('#cryptoReconnect').onclick=async()=>{try{await api('/admin/feed/crypto/reconn
 $('#feedDisconnect').onclick=async()=>{if(!confirm('Disconnect the live price feed? Trainees will see OFFLINE and orders will be rejected until you reconnect.'))return;try{await api('/admin/feed/disconnect',{method:'POST'});toast('Live feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
 $('#feedReconnect').onclick=async()=>{try{await api('/admin/feed/reconnect',{method:'POST'});toast('Reconnecting…');setTimeout(loadSettings,2500);}catch(e){toast(e.message,1)}};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
-$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value},commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
+$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}

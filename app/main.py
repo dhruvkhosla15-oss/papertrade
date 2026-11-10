@@ -798,7 +798,10 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 @app.get("/api/admin/settings")
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
-    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")},
+    mp = {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")}
+    for g in config.MCX_GROUP_LABELS:
+        v = get_setting(db, f"margin_pct_{g}"); mp[g] = float(v) if v else config.DEFAULT_MARGIN_PCT[g]
+    return {"margin_pct": mp, "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db),
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
@@ -809,6 +812,7 @@ class SettingsIn(BaseModel):
     margin_pct: dict
     commission_pct: Optional[float] = None
     commission_pct_forex: Optional[float] = None
+    mcx_option_factor: Optional[float] = None
     liquidity_check: Optional[bool] = None
     max_spread_pct: Optional[float] = None
     stale_minutes: Optional[int] = None
@@ -818,6 +822,8 @@ class SettingsIn(BaseModel):
 def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     for ex, v in body.margin_pct.items():
         set_setting(db, f"margin_pct_{ex}", str(float(v)))
+    if body.mcx_option_factor is not None:
+        set_setting(db, "mcx_option_factor", str(min(1.0, max(0.3, float(body.mcx_option_factor)))))
     if body.commission_pct is not None:
         set_setting(db, "commission_pct", str(max(0.0, float(body.commission_pct))))
     if body.commission_pct_forex is not None:

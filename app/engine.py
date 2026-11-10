@@ -68,9 +68,22 @@ class Engine:
 
     def margin_pct(self, db: Session, exchange: str, name: str = "") -> float:
         from .feed.base import kind_of
+        from .config import MCX_GROUPS
         key = "STK" if (name and kind_of(exchange, name) == "stock") else exchange
+        if exchange == "MCX" and name and name in MCX_GROUPS:
+            key = MCX_GROUPS[name]             # per-commodity rate (silver, gold, crude, gas, metals)
         v = get_setting(db, f"margin_pct_{key}")
-        return float(v) if v else DEFAULT_MARGIN_PCT.get(key, 12.0)
+        if v:
+            return float(v)
+        if key in DEFAULT_MARGIN_PCT:
+            return DEFAULT_MARGIN_PCT[key]
+        v = get_setting(db, f"margin_pct_{exchange}")
+        return float(v) if v else DEFAULT_MARGIN_PCT.get(exchange, 12.0)
+
+    def mcx_option_factor(self, db: Session) -> float:
+        from .config import DEFAULT_MCX_OPTION_FACTOR
+        v = get_setting(db, "mcx_option_factor")
+        return float(v) if v else DEFAULT_MCX_OPTION_FACTOR
 
     def vf(self, ins) -> float:
         """Rupee value of a 1.0 price move per unit qty (1.0 for NSE/BSE/MCX; contract size x USDINR for crypto)."""
@@ -203,6 +216,8 @@ class Engine:
         # Delta margins options like perpetuals: initial_margin % of the underlying notional (0.5% for
         # BTC/ETH = 200x) plus the option's mark price for sellers; liquidation is decided on the mark.
         pct = ins.init_margin_pct or self.margin_pct(db, ins.exchange, ins.name)
+        if ins.exchange == "MCX" and ins.instrument_type in ("CE", "PE"):
+            pct *= self.mcx_option_factor(db)
         if leverage and leverage > 0 and ins.leverage_options:
             pct = max(pct, 100.0 / leverage)      # trader chose less leverage than the contract allows
         m = und * qty * pct / 100.0

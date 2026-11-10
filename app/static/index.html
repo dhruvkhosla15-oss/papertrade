@@ -37,8 +37,8 @@ header .brand .fx,.login h1 .fx{font-weight:800}
 h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .sym{font-weight:700;letter-spacing:-.01em}
 .marquee{overflow:hidden;white-space:nowrap;background:var(--card);border-bottom:1px solid var(--line);font-size:12px;padding:6px 0}
-.marquee .track{display:inline-flex;gap:26px;padding-left:14px;animation:scroll 70s linear infinite;will-change:transform}
-.marquee:hover .track{animation-play-state:paused}
+.marquee .track{display:inline-flex;gap:26px;padding-left:14px;will-change:transform}
+.marquee,.mkts{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}.marquee.drag,.mkts.drag{cursor:grabbing}
 @keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .marquee span{flex:0 0 auto}.marquee b{margin-left:4px}
 .loginbtn{background:var(--acc);color:#0f1115;font-weight:700;padding:8px 14px;border-radius:999px}
@@ -49,7 +49,7 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .login button{padding:13px;font-size:16px}
 .login .back{display:block;text-align:center;margin-top:16px;color:var(--mut);font-size:13px;cursor:pointer}
 .mkts{overflow:hidden;white-space:nowrap;padding:6px 0;background:var(--card);border-bottom:1px solid var(--line)}
-.mkts .mtrack{display:inline-flex;gap:8px;padding-left:12px;will-change:transform}.mkts.run .mtrack{animation:scroll 40s linear infinite}.mkts:hover .mtrack{animation-play-state:paused}
+.mkts .mtrack{display:inline-flex;gap:8px;padding-left:12px;will-change:transform}
 .mchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:600;background:var(--bg);color:var(--txt);white-space:nowrap}
 .mchip:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dn);flex:0 0 auto}.mchip.on:before{background:var(--up);box-shadow:0 0 6px var(--up)}
 .mchip small{color:var(--mut);font-weight:500;font-size:11px}
@@ -195,7 +195,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
 <div id="mkts" class="mkts"></div>
-<div class="marquee"><div class="track" id="ticker"></div></div>
+<div class="marquee" id="tickerBox"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>
 <main>
   <!-- WATCHLIST -->
@@ -596,6 +596,16 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
+function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
+  function apply(){const t=tr();if(!t)return;const h=t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translateX(${-x}px)`;}
+  function tick(ts){if(!last)last=ts;const dt=Math.min((ts-last)/1000,.1);last=ts;const on=box.id==='mkts'?box.classList.contains('run'):true;if(on&&!drag&&!hov){x+=speed*dt;apply();}else if(!on){x=0;apply();}requestAnimationFrame(tick);}
+  requestAnimationFrame(tick);
+  box.addEventListener('pointerdown',e=>{if(e.button)return;drag={sx:e.clientX,x0:x,moved:false};box.classList.add('drag');try{box.setPointerCapture(e.pointerId);}catch(_){}});
+  box.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.sx;if(Math.abs(dx)>4)drag.moved=true;x=drag.x0-dx;apply();});
+  const end=()=>{drag=null;box.classList.remove('drag');};box.addEventListener('pointerup',end);box.addEventListener('pointercancel',end);box.addEventListener('lostpointercapture',end);
+  box.addEventListener('click',e=>{if(drag&&drag.moved){e.preventDefault();e.stopPropagation();}},true);
+  if(canHover){box.addEventListener('mouseenter',()=>hov=true);box.addEventListener('mouseleave',()=>hov=false);}}
+marquee($('#tickerBox'),32);marquee($('#mkts'),28);
 function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');if(m.dataset.h===html){const b=$('#banner');b.className='banner hidden';return;}m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;
   const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');const b=$('#banner');b.className='banner hidden';return;
   const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};

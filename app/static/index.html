@@ -38,7 +38,7 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .sym{font-weight:700;letter-spacing:-.01em}
 .marquee{overflow:hidden;white-space:nowrap;background:var(--card);border-bottom:1px solid var(--line);font-size:12px;padding:6px 0}
 .marquee .track{display:inline-flex;gap:26px;padding-left:14px;will-change:transform}
-.marquee,.mkts{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}.marquee.drag,.mkts.drag{cursor:grabbing}
+.marquee,.mkts{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab;-webkit-text-size-adjust:100%;text-size-adjust:100%}.marquee .track,.mkts .mtrack{transform:translate3d(0,0,0);backface-visibility:hidden;text-rendering:optimizeLegibility;font-kerning:normal}.marquee.drag,.mkts.drag{cursor:grabbing}
 @keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .marquee span{flex:0 0 auto}.marquee b{margin-left:4px}
 .loginbtn{background:var(--acc);color:#0f1115;font-weight:700;padding:8px 14px;border-radius:999px}
@@ -597,7 +597,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
 function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
-  function apply(){const t=tr();if(!t)return;const h=t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translateX(${-x}px)`;}
+  function apply(){const t=tr();if(!t)return;const h=t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translate3d(${-Math.round(x)}px,0,0)`;}
   function tick(ts){if(!last)last=ts;const dt=Math.min((ts-last)/1000,.1);last=ts;const on=box.id==='mkts'?box.classList.contains('run'):true;if(on&&!drag&&!hov){x+=speed*dt;apply();}else if(!on){x=0;apply();}requestAnimationFrame(tick);}
   requestAnimationFrame(tick);
   box.addEventListener('pointerdown',e=>{if(e.button)return;drag={sx:e.clientX,x0:x,moved:false};box.classList.add('drag');try{box.setPointerCapture(e.pointerId);}catch(_){}});

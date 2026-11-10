@@ -104,6 +104,14 @@ async def startup():
                         password_hash=hash_password(config.ADMIN_PASSWORD)))
             db.commit()
             log.info("created admin user '%s'", config.ADMIN_USER)
+        # one-time test trainee for the live adversarial audit (delete from the master panel afterwards)
+        if not get_setting(db, "seed_audit2") and not db.query(User).filter_by(username="audit2").first():
+            u = User(username="audit2", display_name="audit2", must_change_password=False,
+                     password_hash="$2b$12$0vm8kZafIGK.Bzf1XAnDBOCx.SILuMsO1Zh4JMrtwotpLpAVypZF.")
+            db.add(u); db.flush()
+            engine._ledger(db, u, 200000, "ADMIN_CREDIT", "initial allocation (test account)")
+            set_setting(db, "seed_audit2", "1"); db.commit()
+            log.info("seeded test trainee audit2")
         if config.FEED == "kite":
             tok = get_setting(db, "kite_access_token"); d = get_setting(db, "kite_token_date")
             if tok and d == date.today().isoformat():

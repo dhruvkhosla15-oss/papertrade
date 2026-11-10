@@ -80,9 +80,11 @@ class DeltaCrypto:
                     continue
                 tok = TOKEN_BASE + int(p["id"])
                 und = (p.get("underlying_asset") or {}).get("symbol") or p["symbol"].replace("USD", "")
+                if p.get("trading_status") not in (None, "operational"):
+                    continue
                 out[tok] = Instrument(tok, p["symbol"], und, "CRYPTO", "CRYPTO-PERP", "FUT", "", 0, 1,
                                       float(p["tick_size"]), f"{p['contract_value']} {und} (price in USD)",
-                                      multiplier=float(p["contract_value"]))
+                                      multiplier=float(p["contract_value"]), **self._risk(p))
             horizon = datetime.now(timezone.utc) + timedelta(days=OPTION_DAYS)
             for ctype in ("call_options", "put_options"):
                 after = None
@@ -101,11 +103,13 @@ class DeltaCrypto:
                             continue
                         tok = TOKEN_BASE + int(p["id"])
                         exp = (st + IST).date().isoformat()          # settles 16:00 UTC = 21:30 IST same day
+                        if p.get("trading_status") not in (None, "operational"):
+                            continue
                         out[tok] = Instrument(tok, p["symbol"], und, "CRYPTO", "CRYPTO-OPT",
                                               "CE" if ctype == "call_options" else "PE", exp,
                                               float(p["strike_price"]), 1, float(p["tick_size"]),
                                               f"{p['contract_value']} {und} (price in USD)",
-                                              multiplier=float(p["contract_value"]))
+                                              multiplier=float(p["contract_value"]), **self._risk(p))
                     after = (j.get("meta") or {}).get("after")
                     if not after:
                         break
@@ -115,12 +119,28 @@ class DeltaCrypto:
         log.info("delta: %d crypto instruments (%d perpetuals, %d options)", len(out),
                  sum(1 for i in out.values() if i.instrument_type == "FUT"), sum(1 for i in out.values() if i.instrument_type != "FUT"))
 
+    @staticmethod
+    def _risk(p):
+        f = lambda k: float(p[k]) if p.get(k) not in (None, "") else 0.0
+        return {"init_margin_pct": f("initial_margin"), "maint_margin_pct": f("maintenance_margin"),
+                "pos_limit": int(f("position_size_limit")), "price_band_pct": f("price_band")}
+
     # ---- helpers used by engine / pulse ---------------------------------------------------------
+    INR_INDEX = ".DEUSDTINR"      # Delta's own USD(T)/INR index: what its app uses for rupee display
+
     def usdinr(self) -> float:
-        """Live USDINR (near-month NSE future) or fallback."""
+        """Delta's USDT/INR index if streaming (so our rupee figures match Delta's), else the NSE
+        USDINR monthly future, else the configured fallback."""
+        d = getattr(self, "_inr", None)
+        if d and time.time() - d[1] < 900:
+            return d[0]
         tok = self._orig_index("USDINR")
         p = self.feed.prices.get(tok) if tok else None
         return float(p["ltp"]) if p and p.get("ltp") else FX_FALLBACK
+
+    def fx_source(self) -> str:
+        d = getattr(self, "_inr", None)
+        return "Delta USDT/INR index" if (d and time.time() - d[1] < 900) else "NSE USDINR future"
 
     def value_factor(self, ins) -> float:
         """Rupee value of a 1.0 price move on 1 unit of qty."""
@@ -221,6 +241,7 @@ class DeltaCrypto:
                 async with websockets.connect(WS, ping_interval=20, ping_timeout=20, max_size=8_000_000) as ws:
                     self._ws = ws
                     self.connected = True; self.message = "Delta Exchange India live"
+                    await ws.send(json.dumps({"type": "subscribe", "payload": {"channels": [{"name": "spot_price", "symbols": [self.INR_INDEX]}]}}))
                     if self._subs:
                         await ws.send(json.dumps({"type": "subscribe", "payload": {"channels": self._channels(list(self._subs))}}))
                     async for raw in ws:
@@ -239,6 +260,12 @@ class DeltaCrypto:
     def _handle(self, m):
         t = m.get("type")
         sym = m.get("symbol")
+        if t == "spot_price" and sym == self.INR_INDEX:
+            try:
+                self._inr = (float(m["price"]), time.time())
+            except Exception:
+                pass
+            return
         tok = self.symbols.get(sym)
         if not tok:
             return
@@ -313,4 +340,4 @@ class DeltaCrypto:
 
     def status(self):
         return {"connected": self.connected, "paused": self.paused, "message": self.message, "instruments": len(self.items),
-                "subscribed": len(self._subs), "usdinr": self.usdinr()}
+                "subscribed": len(self._subs), "usdinr": self.usdinr(), "fx_source": self.fx_source()}

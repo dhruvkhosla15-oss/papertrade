@@ -32,6 +32,16 @@ CURRENCY_PAIRS = [c.strip().upper() for c in os.getenv("PT_CURRENCIES", "USDINR,
 
 # Exchange trading hours (IST)
 MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55"), "CDS": ("09:00", "17:00"), "CRYPTO": ("00:00", "23:59")}
+# NSE/BSE freeze quantities (max qty per order, exchange rule; bigger orders are rejected by the exchange).
+# Override with PT_FREEZE_QTY="NIFTY:1800,BANKNIFTY:900,..."
+FREEZE_QTY = {"NIFTY": 1800, "BANKNIFTY": 900, "FINNIFTY": 1800, "MIDCPNIFTY": 2800, "NIFTYNXT50": 600,
+              "SENSEX": 1000, "BANKEX": 600, "SENSEX50": 600}
+FREEZE_QTY.update({k.strip().upper(): int(v) for k, v in
+                   (p.split(":") for p in os.getenv("PT_FREEZE_QTY", "").split(",") if ":" in p)})
+# Liquidation: positions are force-closed at market when equity (coins + unrealised) falls below the
+# maintenance requirement. Exchange-published maintenance % where available (Delta), else this share
+# of the blocked margin (brokers square off well before the full margin is lost).
+MAINT_SHARE = float(os.getenv("PT_MAINT_SHARE", "0.5"))
 # Crypto derivatives via Delta Exchange India public data. PT_CRYPTO=0 turns it off.
 ENABLE_CRYPTO = os.getenv("PT_CRYPTO", "1").strip().lower() not in ("0", "false", "no", "off")  # see market_calendar.py (holidays, MCX DST close)
 ENFORCE_MARKET_HOURS = os.getenv("PT_ENFORCE_MARKET_HOURS", "true" if FEED == "kite" else "false").lower() == "true"

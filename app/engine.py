@@ -184,7 +184,7 @@ class Engine:
         und = self.feed.ltp(und_tok) if und_tok else None
         if und is None:
             und = ins.strike if ins.instrument_type in ("CE", "PE") else price
-        pct = self.margin_pct(db, ins.exchange, ins.name)
+        pct = ins.init_margin_pct or self.margin_pct(db, ins.exchange, ins.name)
         m = und * qty * pct / 100.0
         if ins.instrument_type in ("CE", "PE"):
             m += price * qty  # short option: margin + premium received as collateral
@@ -225,9 +225,27 @@ class Engine:
         realised_today = sum(l.amount for l in db.query(Ledger).filter(
             Ledger.user_id == user.id, Ledger.created_at >= day_start,
             Ledger.kind.in_(["REALISED_PNL", "COMMISSION", "EXPIRY_SETTLEMENT"])))
+        maint = self.maintenance(db, user)
         return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
-                "available": round(user.balance - used, 2), "unrealised": round(unreal, 2),
-                "realised_today": round(realised_today, 2), "equity": round(user.balance + unreal, 2)}
+                "available": round(user.balance + min(0.0, unreal) - used, 2), "unrealised": round(unreal, 2),
+                "realised_today": round(realised_today, 2), "equity": round(user.balance + unreal, 2),
+                "maintenance": round(maint, 2)}
+
+    def maintenance(self, db: Session, user: User) -> float:
+        """Maintenance requirement across open positions: exchange % of notional where published
+        (Delta), otherwise MAINT_SHARE of the margin blocked. Long options need none (premium paid)."""
+        from .config import MAINT_SHARE
+        total = 0.0
+        for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
+            ins = self.feed.instruments.get(p.token)
+            if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+                continue
+            if ins and ins.maint_margin_pct:
+                mk = self.mark_price(p.token, p.qty) or self.feed.ltp(p.token) or p.avg_price
+                total += abs(p.qty) * mk * self.vf(ins) * ins.maint_margin_pct / 100.0
+            else:
+                total += p.margin_blocked * MAINT_SHARE
+        return total
 
     # ---- orders ----------------------------------------------------------------
     def place_order(self, db: Session, user: User, token: int, side: str, lots: int,
@@ -262,6 +280,20 @@ class Engine:
             raise EngineError("trigger_price required")
 
         qty = lots * ins.lot_size
+        from .config import FREEZE_QTY
+        fz = FREEZE_QTY.get(ins.name) if ins.exchange in ("NFO", "BFO") else None
+        if fz and qty > fz:
+            raise EngineError(f"Exceeds the exchange freeze quantity for {ins.name} ({fz // ins.lot_size} lots per order) — split the order")
+        if ins.pos_limit:
+            pos = self._position(db, user.id, token)
+            cur = pos.qty if pos else 0
+            new = cur + (qty if side == "BUY" else -qty)
+            if abs(new) > ins.pos_limit and abs(new) > abs(cur):
+                raise EngineError(f"Exceeds the exchange position limit of {ins.pos_limit:,} contracts for {ins.symbol}")
+        if ins.price_band_pct:
+            ref = limit_price if order_type == "LIMIT" else trigger_price if order_type == "SL" else None
+            if ref and ltp and abs(ref - ltp) / ltp * 100 > ins.price_band_pct:
+                raise EngineError(f"Price outside the exchange band (±{ins.price_band_pct:g}% of {ltp}) — the exchange would reject this order")
         order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
                       order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
                       trigger_price=trigger_price, status="OPEN")
@@ -357,7 +389,9 @@ class Engine:
         db.flush()
         f = self.funds(db, user)  # reservation already zeroed above, so not double counted
         avail = f["available"]
-        if need + comm > avail + 1e-6:
+        # a trade that only reduces exposure is always allowed (commission is still charged; the
+        # balance may go negative, like a broker's debit balance after a square-off)
+        if opening_qty and need + comm > avail + 1e-6:
             order.status = "REJECTED"
             order.reason = f"Insufficient coins: need ₹{need + comm:,.2f} (incl. ₹{comm:,.2f} commission), available ₹{avail:,.2f}"
             return
@@ -506,6 +540,62 @@ class Engine:
             self.feed.pin(list(toks) + idx)
         finally:
             db.close()
+
+    # ---- liquidation (margin call) --------------------------------------------------
+    async def liquidation_loop(self):
+        while True:
+            try:
+                await self._check_liquidations()
+            except Exception:
+                log.exception("liquidation check failed")
+            await asyncio.sleep(3)
+
+    async def _check_liquidations(self):
+        async with self._lock:
+            db = SessionLocal()
+            try:
+                uids = {p.user_id for p in db.query(Position).filter_by(is_closed=False).all()}
+                for uid in uids:
+                    user = db.get(User, uid)
+                    if not user:
+                        continue
+                    f = self.funds(db, user)
+                    if f["maintenance"] > 0 and f["equity"] < f["maintenance"]:
+                        self._liquidate(db, user, f)
+            finally:
+                db.close()
+
+    def _liquidate(self, db: Session, user: User, f: dict):
+        """Force-close every open position at the book (what the exchange/broker RMS does), cancel
+        resting orders. Positions with no counterparty depth are retried on the next pass."""
+        note = f"Liquidated — equity ₹{f['equity']:,.0f} fell below maintenance ₹{f['maintenance']:,.0f}"
+        for o in db.query(Order).filter_by(user_id=user.id, status="OPEN").all():
+            o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — margin call"
+        closed = 0
+        for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
+            ins = self.feed.instruments.get(p.token)
+            if not ins or not self.market_open(ins.exchange):
+                continue
+            side = "SELL" if p.qty > 0 else "BUY"
+            try:
+                px, bnote, filled = self.book_fill(db, ins, side, abs(p.qty))
+            except EngineError as e:
+                log.warning("liquidation %s %s: %s", user.username, p.symbol, e)
+                continue
+            order = Order(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange, side=side,
+                          order_type="MARKET", lots=filled // ins.lot_size, qty=filled, status="OPEN")
+            db.add(order); db.flush()
+            self._fill(db, user, order, px)
+            if order.status == "FILLED":
+                order.reason = f"{note} · {bnote}"; order.fill_price = px; closed += 1
+            self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
+        if closed:
+            self._ledger(db, user, 0.0, "LIQUIDATION", note)
+            db.commit()
+            log.warning("LIQUIDATION user=%s positions=%d %s", user.username, closed, note)
+            self._emit(user.id, {"type": "refresh", "message": "Margin call: your positions were liquidated at market"})
+        else:
+            db.commit()
 
     # ---- expiry settlement ------------------------------------------------------
     async def expiry_loop(self):

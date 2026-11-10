@@ -116,6 +116,7 @@ async def startup():
     engine.load_pending()
     asyncio.create_task(broadcaster())
     asyncio.create_task(engine.expiry_loop())
+    asyncio.create_task(engine.liquidation_loop())
 
 
 # ---- pages -----------------------------------------------------------------------

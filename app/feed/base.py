@@ -39,6 +39,10 @@ class Instrument:
     tick_size: float
     lot_label: str = ""   # e.g. "1 kg (price per 10 g)" for MCX; blank for NSE/BSE
     multiplier: float = 1.0   # contract size per unit of qty when the price is per 1 underlying (crypto: 0.001 BTC)
+    init_margin_pct: float = 0.0    # exchange-published initial margin % (0 = use platform setting)
+    maint_margin_pct: float = 0.0   # exchange-published maintenance margin % (0 = half of blocked margin)
+    pos_limit: int = 0              # exchange position size limit in qty units (0 = none)
+    price_band_pct: float = 0.0     # exchange price band for limit/stop prices (0 = none)
 
     def to_dict(self):
         d = asdict(self)

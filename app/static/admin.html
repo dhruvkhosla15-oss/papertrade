@@ -167,7 +167,7 @@ a{color:var(--acc)}
       <div><label class="small mut">Stock F&O (Reliance, TCS…)</label><input id="mSTK" type="number" step="0.5"></div>
       <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
       <div><label class="small mut">Currency (USDINR…)</label><input id="mCDS" type="number" step="0.5"></div>
-      <div><label class="small mut">Crypto (0.5 = 200×)</label><input id="mCRYPTO" type="number" step="0.1"></div>
+      <div><label class="small mut">Crypto</label><input id="mCRYPTO" type="number" step="0.1" disabled title="Delta's own per-contract margins are used"><div class="small mut">Delta's per-contract margins apply (BTC/ETH 0.5% = 200×, others as published)</div></div>
     </div>
     <h2 style="margin-top:18px">Commission</h2>
     <div class="row">
@@ -305,7 +305,7 @@ async function loadSettings(){const s=await api('/admin/settings');
 }
 function renderCrypto(c){const b=$('#cryptoBox');if(!c){b.classList.add('hidden');return;}b.classList.remove('hidden');b.className='card kite '+(c.connected?'ok':(c.paused?'':'bad'));
   $('#cryptoTitle').textContent=c.connected?'Crypto feed connected (Delta Exchange)':c.paused?'Crypto feed paused':'Crypto feed not connected';
-  $('#cryptoMsg').textContent=`${c.message} · ${c.instruments} contracts · USDINR ${c.usdinr?c.usdinr.toFixed(4):'—'} used for ₹ conversion`;
+  $('#cryptoMsg').textContent=`${c.message} · ${c.instruments} contracts · ₹ conversion at ${c.usdinr?c.usdinr.toFixed(4):'—'} (${c.fx_source||'USDINR'})`;
   $('#cryptoDisconnect').style.display=c.connected?'':'none';$('#cryptoReconnect').style.display=c.paused?'':'none';}
 $('#cryptoDisconnect').onclick=async()=>{if(!confirm('Disconnect crypto prices? Trainees will not be able to trade crypto until you reconnect.'))return;try{await api('/admin/feed/crypto/disconnect',{method:'POST'});toast('Crypto feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
 $('#cryptoReconnect').onclick=async()=>{try{await api('/admin/feed/crypto/reconnect',{method:'POST'});toast('Reconnecting crypto…');setTimeout(loadSettings,3000);}catch(e){toast(e.message,1)}};

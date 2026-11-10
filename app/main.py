@@ -561,7 +561,7 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None, leve
         raise HTTPException(404, "unknown instrument")
     p = price or feed.ltp(token) or 0
     qty = lots * ins.lot_size
-    if leverage is not None and (not ins.leverage_options or leverage not in ins.leverage_options):
+    if leverage is not None and (not ins.leverage_options or not (1 <= leverage <= max(ins.leverage_options))):
         leverage = None
     return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p, leverage), "qty": qty,
             "full_margin": engine.required_margin(db, ins, side.upper(), qty, p, leverage),

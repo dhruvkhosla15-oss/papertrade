@@ -268,11 +268,27 @@ class Pulse:
                          "unit": (u["name"] if u["kind"] == "crypto" else "lots"), "spark": spark,
                          "vol_x": vol_x, "oi": oi, "oi_chg": oi_chg, "buildup": buildup,
                          "hi52": hi52, "lo52": lo52, "from_hi": from_hi, "from_lo": from_lo})
+        def mixed(cands, key, n, ok=lambda r: True):
+            """Top n by key; in the 'All markets' view the best entry of every market (index, stock,
+            MCX, currency, crypto, forex) is guaranteed a place so the list is a real mix."""
+            srt = sorted(cands, key=key)
+            if kind != "all":
+                return srt[:n]
+            picked, seen = [], set()
+            for r in srt:                       # best of each market first (only if it really qualifies)
+                if r["kind"] not in seen and ok(r):
+                    picked.append(r); seen.add(r["kind"])
+            for r in srt:                       # then fill by overall rank
+                if len(picked) >= n:
+                    break
+                if r not in picked:
+                    picked.append(r)
+            return sorted(picked[:n], key=key)
         ranked = [r for r in rows if r["pct"] is not None]
-        gainers = sorted(ranked, key=lambda r: -r["pct"])[:n]
-        losers = sorted(ranked, key=lambda r: r["pct"])[:n]
-        traded = sorted([r for r in rows if r["turnover"] > 0], key=lambda r: -r["turnover"])[:n]
-        shockers = sorted([r for r in rows if r["vol_x"]], key=lambda r: -r["vol_x"])[:n]
+        gainers = mixed(ranked, lambda r: -r["pct"], n, ok=lambda r: r["pct"] > 0)
+        losers = mixed(ranked, lambda r: r["pct"], n, ok=lambda r: r["pct"] < 0)
+        traded = mixed([r for r in rows if r["turnover"] > 0], lambda r: -r["turnover"], n)
+        shockers = mixed([r for r in rows if r["vol_x"]], lambda r: -r["vol_x"], n)
         oi_rows = sorted([r for r in rows if r["oi_chg"] is not None], key=lambda r: -abs(r["oi_chg"]))[:n]
         near_hi = sorted([r for r in rows if r["from_hi"] is not None and r["from_hi"] >= -3], key=lambda r: -r["from_hi"])[:n]
         near_lo = sorted([r for r in rows if r["from_lo"] is not None and r["from_lo"] <= 3], key=lambda r: r["from_lo"])[:n]

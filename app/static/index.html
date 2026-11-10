@@ -86,7 +86,8 @@ td:first-child,th:first-child{text-align:left}
 .gk .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}.gk .v{font-weight:700;margin-top:2px;font-size:13px}.gk .s{font-size:10px;color:var(--mut);margin-top:1px;line-height:1.25}
 .pill{font-size:11px;background:rgba(132,204,22,.15);color:var(--acc);padding:2px 8px;border-radius:999px;font-weight:700;flex:0 0 auto}
 .chainmode{margin-top:8px}.chainmode button{padding:6px}
-.levseg{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:4px;padding:4px}.levseg button{padding:8px 0;font-size:13px;font-weight:700;text-align:center;min-width:0}
+.seg.levseg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px}.levseg button{padding:8px 0;font-size:13px;font-weight:700;text-align:center;min-width:0}
+.levcustom input::-webkit-outer-spin-button,.levcustom input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.levcustom{grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:12px;padding:2px 4px 0}.levcustom input{flex:1;-moz-appearance:textfield;min-width:0;padding:7px 8px;font-size:13px;font-weight:700;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--txt)}
 .pill.active{background:#14532d;color:#bbf7d0}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -743,9 +744,11 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
 function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_options||[];if(!opts.length){w.classList.add('hidden');state.lev=null;return;}
   w.classList.remove('hidden');
   state.lev=opts[0];     // every ticket opens at 1x; the trainee opts into more each time
-  $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}">${x}×</button>`).join('');
+  $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}">${x}×</button>`).join('')+`<label class="levcustom"><span class="mut">Custom</span><input id="levCustom" type="number" inputmode="numeric" min="1" max="${opts[opts.length-1]}" step="1" placeholder="1–${opts[opts.length-1]}"><span class="mut">×</span></label>`;
+  const applyCustom=(fix)=>{const el=$('#levCustom'),mx=opts[opts.length-1];let v=Math.round(+el.value);if(!v){return;}const c=Math.min(mx,Math.max(1,v));if(c!==v||fix){el.value=c;}state.lev=c;$$('#levSeg button').forEach(x=>x.classList.toggle('active',+x.dataset.lev===c));lv();updateMargin();};
+  $('#levCustom').oninput=()=>applyCustom(false);$('#levCustom').onchange=()=>applyCustom(true);
   const lv=()=>{$('#levVal').innerHTML=`<b>${state.lev}×</b> <span class="mut">· ${(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})}% margin</span>`;};lv();
-  $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));lv();updateMargin();});}
+  $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;$('#levCustom').value='';$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));lv();updateMargin();});}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
   const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');

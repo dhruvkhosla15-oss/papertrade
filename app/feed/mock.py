@@ -212,7 +212,9 @@ class MockFeed(PriceFeed):
                 self.spot[name] *= math.exp(random.gauss(0, step))
             now = time.time()
             for t in list(self._refcount):
-                ins = self.instruments[t]
+                ins = self.instruments.get(t)
+                if ins is None or ins.name not in self.spot:
+                    continue                      # crypto/forex tokens are priced by their own feeds
                 ltp = self._price(ins)
                 prev = self.prices.get(t, {})
                 close = prev.get("close") or ltp * (1 + random.uniform(-0.01, 0.01))

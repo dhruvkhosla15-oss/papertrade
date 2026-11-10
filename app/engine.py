@@ -326,8 +326,11 @@ class Engine:
         if leverage is not None:
             if not ins.leverage_options:
                 leverage = None
-            elif leverage not in ins.leverage_options:
-                raise EngineError(f"Leverage must be one of {', '.join(str(x) + 'x' for x in ins.leverage_options)}")
+            else:
+                mx = max(ins.leverage_options)
+                if not (1 <= leverage <= mx):
+                    raise EngineError(f"Leverage must be between 1x and {mx:g}x for this contract")
+                leverage = round(float(leverage), 2)
         order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
                       order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
                       trigger_price=trigger_price, status="OPEN", leverage=leverage)

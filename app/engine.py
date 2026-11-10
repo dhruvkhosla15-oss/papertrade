@@ -174,7 +174,7 @@ class Engine:
             note += ", filled across levels"
         if filled < qty:
             note += f"; partial: {filled // ins.lot_size}/{qty // ins.lot_size} lots filled, rest cancelled (no more depth)"
-        return round(avg, 2), note, filled
+        return round(avg, 6), note, filled
 
     def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
         vf = self.vf(ins)

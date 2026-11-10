@@ -103,7 +103,13 @@ class Pulse:
                     hist[tok] = {"closes": closes[-260:], "hi52": max(highs[-250:]) if highs else None,
                                  "lo52": min(lows[-250:]) if lows else None,
                                  "avg_vol": (sum(vols[-20:]) / len(vols[-20:])) if vols[-20:] else 0,
-                                 "prev_oi": ois[-1] if ois else 0}
+                                 "prev_oi": ois[-1] if ois else 0,
+                                 # last completed session, shown until the next session actually starts
+                                 "last": {"date": closes[-1][0], "close": closes[-1][1], "high": highs[-1], "low": lows[-1],
+                                          "vol": vols[-1] if vols else 0, "oi": ois[-1] if ois else 0,
+                                          "prev_close": closes[-2][1] if len(closes) > 1 else None,
+                                          "prev_oi": ois[-2] if len(ois) > 1 else 0,
+                                          "avg_vol_before": (sum(vols[-21:-1]) / len(vols[-21:-1])) if len(vols) > 1 else 0}}
                     # publish progressively so the page fills in while the build runs
                     with self._hist_lock:
                         self._hist[tok] = hist[tok]
@@ -119,45 +125,75 @@ class Pulse:
             self._building = False
 
     # ---- compute -------------------------------------------------------------------------------------
+    def _session_started(self, exchange: str) -> bool:
+        """Has today's session for this exchange begun (so live ticks describe *today*)?"""
+        try:
+            from .market_calendar import _sessions, ist_now
+            now = ist_now()
+            sessions, _ = _sessions("NFO" if exchange in ("NFO", "BFO", "NSE", "BSE") else "MCX", now.date())
+            return bool(sessions) and now.time() >= sessions[0][0]
+        except Exception:
+            return True
+
     def snapshot(self, period="today", kind="all", n=10):
         uni = self.universe()
         self.ensure_history()
         rows = []
         adv = dec = unch = 0
+        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX")}
+        session_dates = set(); any_live = False
         for u in uni:
             if kind != "all" and u["kind"] != kind:
                 continue
             p = self.feed.prices.get(u["price_token"]) or {}
-            ltp = p.get("ltp")
-            if not ltp:
-                continue
             h = self._hist.get(u["price_token"]) or {}
             closes = h.get("closes", [])
-            pct = None
-            if period == "today":
-                pct = p.get("change")
-            else:
-                back = 5 if period == "week" else 21
-                if len(closes) >= back:
-                    ref = closes[-back][1]
-                    pct = round((ltp - ref) / ref * 100, 2) if ref else None
-            dchg = p.get("change")
-            if dchg is not None:
-                adv += dchg > 0; dec += dchg < 0; unch += dchg == 0
-            spark = [c for _, c in closes[-10:]] + [ltp]
+            live = started.get(u["exchange"], True)
+            last = h.get("last") if not live else None
             f = (self.feed.prices.get(u["fut_token"]) or {}) if u["fut_token"] else {}
             fh = (self._hist.get(u["fut_token"]) or {}) if u["fut_token"] else {}
-            vol = f.get("volume") or 0
-            fltp = f.get("ltp") or ltp
-            turnover = vol * fltp
-            # MCX candle volume is in lots while live volume was scaled to units -> compare like with like
-            avg_vol = fh.get("avg_vol") or 0
+            flast = fh.get("last") if not live else None
+            if live or not last:
+                ltp = p.get("ltp")
+                if not ltp:
+                    continue
+                dchg = p.get("change"); high, low, prev_close = p.get("high"), p.get("low"), p.get("close")
+                vol = f.get("volume") or 0; fltp = f.get("ltp") or ltp
+                avg_vol = fh.get("avg_vol") or 0
+                oi = f.get("oi") or 0; prev_oi = fh.get("prev_oi") or 0; fchg = f.get("change")
+                hist_closes = closes
+                any_live = any_live or live
+            else:
+                # before today's session: show the last completed session from daily candles
+                ltp = last["close"]; prev_close = last["prev_close"]
+                dchg = round((ltp - prev_close) / prev_close * 100, 2) if prev_close else None
+                high, low = last["high"], last["low"]
+                vol = (flast or {}).get("vol") or 0; fltp = (flast or {}).get("close") or ltp
+                avg_vol = (flast or {}).get("avg_vol_before") or 0
+                oi = (flast or {}).get("oi") or 0; prev_oi = (flast or {}).get("prev_oi") or 0
+                fprev = (flast or {}).get("prev_close")
+                fchg = round((fltp - fprev) / fprev * 100, 2) if fprev else dchg
+                hist_closes = closes[:-1]   # exclude the session being displayed from the look-back
+                session_dates.add(last["date"])
             if u["kind"] == "mcx" and u["lot_size"] > 1:
-                avg_vol *= u["lot_size"]
+                if live:
+                    avg_vol *= u["lot_size"]          # live volume is in units, candles in lots
+                else:
+                    vol *= u["lot_size"]; avg_vol *= u["lot_size"]
+            pct = None
+            if period == "today":
+                pct = dchg
+            else:
+                back = 5 if period == "week" else 21
+                if len(hist_closes) >= back:
+                    ref = hist_closes[-back][1]
+                    pct = round((ltp - ref) / ref * 100, 2) if ref else None
+            if dchg is not None:
+                adv += dchg > 0; dec += dchg < 0; unch += dchg == 0
+            spark = [c for _, c in hist_closes[-10:]] + [ltp]
+            turnover = vol * fltp
             vol_x = round(vol / avg_vol, 2) if avg_vol and vol else None
-            oi = f.get("oi") or 0; prev_oi = fh.get("prev_oi") or 0
             oi_chg = round((oi - prev_oi) / prev_oi * 100, 2) if oi and prev_oi else None
-            fchg = f.get("change")
             buildup = None
             if oi_chg is not None and fchg is not None and abs(oi_chg) >= 0.5:
                 buildup = ("Long build-up" if fchg > 0 else "Short build-up") if oi_chg > 0 else ("Short covering" if fchg > 0 else "Long unwinding")
@@ -165,8 +201,8 @@ class Pulse:
             from_hi = round((ltp - hi52) / hi52 * 100, 2) if hi52 else None
             from_lo = round((ltp - lo52) / lo52 * 100, 2) if lo52 else None
             rows.append({"name": u["name"], "kind": u["kind"], "exchange": u["exchange"], "token": u["spot_token"] or u["price_token"],
-                         "label": u["label"], "ltp": ltp, "pct": pct, "day_pct": dchg, "high": p.get("high"), "low": p.get("low"),
-                         "prev_close": p.get("close"), "turnover": round(turnover, 2),
+                         "label": u["label"], "ltp": ltp, "pct": pct, "day_pct": dchg, "high": high, "low": low,
+                         "prev_close": prev_close, "turnover": round(turnover, 2),
                          "lots": int(vol / u["lot_size"]) if u["lot_size"] else vol, "spark": spark,
                          "vol_x": vol_x, "oi": oi, "oi_chg": oi_chg, "buildup": buildup,
                          "hi52": hi52, "lo52": lo52, "from_hi": from_hi, "from_lo": from_lo})
@@ -179,6 +215,7 @@ class Pulse:
         near_hi = sorted([r for r in rows if r["from_hi"] is not None and r["from_hi"] >= -3], key=lambda r: -r["from_hi"])[:n]
         near_lo = sorted([r for r in rows if r["from_lo"] is not None and r["from_lo"] <= 3], key=lambda r: r["from_lo"])[:n]
         return {"period": period, "kind": kind, "asof": time.time(), "history_ready": bool(self._hist),
+                "session": {"live": any_live, "date": max(session_dates) if session_dates else None},
                 "breadth": {"adv": adv, "dec": dec, "unch": unch, "total": len(rows)},
                 "gainers": gainers, "losers": losers, "traded": traded, "shockers": shockers, "oi": oi_rows,
                 "near_hi": near_hi, "near_lo": near_lo,

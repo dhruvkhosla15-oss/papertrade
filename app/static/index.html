@@ -186,9 +186,9 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div class="pgrid">
         <div class="card pcard"><h3>Top gainers <span id="pLblG"></span></h3><div id="pGain"></div></div>
         <div class="card pcard"><h3>Top losers <span id="pLblL"></span></h3><div id="pLose"></div></div>
-        <div class="card pcard"><h3>Most traded <span>futures turnover · today</span></h3><div id="pTraded"></div></div>
-        <div class="card pcard"><h3>Volume shockers <span>today vs 20-day average</span></h3><div id="pShock"></div></div>
-        <div class="card pcard"><h3>OI build-up <span>futures OI change vs yesterday</span></h3><div id="pOI"></div></div>
+        <div class="card pcard"><h3>Most traded <span id="pLblT">futures turnover · today</span></h3><div id="pTraded"></div></div>
+        <div class="card pcard"><h3>Volume shockers <span id="pLblS">today vs 20-day average</span></h3><div id="pShock"></div></div>
+        <div class="card pcard"><h3>OI build-up <span id="pLblO">futures OI change vs yesterday</span></h3><div id="pOI"></div></div>
         <div class="card pcard"><h3>52-week watch <span>near highs / lows</span></h3><div id="p52"></div></div>
       </div>
       <p class="small mut" id="pNote" style="margin:8px 2px"></p>
@@ -776,7 +776,11 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
 async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
-  const lbl={today:'Today',week:'This week',month:'This month'}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
+  const live=!d.session||d.session.live!==false||!d.session.date;
+  const sd=!live?new Date(d.session.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}):'';
+  const day=live?'Today':'Last session · '+sd;
+  const lbl={today:day,week:'This week',month:'This month'}[pulseP];$('#pLblG').textContent=lbl;$('#pLblL').textContent=lbl;
+  $('#pLblT').textContent='futures turnover · '+(live?'today':sd);$('#pLblS').textContent=(live?'today':sd)+' vs 20-day average';$('#pLblO').textContent='futures OI change vs '+(live?'yesterday':'previous session');
   const h=d.hero;const hs=(k,r,cls,sub)=>r?`<div class="hs" data-name="${r.name}" data-ex="${r.exchange}"><div class="k">${k}</div><div class="v">${r.name}</div><div class="s ${cls}">${sub}</div></div>`:`<div class="hs"><div class="k">${k}</div><div class="v mut">—</div></div>`;
   $('#pHero').innerHTML=hs('Top gainer',h.gainer,'up',h.gainer?pctS(h.gainer.pct)+' · '+fmt(h.gainer.ltp):'')+hs('Top loser',h.loser,'dn',h.loser?pctS(h.loser.pct)+' · '+fmt(h.loser.ltp):'')+hs('Most traded',h.traded,'mut',h.traded?fmtCr(h.traded.turnover):'');
   const b=d.breadth,tot=b.total||1;$('#pBreadth').innerHTML=`<div class="bt"><span><b class="up">${b.adv}</b> advancing</span><span>${b.unch} flat</span><span><b class="dn">${b.dec}</b> declining</span></div><div class="bb"><i style="width:${(b.adv/tot*100).toFixed(1)}%;background:var(--up)"></i><i style="width:${(b.unch/tot*100).toFixed(1)}%;background:var(--mut)"></i><i style="width:${(b.dec/tot*100).toFixed(1)}%;background:var(--dn)"></i></div>`;
@@ -789,7 +793,8 @@ async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${p
   $('#pOI').innerHTML=d.oi.map((r,i)=>pulseRow(r,i,'oi')).join('')||(d.history_ready?'<div class="pempty">No OI change yet</div>':hl);
   const n52=[...d.near_hi.map(r=>({...r,_near:'hi'})),...d.near_lo.map(r=>({...r,_near:'lo'}))].slice(0,10);
   $('#p52').innerHTML=n52.map((r,i)=>pulseRow(r,i,'52')).join('')||(d.history_ready?'<div class="pempty">Nothing within 3% of a 52-week high or low</div>':hl);
-  $('#pNote').textContent=pulseP==='today'?'Change vs previous close · live':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago · prices live';
+  const src=live?'prices live':'last completed session ('+sd+') · updates once the market opens';
+  $('#pNote').textContent=(pulseP==='today'?'Change vs previous close':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago')+' · '+src;
   $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
 function openScrip(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
 $$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});

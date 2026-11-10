@@ -96,8 +96,9 @@ td:first-child,th:first-child{text-align:left}
 .sheet .chartbox{height:100vh;height:100dvh;max-height:100dvh;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))!important;overflow:hidden}
 .sheet .chartbox #chartBox{min-height:160px}
 .seg{display:flex;background:var(--seg);border-radius:8px;padding:3px}
-.seg button{flex:1;background:none;color:var(--mut);padding:8px}
-.seg button.active{background:var(--card);color:var(--txt)}
+.seg button{flex:1;background:none;color:var(--mut);padding:8px;border:1px solid transparent}
+.seg button.active{background:rgba(154,209,60,.14);color:var(--acc);border-color:var(--acc);font-weight:700}
+#sideBuy.active,#sideSell.active{background:var(--card);color:var(--txt);border-color:transparent}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}

@@ -132,7 +132,7 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="balance">Balance</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="Balance − exposure (± unrealised): what they can still trade with">Available</th><th class="sort" data-k="unrealised">Unrealised</th><th class="sort" data-k="equity">Equity</th><th class="sort" data-k="pnl">Net P&L</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L less commissions, all time">Realised</th><th class="sort" data-k="equity" title="Allocated + realised + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -365,7 +365,7 @@ async function loadUsers(){users=await api('/admin/users');
   renderUsers();if(detail)refreshDetail();
 }
 function renderUsers(){
-  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited}));
+  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited}));
   if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
@@ -373,9 +373,9 @@ function renderUsers(){
   $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}">
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
-    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.balance)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
-    <td class="num ${cls(u.unrealised)}">${inr(u.unrealised)}</td><td class="num">${inr(u.equity)}</td>
-    <td class="num ${cls(u.pnl)}">${sgn(u.pnl)}<div class="small mut">${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
+    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
+    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td>
+    <td class="num"><b>${inr(u.equity)}</b><div class="small ${cls(u.pnl)}">${sgn(u.pnl)} · ${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
     <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
     <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`).join('')||`<tr><td colspan=12 class="mut">${users.length?'No match':'No trainees yet — add one above'}</td></tr>`;

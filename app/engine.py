@@ -260,8 +260,9 @@ class Engine:
             raise EngineError("side must be BUY or SELL")
         if order_type not in ("MARKET", "LIMIT", "SL"):
             raise EngineError("order_type must be MARKET, LIMIT or SL")
-        if lots < 1 or lots > 500:
-            raise EngineError("lots must be 1..500")
+        max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
+        if lots < 1 or lots > max_lots:
+            raise EngineError(f"lots must be 1..{max_lots}")
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
         cry = getattr(self.feed, "crypto", None)
@@ -293,9 +294,14 @@ class Engine:
             if abs(new) > ins.pos_limit and abs(new) > abs(cur):
                 raise EngineError(f"Exceeds the exchange position limit of {ins.pos_limit:,} contracts for {ins.symbol}")
         if ins.price_band_pct:
+            # band measured from the touch (best bid/ask), never from a stale last trade
             ref = limit_price if order_type == "LIMIT" else trigger_price if order_type == "SL" else None
-            if ref and ltp and abs(ref - ltp) / ltp * 100 > ins.price_band_pct:
-                raise EngineError(f"Price outside the exchange band (±{ins.price_band_pct:g}% of {ltp}) — the exchange would reject this order")
+            tk = self.feed.prices.get(token) or {}
+            anchor = (tk.get("ask") if side == "BUY" else tk.get("bid")) or ltp
+            lo = min(tk.get("bid") or anchor, anchor) * (1 - ins.price_band_pct / 100)
+            hi = max(tk.get("ask") or anchor, anchor) * (1 + ins.price_band_pct / 100)
+            if ref and anchor and not (lo <= ref <= hi):
+                raise EngineError(f"Price outside the exchange band (±{ins.price_band_pct:g}% around {anchor}) — the exchange would reject this order")
         order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
                       order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
                       trigger_price=trigger_price, status="OPEN")
@@ -419,6 +425,11 @@ class Engine:
             pos.margin_blocked = round(pos.margin_blocked - released, 2)
             if new == 0:
                 pos.qty = 0; pos.margin_blocked = 0.0; pos.is_closed = True
+                # position is flat: a leftover stop/limit on this contract would silently open a new one
+                for o2 in db.query(Order).filter_by(user_id=user.id, token=order.token, status="OPEN").all():
+                    if o2.id != order.id:
+                        o2.status = "CANCELLED"; o2.margin_blocked = 0.0; o2.reason = "Cancelled — position closed"
+                        self._emit(user.id, {"type": "order", "order": self.order_dict(o2)})
             elif (new > 0) != (cur > 0):
                 # flipped: remaining qty opens new position at fill price
                 pos.is_closed = True; pos.qty = 0; pos.margin_blocked = 0.0

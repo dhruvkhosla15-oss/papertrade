@@ -802,7 +802,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
     mp = {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")}
     for g in config.MCX_GROUP_LABELS:
         v = get_setting(db, f"margin_pct_{g}"); mp[g] = float(v) if v else config.DEFAULT_MARGIN_PCT[g]
-    return {"margin_pct": mp, "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db),
+    return {"margin_pct": mp, "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db), "market_status": _market_status(),
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,

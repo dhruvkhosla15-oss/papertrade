@@ -48,7 +48,11 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .login input{margin-bottom:10px;padding:13px;font-size:16px}
 .login button{padding:13px;font-size:16px}
 .login .back{display:block;text-align:center;margin-top:16px;color:var(--mut);font-size:13px;cursor:pointer}
-.livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.15);color:var(--dn)}
+.mkts{display:flex;gap:6px;overflow-x:auto;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}.mkts::-webkit-scrollbar{display:none}
+.mchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:600;background:var(--bg);color:var(--txt);white-space:nowrap}
+.mchip:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dn);flex:0 0 auto}.mchip.on:before{background:var(--up);box-shadow:0 0 6px var(--up)}
+.mchip small{color:var(--mut);font-weight:500;font-size:11px}
+.livepill{display:none}
 .livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
 .profile{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 14px 6px 6px;color:var(--txt);text-align:right;cursor:pointer;transition:background .15s,border-color .15s}
@@ -189,6 +193,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
+<div id="mkts" class="mkts"></div>
 <div class="marquee"><div class="track" id="ticker"></div></div>
 <div id="banner" class="banner hidden"></div>
 <main>
@@ -581,8 +586,16 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   refreshAll();
   setInterval(refreshFunds,5000);
 }
-function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'LIVE':'OFFLINE';$('#livePill').className='livepill'+(f.connected?' ok':'');
-  const ms=state.marketStatus||{};const b=$('#banner');
+function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
+  const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const todayS=(ms.NFO&&ms.NFO.today)||(ms.MCX&&ms.MCX.today)||'';
+  const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=0?'':dd===1?'tmrw ':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
+  const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null]];
+  return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
+    if(!c)return `<span class="mchip off" title="${n}: price feed not connected">${n}<small>feed down</small></span>`;
+    if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
+    const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
+    return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
+function renderFeed(f){const ms=state.marketStatus||{};$('#mkts').innerHTML=marketChips(f,ms);const b=$('#banner');b.className='banner hidden';return;
   const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};
   const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+':'+String(x.getMinutes()).padStart(2,'0')+(x.getHours()<12?' am':' pm');};
   const todayS=nse.today||mcx.today||'';const dayOf=iso=>iso.slice(0,10);const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];

@@ -29,6 +29,39 @@ class Pulse:
         self._hist_day = ""            # IST date the history was built for
         self._hist_lock = threading.Lock()
         self._building = False
+        self._load_cache()
+
+    # ---- disk cache: a restart must not blank Pulse or show a half-built ranking ----------------
+    def _cache_path(self):
+        import os
+        from .config import DATA_DIR
+        return os.path.join(DATA_DIR, "pulse_history.json")
+
+    def _load_cache(self):
+        try:
+            import json, os
+            p = self._cache_path()
+            if os.path.exists(p):
+                with open(p) as f:
+                    d = json.load(f)
+                self._hist = {int(k): v for k, v in d.get("hist", {}).items()}
+                self._hist_day = d.get("day", "")
+                for h in self._hist.values():        # json turned tuples into lists; keep shape
+                    h["closes"] = [tuple(x) for x in h.get("closes", [])]
+                log.info("pulse history loaded from cache (%d tokens, built %s)", len(self._hist), self._hist_day)
+        except Exception:
+            log.exception("pulse cache load failed")
+
+    def _save_cache(self):
+        try:
+            import json, os
+            p = self._cache_path()
+            tmp = p + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"day": self._hist_day, "hist": self._hist}, f)
+            os.replace(tmp, p)
+        except Exception:
+            log.exception("pulse cache save failed")
 
     # ---- universe ---------------------------------------------------------------------------------
     def universe(self):
@@ -121,14 +154,17 @@ class Pulse:
                                           "prev_close": closes[-2][1] if len(closes) > 1 else None,
                                           "prev_oi": ois[-2] if len(ois) > 1 else 0,
                                           "avg_vol_before": (sum(vols[-21:-1]) / len(vols[-21:-1])) if len(vols) > 1 else 0}}
-                    # publish progressively so the page fills in while the build runs
-                    with self._hist_lock:
-                        self._hist[tok] = hist[tok]
+                    # first ever build: publish progressively so the page fills in; otherwise the old
+                    # data stays in use until the rebuild is complete (no half-built rankings)
+                    if not self._hist_day:
+                        with self._hist_lock:
+                            self._hist[tok] = hist[tok]
                 time.sleep(0.35)   # stay under Kite's historical-data rate limit
             if len(hist) >= max(10, len(toks) // 2):
                 with self._hist_lock:
                     self._hist = hist; self._hist_day = day
                 log.info("pulse history built for %s (%d of %d tokens)", day, len(hist), len(toks))
+                self._save_cache()
             else:
                 log.warning("pulse history build for %s got only %d of %d tokens; keeping previous data, will retry",
                             day, len(hist), len(toks))

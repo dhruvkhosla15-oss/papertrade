@@ -184,6 +184,13 @@ class Engine:
         und = self.feed.ltp(und_tok) if und_tok else None
         if und is None:
             und = ins.strike if ins.instrument_type in ("CE", "PE") else price
+        if ins.exchange == "CRYPTO" and ins.instrument_type in ("CE", "PE"):
+            # short crypto option (Delta-style): premium + max(10% of underlying notional less the OTM
+            # amount, 5% of underlying notional). The product's initial_margin field is not the seller margin.
+            notional = und * qty
+            otm = max(0.0, (ins.strike - und) if ins.instrument_type == "CE" else (und - ins.strike)) * qty
+            m = price * qty + max(0.10 * notional - otm, 0.05 * notional)
+            return round(m * vf, 2)
         pct = ins.init_margin_pct or self.margin_pct(db, ins.exchange, ins.name)
         m = und * qty * pct / 100.0
         if ins.instrument_type in ("CE", "PE"):
@@ -240,9 +247,14 @@ class Engine:
             ins = self.feed.instruments.get(p.token)
             if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
                 continue
-            if ins and ins.maint_margin_pct:
+            if ins and ins.exchange == "CRYPTO" and ins.instrument_type in ("CE", "PE"):
+                # short crypto option: half of what the seller margin would be at current prices
                 mk = self.mark_price(p.token, p.qty) or self.feed.ltp(p.token) or p.avg_price
-                total += abs(p.qty) * mk * self.vf(ins) * ins.maint_margin_pct / 100.0
+                total += 0.5 * self.required_margin(db, ins, "SELL", abs(p.qty), mk)
+            elif ins and ins.maint_margin_pct:
+                und_tok = self.feed.index_token_for(ins.name)
+                und = (self.feed.ltp(und_tok) if und_tok else None) or self.mark_price(p.token, p.qty) or p.avg_price
+                total += abs(p.qty) * und * self.vf(ins) * ins.maint_margin_pct / 100.0
             else:
                 total += p.margin_blocked * MAINT_SHARE
         return total

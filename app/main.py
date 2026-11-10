@@ -528,6 +528,7 @@ class OrderIn(BaseModel):
     side: str
     lots: int
     order_type: str = "MARKET"
+    leverage: Optional[float] = None
     limit_price: Optional[float] = None
     trigger_price: Optional[float] = None
 
@@ -546,22 +547,24 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
     async with engine._lock:
         try:
             o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
-                                   body.limit_price, body.trigger_price)
+                                   body.limit_price, body.trigger_price, body.leverage)
         except EngineError as e:
             raise HTTPException(400, str(e))
     return {"order": engine.order_dict(o), "funds": engine.funds(db, user)}
 
 
 @app.get("/api/margin")
-def margin(token: int, side: str, lots: int, price: Optional[float] = None,
+def margin(token: int, side: str, lots: int, price: Optional[float] = None, leverage: Optional[float] = None,
            user: User = Depends(current_user), db: Session = Depends(get_db)):
     ins = feed.instruments.get(token)
     if not ins:
         raise HTTPException(404, "unknown instrument")
     p = price or feed.ltp(token) or 0
     qty = lots * ins.lot_size
-    return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p), "qty": qty,
-            "full_margin": engine.required_margin(db, ins, side.upper(), qty, p),
+    if leverage is not None and (not ins.leverage_options or leverage not in ins.leverage_options):
+        leverage = None
+    return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p, leverage), "qty": qty,
+            "full_margin": engine.required_margin(db, ins, side.upper(), qty, p, leverage),
             "commission": round(p * qty * engine.vf(ins) * engine.commission_pct(db, ins.exchange) / 100.0, 2), "commission_pct": engine.commission_pct(db, ins.exchange),
             "value_factor": engine.vf(ins), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 

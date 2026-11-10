@@ -73,6 +73,7 @@ class Order(Base):
     fill_price = Column(Float)
     reason = Column(String(256), default="")
     margin_blocked = Column(Float, default=0.0)
+    leverage = Column(Float)                                # chosen leverage (crypto/forex), None = contract max
     created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
 
@@ -153,6 +154,10 @@ def init_db():
             # trainees created earlier who have never placed an order still get the first-login prompt
             con.execute(text("UPDATE users SET must_change_password = 1 WHERE is_admin = 0 "
                              "AND id NOT IN (SELECT DISTINCT user_id FROM orders)"))
+    ocols = {c["name"] for c in inspect(engine).get_columns("orders")}
+    if "leverage" not in ocols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE orders ADD COLUMN leverage FLOAT"))
     tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
     if "commission" not in tcols:
         with engine.begin() as con:

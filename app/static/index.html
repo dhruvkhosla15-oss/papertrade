@@ -86,6 +86,7 @@ td:first-child,th:first-child{text-align:left}
 .gk .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}.gk .v{font-weight:700;margin-top:2px;font-size:13px}.gk .s{font-size:10px;color:var(--mut);margin-top:1px;line-height:1.25}
 .pill{font-size:11px;background:rgba(132,204,22,.15);color:var(--acc);padding:2px 8px;border-radius:999px;font-weight:700;flex:0 0 auto}
 .chainmode{margin-top:8px}.chainmode button{padding:6px}
+.levseg{display:flex;flex-wrap:wrap}.levseg button{flex:1 1 0;min-width:40px}
 .pill.active{background:#14532d;color:#bbf7d0}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -399,6 +400,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
     <div class="seg" style="margin:10px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
     <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
+    <div id="levWrap" class="hidden" style="margin-bottom:10px"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Leverage</span><b class="num" id="levVal"></b></div><div class="seg levseg" id="levSeg"></div></div>
     <div class="row">
       <div><label class="small mut">Lots</label><input id="oLots" type="number" min="1" value="1"></div>
       <div><label class="small mut">Qty</label><input id="oQty" disabled></div>
@@ -442,9 +444,10 @@ const cRate=()=>inrOn()?state.usdinr:1;
 const cp=(ex,v)=>(v==null||ex!=='CRYPTO')?v:v*cRate();                     // convert one USD value for display
 const cpx=(ex,v)=>v==null?'—':(ex==='CRYPTO'?(inrOn()?'₹':'$'):'')+fmt(cp(ex,v));
 const PXF=['ltp','bid','ask','open','high','low','close'];
+const dsym=(ex,s)=>(ex==='CRYPTO'&&inrOn()&&/USD$/.test(s||''))?s.replace(/USD$/,'INR'):s;   // BTCUSD -> BTCINR in the ₹ view
 function dispTick(t){if(!t||!isCryptoTok(t.token)||!inrOn())return t;const r=cRate();const d={...t};for(const k of PXF)if(d[k]!=null)d[k]=d[k]*r;if(d.bids)d.bids=d.bids.map(x=>[x[0]*r,x[1],x[2]]);if(d.asks)d.asks=d.asks.map(x=>[x[0]*r,x[1],x[2]]);return d;}
 const ccyToggleHtml=()=>`<div class="seg ccyseg" style="flex:0 0 auto;padding:2px"><button data-ccy="INR" class="${CCCY==='INR'?'active':''}" style="padding:4px 12px">₹ INR</button><button data-ccy="USD" class="${CCCY==='USD'?'active':''}" style="padding:4px 12px">$ USD</button></div>`;
-function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));
+function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));if(typeof renderWatch==='function')renderWatch();if(state.sel)$('#oSym').textContent=dsym(state.sel.exchange,state.sel.symbol);
   onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
 function bindCcyToggles(){$$('.ccyseg button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));}
 const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -515,7 +518,7 @@ function buildMarket(){
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
   const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='crypto'?'Crypto':u.kind==='forex'?'Forex':u.kind==='stock'?'Stocks (F&O)':'Index';
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
-    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Delta · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
   const nStk=state.und.filter(u=>u.kind==='stock').length;
   const nCur=state.und.filter(u=>u.kind==='currency').length;$$('.cat[data-cat="currency"]').forEach(el=>el.classList.toggle('hidden',!nCur));
   const nCry=state.und.filter(u=>u.kind==='crypto').length;$$('.cat[data-cat="crypto"]').forEach(el=>el.classList.toggle('hidden',!nCry));
@@ -526,7 +529,7 @@ function buildMarket(){
     const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
     const ctog=cat==='crypto'?`<div class="row" style="justify-content:space-between;align-items:center;padding:6px 0 2px"><span class="small mut">Show crypto prices in</span>${ccyToggleHtml()}</div>`:'';
     return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${ctog}${filt}`+
-      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Delta · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
+      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
   const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');bindCcyToggles();
     list.querySelector('.backCat').onclick=()=>{list.classList.add('hidden');$(sfx?'#catListF':'#catList').classList.remove('hidden');};
     const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
@@ -638,7 +641,7 @@ async function loadFutures(){
   const old=(state.futs||[]).map(f=>f.token);
   const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
   state.spotTokenF=(state.und.find(u=>u.exchange===ex&&u.name===name)||{}).spot_token;
-  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${f.symbol}</span><div class="small mut">${f.expiry?'exp '+f.expiry:(f.exchange==='FOREX'?'spot':'perpetual')} · lot ${f.lot_size}</div></span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
+  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${dsym(f.exchange,f.symbol)}</span><div class="small mut">${f.expiry?'exp '+f.expiry:(f.exchange==='FOREX'?'spot':'perpetual')} · lot ${f.lot_size}</div></span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
   $$('#futList .wl-item').forEach(el=>el.onclick=()=>{if(state.guest){showLogin();return;}openSheet(state.futs.find(x=>x.token==el.dataset.tok));});
   unsub(old);
   const toks=futs.map(f=>f.token);if(state.spotTokenF)toks.push(state.spotTokenF);
@@ -709,7 +712,7 @@ function onPrices(ticks){
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
-  $('#searchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><span class="num" id="p${i.token}">—</span></div>`).join('');
+  $('#searchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><span class="num" id="p${i.token}">—</span></div>`).join('');
   $$('#searchRes .wl-item').forEach(el=>el.onclick=()=>{openSheet(r.find(x=>x.token==el.dataset.tok));$('#searchRes').innerHTML='';$('#search').value='';});
   sub(r.map(i=>i.token));onPrices(r.map(i=>state.prices[i.token]).filter(Boolean));},300);};
 
@@ -734,14 +737,20 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
     <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
   $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
   onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
+function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_options||[];if(!opts.length){w.classList.add('hidden');state.lev=null;return;}
+  w.classList.remove('hidden');let saved=null;try{saved=+localStorage.getItem('lfx_lev_'+ins.exchange)||null}catch(e){}
+  state.lev=opts.includes(saved)?saved:opts[opts.length-1];
+  $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}" style="padding:7px 4px;font-size:12px">${x}×</button>`).join('');
+  $('#levVal').textContent=state.lev+'× · margin '+(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';
+  $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;try{localStorage.setItem('lfx_lev_'+ins.exchange,state.lev)}catch(e){}$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));$('#levVal').textContent=state.lev+'× · margin '+(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';updateMargin();});}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
-  const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'USD contract shown in ₹ at Delta\'s rate '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
+  const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
-  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Delta Exchange · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?'Forex spot · 24×5 · P&L converted to ₹':`${ins.exchange} · exp ${ins.expiry}`;
+  $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?'Forex spot · 24×5 · P&L converted to ₹':`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
   $('#oWatch').onclick=()=>addWatch(ins.token);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
-  openSheetPrices(ins);$('#oChg').textContent='';
+  openSheetPrices(ins);$('#oChg').textContent='';renderLeverage(ins);
   const stok=((state.und||[]).find(u=>u.name===ins.name&&u.spot_token)||{}).spot_token;
   sub(stok?[ins.token,stok]:[ins.token]);renderGreeks(ins);$('#sheet').classList.remove('hidden');updateMargin();}
 function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
@@ -758,10 +767,10 @@ $('#sheet').onclick=e=>{if(e.target.id==='sheet')$('#sheet').classList.add('hidd
 const toUsd=v=>(state.sel?.exchange==='CRYPTO'&&v)?+(v/cRate()).toFixed(6):v;   // ticket inputs are typed in the display currency
 let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
   const price=state.otype==='LIMIT'?toUsd(+$('#oLimit').value):undefined;
-  try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}`);
+  try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
     $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?'₹'+fmt2(j.commission):'—';$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
-  const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};
+  const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
   $('#oSubmit').disabled=true;
   try{const j=await api('/orders',{method:'POST',body:b});renderFunds(j.funds);$('#sheet').classList.add('hidden');
@@ -771,7 +780,7 @@ $('#oSubmit').onclick=async()=>{
 // ---------- chart ----------
 const IST=19800;let chart=null,cSeries=null,vSeries=null,cData=[],cTf='5m',cStep=300,cTok=null;
 const stepOf=tf=>({'1m':60,'5m':300,'15m':900,'1h':3600,'1d':86400})[tf];
-function openChart(ins){cTok=ins.token;$('#cSym').textContent=ins.symbol;$('#cMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
+function openChart(ins){cTok=ins.token;$('#cSym').textContent=dsym(ins.exchange,ins.symbol);$('#cMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
   const pr=state.prices[ins.token];$('#cLtp').textContent=pr?fmt(pr.ltp):'—';$('#cChg').textContent=pr&&pr.change!=null?((pr.change>0?'+':'')+pr.change+'%'):'';$('#cChg').className='small num '+pnlCls(pr?.change);
   $('#chartModal').classList.remove('hidden');sub([ins.token]);
   if(!chart){chart=LightweightCharts.createChart($('#chartBox'),{layout:{background:{color:'#121c2e'},textColor:'#8da2c0'},grid:{vertLines:{color:'#1e2a44'},horzLines:{color:'#1e2a44'}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#1e2a44'},rightPriceScale:{borderColor:'#1e2a44'},crosshair:{mode:0}});
@@ -817,7 +826,7 @@ function initDrag(){const list=$('#wlist');
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':w.symbol}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):w.exchange+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':dsym(w.exchange,w.symbol)}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange)+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${w.segment==='INDICES'?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
@@ -828,26 +837,26 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
 let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{const q=$('#wsearch').value.trim();if(q.length<2){$('#wsearchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
-  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${i.symbol}</span> <span class="small mut">${i.segment==='INDICES'?(i.kind==='stock'?'NSE stock · spot':'spot'):i.exchange+' · lot '+i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
+  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.segment==='INDICES'?(i.kind==='stock'?'NSE stock · spot':'spot'):i.exchange+' · lot '+i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
   $$('#wsearchRes .wl-item').forEach(el=>el.onclick=()=>{addWatch(+el.dataset.tok);$('#wsearchRes').innerHTML='';$('#wsearch').value='';});},300);};
 
 // ---------- positions / orders ----------
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
-    <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
     <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
-function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${o.symbol}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
+function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${dsym(o.exchange,o.symbol)}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>
   <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
   <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
-async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${cpx(x.exchange,x.price)}</td><td class="num mut">${x.commission?'-'+fmt2(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt2(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
+async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${dsym(x.exchange,x.symbol)}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${cpx(x.exchange,x.price)}</td><td class="num mut">${x.commission?'-'+fmt2(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt2(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
 async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission',LIQUIDATION:'Margin call — positions liquidated'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt2(x.amount)}</td><td class="num">${fmt2(x.balance_after)}</td></tr>`).join('');}
 
 // ---------- Pulse (home) ----------

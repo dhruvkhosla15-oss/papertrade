@@ -180,7 +180,7 @@ class Engine:
             note += f"; partial: {filled // ins.lot_size}/{qty // ins.lot_size} lots filled, rest cancelled (no more depth)"
         return round(avg, 6), note, filled
 
-    def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
+    def required_margin(self, db: Session, ins, side: str, qty: int, price: float, leverage: float = None) -> float:
         vf = self.vf(ins)
         if ins.instrument_type in ("CE", "PE") and side == "BUY":
             return round(price * qty * vf, 2)
@@ -191,6 +191,8 @@ class Engine:
         # Delta margins options like perpetuals: initial_margin % of the underlying notional (0.5% for
         # BTC/ETH = 200x) plus the option's mark price for sellers; liquidation is decided on the mark.
         pct = ins.init_margin_pct or self.margin_pct(db, ins.exchange, ins.name)
+        if leverage and leverage > 0 and ins.leverage_options:
+            pct = max(pct, 100.0 / leverage)      # trader chose less leverage than the contract allows
         m = und * qty * pct / 100.0
         if ins.instrument_type in ("CE", "PE"):
             m += price * qty  # short option: margin + premium received as collateral
@@ -261,7 +263,8 @@ class Engine:
 
     # ---- orders ----------------------------------------------------------------
     def place_order(self, db: Session, user: User, token: int, side: str, lots: int,
-                    order_type: str = "MARKET", limit_price: float = None, trigger_price: float = None) -> Order:
+                    order_type: str = "MARKET", limit_price: float = None, trigger_price: float = None,
+                    leverage: float = None) -> Order:
         ins = self.feed.instruments.get(token)
         if not ins or ins.segment == "INDICES":
             raise EngineError("Unknown or non-tradable instrument")
@@ -281,7 +284,7 @@ class Engine:
         if cry and token in cry.items and not cry.connected:
             raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
         if cry and token in cry.items and not cry.fx_ready():
-            raise EngineError("Waiting for Delta's USD/INR rate — crypto trading resumes once it is received")
+            raise EngineError("Waiting for the ₹ conversion rate — crypto trading resumes in a moment")
         fx = getattr(self.feed, "forex", None)
         if fx and token in fx.items:
             if not fx.connected:
@@ -320,9 +323,14 @@ class Engine:
             hi = max(tk.get("ask") or anchor, anchor) * (1 + ins.price_band_pct / 100)
             if ref and anchor and not (lo <= ref <= hi):
                 raise EngineError(f"Price outside the exchange band (±{ins.price_band_pct:g}% around {anchor}) — the exchange would reject this order")
+        if leverage is not None:
+            if not ins.leverage_options:
+                leverage = None
+            elif leverage not in ins.leverage_options:
+                raise EngineError(f"Leverage must be one of {', '.join(str(x) + 'x' for x in ins.leverage_options)}")
         order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
                       order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
-                      trigger_price=trigger_price, status="OPEN")
+                      trigger_price=trigger_price, status="OPEN", leverage=leverage)
         db.add(order)
         db.flush()
 
@@ -344,7 +352,7 @@ class Engine:
         else:
             # reserve margin for the opening part so user can't over-commit
             ref_price = limit_price if order_type == "LIMIT" else ltp
-            need = self._opening_margin(db, user, ins, side, qty, ref_price)
+            need = self._opening_margin(db, user, ins, side, qty, ref_price, leverage)
             f = self.funds(db, user)
             if need > f["available"] + 1e-6:
                 order.status = "REJECTED"; order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{f['available']:,.2f}"
@@ -358,7 +366,7 @@ class Engine:
             raise EngineError(order.reason)
         return order
 
-    def _opening_margin(self, db, user, ins, side, qty, price) -> float:
+    def _opening_margin(self, db, user, ins, side, qty, price, leverage=None) -> float:
         """Margin needed for the part of this order that opens new exposure (netting against existing)."""
         pos = self._position(db, user.id, ins.token)
         cur = pos.qty if pos else 0
@@ -370,7 +378,7 @@ class Engine:
             opening = max(0, abs(new)) if (new > 0) != (cur > 0) else 0
         if opening == 0:
             return 0.0
-        return self.required_margin(db, ins, side, opening, price)
+        return self.required_margin(db, ins, side, opening, price, leverage)
 
     def cancel_order(self, db: Session, user: User, order_id: int):
         o = db.query(Order).filter_by(id=order_id, user_id=user.id).first()
@@ -409,7 +417,7 @@ class Engine:
             opening_qty = qty
         else:
             opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
-        need = self.required_margin(db, ins, order.side, opening_qty, price) if opening_qty else 0.0
+        need = self.required_margin(db, ins, order.side, opening_qty, price, order.leverage) if opening_qty else 0.0
         vf = self.vf(ins)
         comm = round(price * qty * vf * self.commission_pct(db, ins.exchange) / 100.0, 2)
         db.flush()
@@ -691,7 +699,7 @@ class Engine:
     # ---- serialisers ----------------------------------------------------------------
     @staticmethod
     def order_dict(o: Order) -> dict:
-        return {"id": o.id, "token": o.token, "symbol": o.symbol, "exchange": o.exchange, "side": o.side,
+        return {"id": o.id, "token": o.token, "symbol": o.symbol, "exchange": o.exchange, "side": o.side, "leverage": o.leverage,
                 "order_type": o.order_type, "lots": o.lots, "qty": o.qty, "limit_price": o.limit_price,
                 "trigger_price": o.trigger_price, "status": o.status, "fill_price": o.fill_price,
                 "reason": o.reason, "created_at": o.created_at.isoformat() + "Z"}

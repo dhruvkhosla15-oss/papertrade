@@ -121,8 +121,11 @@ class DeltaCrypto:
     @staticmethod
     def _risk(p):
         f = lambda k: float(p[k]) if p.get(k) not in (None, "") else 0.0
+        steps = tuple(int(x) for x in ((p.get("ui_config") or {}).get("leverage_slider_values") or [1, 2, 5, 10, 25, 50, 100, 200]))
+        mx = int(round(100 / f("initial_margin"))) if f("initial_margin") else 200
         return {"init_margin_pct": f("initial_margin"), "maint_margin_pct": f("maintenance_margin"),
-                "pos_limit": int(f("position_size_limit")), "price_band_pct": f("price_band")}
+                "pos_limit": int(f("position_size_limit")), "price_band_pct": f("price_band"),
+                "leverage_options": tuple(s for s in steps if s <= mx)}
 
     # ---- helpers used by engine / pulse ---------------------------------------------------------
     INR_INDEX = ".DEUSDTINR"      # Delta's own USD(T)/INR index: what its app uses for rupee display

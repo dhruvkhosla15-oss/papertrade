@@ -319,7 +319,8 @@ class CTraderForex:
             items[tok] = Instrument(tok, name, name, "FOREX", "FOREX-SPOT", "FUT", "", 0, LOT_UNITS,
                                     10 ** (-digits), f"{LOT_UNITS:,} {base} (price in {quote})",
                                     multiplier=1.0, init_margin_pct=round(init_pct, 4), maint_margin_pct=round(init_pct / 2, 4),
-                                    pos_limit=int(int(d.get("maxVolume", 0)) / VOL_SCALE) if d.get("maxVolume") else 0)
+                                    pos_limit=int(int(d.get("maxVolume", 0)) / VOL_SCALE) if d.get("maxVolume") else 0,
+                                    leverage_options=tuple(s for s in (1, 2, 5, 10, 20, 30, 50, 100, 200, 500) if s <= (lev or 1)))
             self.meta[tok] = {"quote": quote, "base": base, "digits": digits, "leverage": lev,
                               "min_volume": int(int(d.get("minVolume", 0)) / VOL_SCALE) if d.get("minVolume") else 0,
                               "description": s.get("description", "")}

@@ -45,6 +45,7 @@ class Instrument:
     maint_margin_pct: float = 0.0   # exchange-published maintenance margin % (0 = half of blocked margin)
     pos_limit: int = 0              # exchange position size limit in qty units (0 = none)
     price_band_pct: float = 0.0     # exchange price band for limit/stop prices (0 = none)
+    leverage_options: tuple = ()    # selectable leverage steps the exchange offers (crypto/forex)
 
     def to_dict(self):
         d = asdict(self)

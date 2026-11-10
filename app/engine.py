@@ -709,7 +709,10 @@ class Engine:
         mk = self.mark_price(p.token, p.qty)
         vf = self.vf(self.feed.instruments.get(p.token))
         unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty) else 0.0
-        return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf,
+        lev = None
+        if p.exchange in ("CRYPTO", "FOREX") and p.margin_blocked and mk:
+            lev = round(abs(p.qty) * mk * vf / p.margin_blocked)      # effective leverage of the position
+        return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf, "leverage": lev,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
                 "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}

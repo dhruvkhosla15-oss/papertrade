@@ -86,7 +86,7 @@ td:first-child,th:first-child{text-align:left}
 .gk .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}.gk .v{font-weight:700;margin-top:2px;font-size:13px}.gk .s{font-size:10px;color:var(--mut);margin-top:1px;line-height:1.25}
 .pill{font-size:11px;background:rgba(132,204,22,.15);color:var(--acc);padding:2px 8px;border-radius:999px;font-weight:700;flex:0 0 auto}
 .chainmode{margin-top:8px}.chainmode button{padding:6px}
-.levseg{display:flex;flex-wrap:wrap}.levseg button{flex:1 1 0;min-width:40px}
+.levseg{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:4px;padding:4px}.levseg button{padding:8px 0;font-size:13px;font-weight:700;text-align:center;min-width:0}
 .pill.active{background:#14532d;color:#bbf7d0}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -400,7 +400,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
     <div class="seg" style="margin:10px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
     <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
-    <div id="levWrap" class="hidden" style="margin-bottom:10px"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Leverage</span><b class="num" id="levVal"></b></div><div class="seg levseg" id="levSeg"></div></div>
+    <div id="levWrap" class="hidden" style="margin-bottom:10px"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Leverage</span><span class="small" id="levVal"></span></div><div class="seg levseg" id="levSeg"></div></div>
     <div class="row">
       <div><label class="small mut">Lots</label><input id="oLots" type="number" min="1" value="1"></div>
       <div><label class="small mut">Qty</label><input id="oQty" disabled></div>
@@ -641,7 +641,7 @@ async function loadFutures(){
   const old=(state.futs||[]).map(f=>f.token);
   const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
   state.spotTokenF=(state.und.find(u=>u.exchange===ex&&u.name===name)||{}).spot_token;
-  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${dsym(f.exchange,f.symbol)}</span><div class="small mut">${f.expiry?'exp '+f.expiry:(f.exchange==='FOREX'?'spot':'perpetual')} · lot ${f.lot_size}</div></span><span><b class="num" id="p${f.token}">—</b> <span class="small num mut" id="c${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
+  $('#futList').innerHTML=futs.map(f=>`<div class="wl-item" data-tok="${f.token}"><span><span class="sym">${dsym(f.exchange,f.symbol)}</span><div class="small mut">${f.expiry?'exp '+f.expiry:(f.exchange==='FOREX'?'spot':'perpetual')} · lot ${f.lot_size}</div></span><span><b class="num" id="flp${f.token}">—</b> <span class="small num mut" id="flc${f.token}"></span></span></div>`).join('')||'<span class="mut small">No futures listed</span>';
   $$('#futList .wl-item').forEach(el=>el.onclick=()=>{if(state.guest){showLogin();return;}openSheet(state.futs.find(x=>x.token==el.dataset.tok));});
   unsub(old);
   const toks=futs.map(f=>f.token);if(state.spotTokenF)toks.push(state.spotTokenF);
@@ -693,7 +693,7 @@ function onPrices(ticks){
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
     const c=document.getElementById('c'+t.token);if(c)chainCell(c,t);
-    for(const [pp,cc] of [['mp','mc']]){const mp=document.getElementById(pp+t.token);if(mp){mp.textContent=fmt(t.ltp);flash(mp,dir);const mc=document.getElementById(cc+t.token);if(mc&&t.change!=null){mc.textContent=(t.change>0?'+':'')+t.change+'%';mc.className='small num '+pnlCls(t.change);}}}
+    for(const [pp,cc] of [['mp','mc'],['flp','flc']]){const mp=document.getElementById(pp+t.token);if(mp){mp.textContent=fmt(t.ltp);flash(mp,dir);const mc=document.getElementById(cc+t.token);if(mc&&t.change!=null){mc.textContent=(t.change>0?'+':'')+t.change+'%';mc.className='small num '+pnlCls(t.change);}}}
     const fp=document.getElementById('fp'+t.token);if(fp){fp.textContent=fmt(t.ltp);flash(fp,dir);const fc=document.getElementById('fc'+t.token);if(fc&&t.change!=null){fc.textContent=(t.change>0?'+':'')+t.change+'%';fc.className='small num '+pnlCls(t.change);}}
     for(const pre of ['tp','tp2_']){const tp=document.getElementById(pre+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById((pre==='tp'?'tc':'tc2_')+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}}
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();if(state.chainMode==='greeks')setChainMode('greeks');}
@@ -739,10 +739,10 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
   onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
 function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_options||[];if(!opts.length){w.classList.add('hidden');state.lev=null;return;}
   w.classList.remove('hidden');let saved=null;try{saved=+localStorage.getItem('lfx_lev_'+ins.exchange)||null}catch(e){}
-  state.lev=opts.includes(saved)?saved:opts[opts.length-1];
-  $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}" style="padding:7px 4px;font-size:12px">${x}×</button>`).join('');
-  $('#levVal').textContent=state.lev+'× · margin '+(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';
-  $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;try{localStorage.setItem('lfx_lev_'+ins.exchange,state.lev)}catch(e){}$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));$('#levVal').textContent=state.lev+'× · margin '+(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';updateMargin();});}
+  state.lev=opts.includes(saved)?saved:opts[0];     // default 1x; the trainee opts into more
+  $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}">${x}×</button>`).join('');
+  const lv=()=>{$('#levVal').innerHTML=`<b>${state.lev}×</b> <span class="mut">· ${(100/state.lev).toLocaleString('en-IN',{maximumFractionDigits:2})}% margin</span>`;};lv();
+  $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;try{localStorage.setItem('lfx_lev_'+ins.exchange,state.lev)}catch(e){}$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));lv();updateMargin();});}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
   const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
@@ -844,14 +844,14 @@ let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{co
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
-    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange)} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
     <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
 function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${dsym(o.exchange,o.symbol)}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
-  <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>
+  <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}${o.leverage?'<div class="small mut">'+o.leverage+'×</div>':''}</td>
   <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
   <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';

@@ -691,7 +691,8 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                     "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
                     "trades": db.query(Trade).filter_by(user_id=u.id).count(),
                     "total_credited": sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
-                                          .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))})
+                                          .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
+                    "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
 
 

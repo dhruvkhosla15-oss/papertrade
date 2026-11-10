@@ -114,6 +114,7 @@ a{color:var(--acc)}
     <div class="stat"><span class="mut small">Coins allocated</span><b id="sCredited" class="num">—</b></div>
     <div class="stat"><span class="mut small">Total equity</span><b id="sEquity" class="num">—</b></div>
     <div class="stat"><span class="mut small">Exposure (margin blocked)</span><b id="sExposure" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Commission collected</span><b id="sComm" class="num">—</b></div>
     <div class="stat"><span class="mut small">Net P&L (all)</span><b id="sPnl" class="num">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
     <div class="stat"><span class="mut small">Today's realised P&L</span><b id="sToday" class="num">—</b></div>
@@ -132,7 +133,7 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L less commissions, all time">Realised</th><th class="sort" data-k="equity" title="Allocated + realised + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="equity" title="Allocated + realised − commission + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -359,13 +360,13 @@ $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};
 $$('#uTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir=-sortDir;else{sortK=k;sortDir=k==='display_name'?1:-1;}renderUsers();});
 async function loadUsers(){users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
-  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);
+  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);$('#sComm').textContent=inr(users.reduce((a,u)=>a+(u.commission_total||0),0));
   $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All trainees</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();
 }
 function renderUsers(){
-  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited}));
+  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0)}));
   if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
@@ -374,7 +375,7 @@ function renderUsers(){
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
     <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
-    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td>
+    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num mut">${u.commission_total?'-'+inr(u.commission_total):'₹0'}</td>
     <td class="num"><b>${inr(u.equity)}</b><div class="small ${cls(u.pnl)}">${sgn(u.pnl)} · ${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
     <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
@@ -435,8 +436,8 @@ $('#dRange').onchange=()=>{$('#dCustom').classList.toggle('hidden',$('#dRange').
 $$('[data-ddl]').forEach(b=>b.onclick=()=>{const p=$('#dRange').value;const[f,t]=p==='custom'?[$('#dFrom').value,$('#dTo').value||istToday()]:rangeFor(p);if(p==='custom'&&!f)return toast('Pick a start date',1);location.href=`/api/admin/export.xlsx?user_id=${detail}&from=${f}&to=${t}${b.dataset.ddl?'&sheets='+b.dataset.ddl:''}`;toast('Preparing Excel…');});
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
-  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);
-  $('#dFunds').innerHTML=[['Balance',f.balance],['Exposure (margin blocked)',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Equity',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'?cls(v):''}">${inr(v)}</b></div>`).join('');
+  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);const realised=f.balance-cred+comm;
+  $('#dFunds').innerHTML=[['Allocated',cred],['Exposure (margin blocked)',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Realised (before commission)',realised],['Commission paid',-comm],['Net balance',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'||k.startsWith('Realised')?cls(v):''}">${inr(v)}</b></div>`).join('');
   const T=$('#dTbl');
   const lotTxt=(qty,lot)=>{const l=lot?qty/lot:qty;const n=Math.abs(l);return `${l>0?'+':'−'}${n%1?n.toFixed(2):n} lot${n===1?'':'s'}<div class="small mut">${Math.abs(qty)} units</div>`;};
   if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Lots</th><th>Avg</th><th title="Price the trainee could exit at right now (bid for a long, ask for a short) — unrealised P&L is marked to this, same as the trainee screen">Exit px</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';

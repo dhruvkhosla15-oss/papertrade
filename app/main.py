@@ -1037,6 +1037,81 @@ def _xlsx_response(data: bytes, name: str):
                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+def _admin_rows(db):
+    """One row per trainee with the reconciliation columns the master table shows."""
+    rows = []
+    for u in db.query(User).filter_by(is_admin=False).order_by(User.id).all():
+        f = engine.funds(db, u)
+        led = db.query(Ledger).filter_by(user_id=u.id).all()
+        alloc = sum(l.amount for l in led if l.kind in ("ADMIN_CREDIT", "ADMIN_DEBIT"))
+        comm = -sum(l.amount for l in led if l.kind == "COMMISSION")
+        realised = f["balance"] - alloc + comm
+        rows.append({"name": u.display_name, "username": u.username, "status": "active" if u.is_active else "frozen",
+                     "allocated": alloc, "exposure": f["used_margin"], "available": f["available"], "unrealised": f["unrealised"],
+                     "realised": realised, "commission": comm, "net_balance": f["equity"], "net_pnl": f["equity"] - alloc,
+                     "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
+                     "trades": db.query(Trade).filter_by(user_id=u.id).count()})
+    return rows
+
+
+@app.get("/api/admin/summary.xlsx")
+def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    rows = _admin_rows(db)
+    wb = Workbook(); ws = wb.active; ws.title = "Trainees"
+    hdr = ["Trainee", "Username", "Status", "Allocated", "Exposure (margin blocked)", "Available", "Unrealised P&L",
+           "Realised P&L (before commission)", "Commission", "Net balance", "Net P&L", "Net P&L %", "Open positions", "Trades"]
+    ws.append(hdr)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E1B2C"); c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 32
+    for r in rows:
+        ws.append([r["name"], r["username"], r["status"], r["allocated"], r["exposure"], r["available"], r["unrealised"],
+                   r["realised"], -r["commission"], r["net_balance"], r["net_pnl"],
+                   (r["net_pnl"] / r["allocated"]) if r["allocated"] else 0, r["open_positions"], r["trades"]])
+    n = len(rows); tot = n + 2
+    ws.cell(tot, 1, "TOTAL").font = Font(bold=True)
+    for col in (4, 5, 6, 7, 8, 9, 10, 11, 13, 14):
+        L = get_column_letter(col); ws.cell(tot, col, f"=SUM({L}2:{L}{n + 1})").font = Font(bold=True)
+    ws.cell(tot, 12, f"=IF(D{tot}=0,0,K{tot}/D{tot})").font = Font(bold=True)
+    money = '"₹"#,##0.00;[Red]-"₹"#,##0.00'
+    for row in ws.iter_rows(min_row=2, max_row=tot):
+        for c in row[3:11]:
+            c.number_format = money
+        row[11].number_format = "0.00%"
+    # reconciliation check column
+    ws.cell(1, 16, "Check: Allocated + Realised + Commission + Unrealised − Net balance (should be 0)").font = Font(bold=True)
+    for i in range(2, n + 2):
+        ws.cell(i, 16, f"=ROUND(D{i}+H{i}+I{i}+G{i}-J{i},2)").number_format = money
+    for i, w in enumerate([22, 14, 9, 15, 18, 15, 15, 20, 14, 15, 14, 11, 10, 8, 2, 30], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "B2"
+    # how to read it
+    w2 = wb.create_sheet("How it adds up")
+    lines = [["limeFX — master summary", ""], ["Generated (IST)", (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%d %b %Y, %I:%M %p")], ["", ""],
+             ["Allocated", "Coins the master has credited to the trainee (credits minus debits)."],
+             ["Exposure", "Margin blocked right now by open positions and pending orders."],
+             ["Available", "Allocated ± realised − commission − exposure − any unrealised loss: what the trainee can still trade with."],
+             ["Unrealised P&L", "Open positions marked to the price they could exit at now (bid for longs, ask for shorts)."],
+             ["Realised P&L", "Profit or loss booked on closed trades, before commission."],
+             ["Commission", "Brokerage deducted on every buy and sell (shown negative)."],
+             ["Net balance", "What the account is worth now = Allocated + Realised + Commission + Unrealised."],
+             ["Net P&L", "Net balance − Allocated (after commission)."], ["", ""],
+             ["Identities", "Net balance = Allocated + Realised + Commission + Unrealised"],
+             ["", "Net balance = Exposure + Available (+ unrealised profit, if positive — a loss is already inside Available)"],
+             ["", "Allocated = Net balance − Net P&L"]]
+    for l in lines:
+        w2.append(l)
+    w2["A1"].font = Font(bold=True, size=13)
+    for i in range(4, 12):
+        w2.cell(i, 1).font = Font(bold=True)
+    w2.column_dimensions["A"].width = 18; w2.column_dimensions["B"].width = 110
+    buf = io.BytesIO(); wb.save(buf)
+    return _xlsx_response(buf.getvalue(), f"limefx_master_summary_{(datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime('%Y-%m-%d')}.xlsx")
+
+
 @app.get("/api/admin/export.xlsx")
 def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
                  sheets: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):

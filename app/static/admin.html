@@ -114,7 +114,7 @@ a{color:var(--acc)}
     <div class="stat"><span class="mut small">Coins allocated</span><b id="sCredited" class="num">—</b></div>
     <div class="stat"><span class="mut small">Total equity</span><b id="sEquity" class="num">—</b></div>
     <div class="stat"><span class="mut small">Exposure (margin blocked)</span><b id="sExposure" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Commission collected</span><b id="sComm" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Deducted from the trainees' coins">Commission deducted</span><b id="sComm" class="num">—</b></div>
     <div class="stat"><span class="mut small">Trading P&L (before commission)</span><b id="sGross" class="num">—</b></div>
     <div class="stat"><span class="mut small" title="Trading P&L − commission. Coins allocated = Total equity − Net P&L">Net P&L (after commission)</span><b id="sPnl" class="num">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
@@ -361,7 +361,7 @@ $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};
 $$('#uTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir=-sortDir;else{sortK=k;sortDir=k==='display_name'?1:-1;}renderUsers();});
 async function loadUsers(){users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
-  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);$('#sComm').textContent=inr(users.reduce((a,u)=>a+(u.commission_total||0),0));
+  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);{const c=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sComm').textContent=c?'-'+inr(c):'₹0';$('#sComm').className='num '+(c?'dn':'');}
   $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sGross').textContent=sgn(te-tc+tcm);$('#sGross').className='num '+cls(te-tc+tcm);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All trainees</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();

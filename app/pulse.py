@@ -47,7 +47,9 @@ class Pulse:
                 if not spot and not fut:
                     continue
                 price_tok = fut.token if kind in ("mcx", "currency") and fut else spot
-                if kind == "crypto":
+                if kind == "forex":
+                    label = "Forex · spot"
+                elif kind == "crypto":
                     label = "Crypto · perpetual"
                 elif kind in ("mcx", "currency") and fut:
                     label = ("MCX · " if kind == "mcx" else "NSE currency · ") + datetime.strptime(fut.expiry, "%Y-%m-%d").strftime("%b") + " fut"
@@ -70,8 +72,13 @@ class Pulse:
     # ---- history (daily closes) ----------------------------------------------------------------
     def ensure_history(self):
         day = (datetime.utcnow() + IST).date().isoformat()
-        if self._hist_day == day or self._building:
+        if self._building:
             return
+        if self._hist_day == day:
+            # a feed that came up later (forex/crypto) may have added tokens since the build
+            missing = [u["price_token"] for u in self.universe() if u["price_token"] not in self._hist]
+            if not missing or time.time() - getattr(self, "_last_attempt", 0) < 600:
+                return
         # don't burn the daily budget before the feed can actually answer (e.g. after midnight,
         # before the morning Zerodha login) — yesterday's reference data stays in use meanwhile
         if not getattr(self.feed, "connected", True):
@@ -144,7 +151,7 @@ class Pulse:
         self.ensure_history()
         rows = []
         adv = dec = unch = 0
-        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
+        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
         session_dates = set(); any_live = False
         for u in uni:
             if kind != "all" and u["kind"] != kind:
@@ -164,6 +171,9 @@ class Pulse:
                 if not ltp:
                     continue
                 dchg = p.get("change"); high, low, prev_close = p.get("high"), p.get("low"), p.get("close")
+                if dchg is None and closes:
+                    prev_close = prev_close or closes[-1][1]
+                    dchg = round((ltp - prev_close) / prev_close * 100, 2) if prev_close else None
                 vol = f.get("volume") or 0; fltp = f.get("ltp") or ltp
                 avg_vol = fh.get("avg_vol") or 0
                 oi = f.get("oi") or 0; prev_oi = fh.get("prev_oi") or 0; fchg = f.get("change")

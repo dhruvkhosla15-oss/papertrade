@@ -58,7 +58,11 @@ class Engine:
             self._event_cb(user_id, event)
 
     # ---- helpers -------------------------------------------------------------
-    def commission_pct(self, db: Session) -> float:
+    def commission_pct(self, db: Session, exchange: str = None) -> float:
+        if exchange == "FOREX":
+            from .config import DEFAULT_COMMISSION_PCT_FOREX
+            v = get_setting(db, "commission_pct_FOREX")
+            return float(v) if v not in (None, "") else DEFAULT_COMMISSION_PCT_FOREX
         v = get_setting(db, "commission_pct")
         return float(v) if v not in (None, "") else DEFAULT_COMMISSION_PCT
 
@@ -166,7 +170,7 @@ class Engine:
         if (side == "BUY" and avg < levels[0][0] - 1e-9) or (side == "SELL" and avg > levels[0][0] + 1e-9):
             log.error("FILL ANOMALY %s %s qty=%s filled=%s cost=%s avg=%s levels=%s raw=%s consumed=%s tick=%s",
                       ins.symbol, side, qty, filled, cost, avg, levels[:3], raw_levels[:3], sh[side_key], ins.tick_size)
-        px_s = lambda v: f"{v:.2f}".rstrip("0").rstrip(".")
+        px_s = lambda v: (f"{v:.5f}".rstrip("0").rstrip(".") if v < 1000 else f"{v:.2f}")
         b = px_s(levels[0][0]) if side == "SELL" else (px_s(bids[0][0]) if bids else "—")
         a = px_s(levels[0][0]) if side == "BUY" else (px_s(asks[0][0]) if asks else "—")
         note = f"matched vs book: bid {b} / ask {a}"
@@ -278,6 +282,12 @@ class Engine:
             raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
         if cry and token in cry.items and not cry.fx_ready():
             raise EngineError("Waiting for Delta's USD/INR rate — crypto trading resumes once it is received")
+        fx = getattr(self.feed, "forex", None)
+        if fx and token in fx.items:
+            if not fx.connected:
+                raise EngineError("Forex prices are offline right now — trading is paused until the feed is back")
+            if not fx.fx_ready(ins):
+                raise EngineError("Waiting for the rupee conversion rate for this pair — try again in a moment")
         ltp = self.feed.ltp(token)
         if ltp is None or (self.feed.tick_age(token) or 0) > 300:
             # Not yet subscribed / stale. Subscribe and ask client to retry.
@@ -401,7 +411,7 @@ class Engine:
             opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
         need = self.required_margin(db, ins, order.side, opening_qty, price) if opening_qty else 0.0
         vf = self.vf(ins)
-        comm = round(price * qty * vf * self.commission_pct(db) / 100.0, 2)
+        comm = round(price * qty * vf * self.commission_pct(db, ins.exchange) / 100.0, 2)
         db.flush()
         f = self.funds(db, user)  # reservation already zeroed above, so not double counted
         avail = f["available"]
@@ -452,7 +462,7 @@ class Engine:
 
         if comm > 0:
             self._ledger(db, user, -comm, "COMMISSION",
-                         f"{self.commission_pct(db):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
+                         f"{self.commission_pct(db, ins.exchange):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
         order.status = "FILLED"; order.fill_price = price
         db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
                      exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
@@ -692,6 +702,6 @@ class Engine:
         vf = self.vf(self.feed.instruments.get(p.token))
         unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty) else 0.0
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf,
-                "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 4),
+                "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
                 "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}

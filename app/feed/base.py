@@ -22,6 +22,8 @@ def kind_of(exchange: str, name: str) -> str:
         return "currency"
     if exchange == "CRYPTO":
         return "crypto"
+    if exchange == "FOREX":
+        return "forex"
     return "index" if name in INDEX_NAMES else "stock"
 
 

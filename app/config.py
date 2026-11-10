@@ -26,12 +26,14 @@ ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "f
 
 # Approximate margin % of contract notional for futures / short options
 DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy and sell)
-DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0, "CRYPTO": 0.5}  # CRYPTO 0.5% = 200x, Delta's own max  # STK = stock F&O (NFO non-index); CDS = NSE currency
+# Forex: IC Markets Raw charges USD 3.5 per 100,000 lot per side = 0.0035 % of notional
+DEFAULT_COMMISSION_PCT_FOREX = 0.0035
+DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0, "CRYPTO": 0.5, "FOREX": 1.0}  # CRYPTO 0.5% = 200x, Delta's own max  # STK = stock F&O (NFO non-index); CDS = NSE currency
 # NSE currency derivatives offered (CDS segment). Set PT_CURRENCIES= to turn off.
 CURRENCY_PAIRS = [c.strip().upper() for c in os.getenv("PT_CURRENCIES", "USDINR,EURINR,GBPINR,JPYINR").split(",") if c.strip()]
 
 # Exchange trading hours (IST)
-MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55"), "CDS": ("09:00", "17:00"), "CRYPTO": ("00:00", "23:59")}
+MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55"), "CDS": ("09:00", "17:00"), "CRYPTO": ("00:00", "23:59"), "FOREX": ("00:00", "23:59")}
 # NSE/BSE freeze quantities (max qty per order, exchange rule; bigger orders are rejected by the exchange).
 # Override with PT_FREEZE_QTY="NIFTY:1800,BANKNIFTY:900,..."
 FREEZE_QTY = {"NIFTY": 1800, "BANKNIFTY": 900, "FINNIFTY": 1800, "MIDCPNIFTY": 2800, "NIFTYNXT50": 600,
@@ -43,7 +45,9 @@ FREEZE_QTY.update({k.strip().upper(): int(v) for k, v in
 # of the blocked margin (brokers square off well before the full margin is lost).
 MAINT_SHARE = float(os.getenv("PT_MAINT_SHARE", "0.5"))
 # Crypto derivatives via Delta Exchange India public data. PT_CRYPTO=0 turns it off.
-ENABLE_CRYPTO = os.getenv("PT_CRYPTO", "1").strip().lower() not in ("0", "false", "no", "off")  # see market_calendar.py (holidays, MCX DST close)
+ENABLE_CRYPTO = os.getenv("PT_CRYPTO", "1").strip().lower() not in ("0", "false", "no", "off")
+# Forex via a cTrader broker account (Open API). On when the client credentials are set.
+ENABLE_FOREX = bool(os.getenv("PT_CTRADER_CLIENT_ID")) and os.getenv("PT_FOREX", "1").strip().lower() not in ("0", "false", "no", "off")  # see market_calendar.py (holidays, MCX DST close)
 ENFORCE_MARKET_HOURS = os.getenv("PT_ENFORCE_MARKET_HOURS", "true" if FEED == "kite" else "false").lower() == "true"
 
 IST_OFFSET_HOURS = 5.5

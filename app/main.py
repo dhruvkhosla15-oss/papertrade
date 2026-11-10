@@ -49,6 +49,10 @@ crypto = None
 if config.ENABLE_CRYPTO:
     from .feed.delta import DeltaCrypto
     crypto = DeltaCrypto(feed)
+forex = None
+if config.ENABLE_FOREX:
+    from .feed.ctrader import CTraderForex
+    forex = CTraderForex(feed)
 engine = Engine(feed)
 
 # ---- websocket client registry -----------------------------------------------
@@ -113,6 +117,8 @@ async def startup():
     await feed.start(asyncio.get_event_loop())
     if crypto:
         await crypto.start(asyncio.get_event_loop())
+    if forex:
+        await forex.start(asyncio.get_event_loop())
     engine.load_pending()
     asyncio.create_task(broadcaster())
     asyncio.create_task(engine.expiry_loop())
@@ -331,8 +337,8 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
         for n in names:
             it = feed.index_token_for(n)
             out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
-    order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3, "CRYPTO": 4}
-    korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "stock": 4}
+    order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3, "CRYPTO": 4, "FOREX": 5}
+    korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "forex": 4, "stock": 5}
     out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
     return out
 
@@ -393,8 +399,8 @@ def _default_watch_instruments():
 def _market_status():
     from .market_calendar import status
     if not config.ENFORCE_MARKET_HOURS:
-        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
-    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
+        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
+    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
 
 
 def _public_tokens():
@@ -418,7 +424,7 @@ def _ticker():
     from .feed.base import kind_of
     out = []
     for i in _default_watch_instruments():
-        ex = i.exchange if i.exchange in ("MCX", "CDS", "CRYPTO") else ("BFO" if i.exchange == "BSE" else "NFO")
+        ex = i.exchange if i.exchange in ("MCX", "CDS", "CRYPTO", "FOREX") else ("BFO" if i.exchange == "BSE" else "NFO")
         out.append({"exchange": ex, "name": i.name, "spot_token": i.token, "kind": kind_of(ex, i.name)})
     return out
 
@@ -556,7 +562,7 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None,
     qty = lots * ins.lot_size
     return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p), "qty": qty,
             "full_margin": engine.required_margin(db, ins, side.upper(), qty, p),
-            "commission": round(p * qty * engine.vf(ins) * engine.commission_pct(db) / 100.0, 2), "commission_pct": engine.commission_pct(db),
+            "commission": round(p * qty * engine.vf(ins) * engine.commission_pct(db, ins.exchange) / 100.0, 2), "commission_pct": engine.commission_pct(db, ins.exchange),
             "value_factor": engine.vf(ins), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
 
@@ -789,7 +795,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
     return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")},
-            "commission_pct": engine.commission_pct(db),
+            "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
@@ -798,6 +804,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
 class SettingsIn(BaseModel):
     margin_pct: dict
     commission_pct: Optional[float] = None
+    commission_pct_forex: Optional[float] = None
     liquidity_check: Optional[bool] = None
     max_spread_pct: Optional[float] = None
     stale_minutes: Optional[int] = None
@@ -809,6 +816,8 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, f"margin_pct_{ex}", str(float(v)))
     if body.commission_pct is not None:
         set_setting(db, "commission_pct", str(max(0.0, float(body.commission_pct))))
+    if body.commission_pct_forex is not None:
+        set_setting(db, "commission_pct_FOREX", str(max(0.0, float(body.commission_pct_forex))))
     if body.liquidity_check is not None:
         set_setting(db, "liquidity_check", "true" if body.liquidity_check else "false")
     if body.max_spread_pct is not None:
@@ -1043,7 +1052,7 @@ pulse = Pulse(feed)
 def public_pulse(period: str = "today", kind: str = "all"):
     if period not in ("today", "week", "month"):
         period = "today"
-    if kind not in ("all", "index", "stock", "mcx", "currency", "crypto"):
+    if kind not in ("all", "index", "stock", "mcx", "currency", "crypto", "forex"):
         kind = "all"
     return pulse.snapshot(period, kind)
 
@@ -1074,6 +1083,43 @@ def crypto_reconnect(admin: User = Depends(current_admin)):
     crypto.reconnect()
     log.info("crypto feed reconnect by master %s", admin.username)
     return crypto.status()
+
+
+class ForexTokenIn(BaseModel):
+    token: str
+    refresh_token: Optional[str] = None
+
+
+@app.post("/api/admin/feed/forex/token")
+def forex_token(body: ForexTokenIn, admin: User = Depends(current_admin)):
+    """Master pastes the cTrader access token (from openapi.ctrader.com → Sandbox → Get token, or the OAuth flow)."""
+    if not forex:
+        raise HTTPException(400, "Forex feed is not configured (set PT_CTRADER_CLIENT_ID/SECRET)")
+    t = body.token.strip()
+    if t.startswith("http"):
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(t).query)
+        t = (q.get("code") or q.get("access_token") or [""])[0]
+    if not t:
+        raise HTTPException(400, "No token found")
+    forex.save_token(t, (body.refresh_token or "").strip() or None)
+    forex.reconnect()
+    log.info("forex token set by master %s", admin.username)
+    return forex.status()
+
+
+@app.post("/api/admin/feed/forex/disconnect")
+def forex_disconnect(admin: User = Depends(current_admin)):
+    if not forex:
+        raise HTTPException(400, "Forex feed is not configured")
+    forex.disconnect(); return forex.status()
+
+
+@app.post("/api/admin/feed/forex/reconnect")
+def forex_reconnect(admin: User = Depends(current_admin)):
+    if not forex:
+        raise HTTPException(400, "Forex feed is not configured")
+    forex.reconnect(); return forex.status()
 
 
 @app.post("/api/admin/feed/reconnect")
@@ -1122,4 +1168,6 @@ def _feed_status():
     s = feed.status()
     if crypto:
         s["crypto"] = crypto.status()
+    if forex:
+        s["forex"] = forex.status()
     return s

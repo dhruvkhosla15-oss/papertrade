@@ -74,6 +74,16 @@ def _sessions(exchange: str, d: date):
     """List of (open_time, close_time) sessions on date d, or [] if closed. Also returns holiday name."""
     if exchange == "CRYPTO":
         return [(time(0, 0), time(23, 59, 59))], None       # 24x7
+    if exchange == "FOREX":
+        # 24x5: opens Monday 03:30 IST (Sunday 22:00 UTC), closes Saturday 03:30 IST (Friday 22:00 UTC)
+        wd = d.weekday()
+        if wd == 6:
+            return [], "Weekend"
+        if wd == 0:
+            return [(time(3, 30), time(23, 59, 59))], None
+        if wd == 5:
+            return [(time(0, 0), time(3, 30))], None
+        return [(time(0, 0), time(23, 59, 59))], None
     if d.weekday() >= 5:
         return [], "Weekend"
     ds = d.isoformat()
@@ -139,4 +149,6 @@ def close_time_str(exchange: str, d: date | None = None) -> str:
     s, _ = _sessions(exchange, d)
     if exchange == "CRYPTO":
         return "21:30"     # Delta options settle 16:00 UTC
+    if exchange == "FOREX":
+        return "23:59"
     return s[-1][1].strftime("%H:%M") if s else ("17:00" if exchange == "CDS" else "15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))

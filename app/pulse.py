@@ -236,7 +236,11 @@ class Pulse:
         oi_rows = sorted([r for r in rows if r["oi_chg"] is not None], key=lambda r: -abs(r["oi_chg"]))[:n]
         near_hi = sorted([r for r in rows if r["from_hi"] is not None and r["from_hi"] >= -3], key=lambda r: -r["from_hi"])[:n]
         near_lo = sorted([r for r in rows if r["from_lo"] is not None and r["from_lo"] <= 3], key=lambda r: r["from_lo"])[:n]
+        uni_toks = [u["price_token"] for u in uni]
         return {"period": period, "kind": kind, "asof": time.time(), "history_ready": bool(self._hist),
+                "hist": {"day": self._hist_day, "tokens": len(self._hist), "universe": len(uni_toks),
+                         "missing": sum(1 for t in uni_toks if t not in self._hist), "building": self._building,
+                         "last_attempt_age": int(time.time() - getattr(self, "_last_attempt", 0))},
                 "session": {"live": any_live, "date": max(session_dates) if session_dates else None},
                 "breadth": {"adv": adv, "dec": dec, "unch": unch, "total": len(rows)},
                 "gainers": gainers, "losers": losers, "traded": traded, "shockers": shockers, "oi": oi_rows,

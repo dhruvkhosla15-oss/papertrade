@@ -100,7 +100,10 @@ class PriceFeed:
         out = [i for i in self.instruments.values()
                if (not i.expiry or i.expiry >= today)
                and all(w in i.symbol or w in i.name for w in words)]
-        out.sort(key=lambda i: (i.expiry or "", len(i.symbol), i.symbol))
+        # Futures (and spot / perpetuals) first, options after — nearest-expiry weeklies used to crowd
+        # the monthly future out of the list entirely. Within each group: nearest expiry, shortest symbol.
+        rank = lambda i: 1 if i.instrument_type in ("CE", "PE") else 0
+        out.sort(key=lambda i: (rank(i), i.expiry or "", len(i.symbol), i.symbol))
         return out[:limit]
 
     def index_token_for(self, name: str) -> Optional[int]:

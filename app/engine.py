@@ -541,7 +541,7 @@ class Engine:
                                     # remainder keeps resting as its own order with its share of the reservation
                                     db.add(Order(user_id=o.user_id, token=o.token, symbol=o.symbol, exchange=o.exchange,
                                                  side=o.side, order_type="LIMIT", lots=rest // ins.lot_size, qty=rest,
-                                                 limit_price=o.limit_price, status="OPEN",
+                                                 limit_price=o.limit_price, status="OPEN", leverage=o.leverage,
                                                  margin_blocked=round((o.margin_blocked or 0) * rest / o.qty, 2),
                                                  reason=f"remainder of order #{o.id}"))
                                     o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)

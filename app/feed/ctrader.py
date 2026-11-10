@@ -448,11 +448,16 @@ class CTraderForex:
             return self._orig_candles(token, interval) if token not in self.items else []
         period = {"1d": 14, "1h": 10, "15m": 7, "5m": 5, "1m": 1}.get(interval, 14)
         end = int(time.time() * 1000)
-        start = end - (400 * 86400 * 1000 if period == 14 else 5 * 86400 * 1000)
+        # cTrader caps the span per period (D1: one year, intraday: a few weeks) — stay inside it
+        start = end - (360 * 86400 * 1000 if period == 14 else 5 * 86400 * 1000)
         fut = asyncio.run_coroutine_threadsafe(
             self._send(PT_TRENDBARS, {"ctidTraderAccountId": self.account_id, "fromTimestamp": start, "toTimestamp": end,
                                       "period": period, "symbolId": token - TOKEN_BASE, "count": 400}, timeout=30), self._loop)
         r = fut.result(35)
+        if r.get("payloadType") == 2142:
+            self.diag["candles_err"] = str((r.get("payload") or {}).get("description", ""))[:120]
+            log.warning("ctrader: trendbars error for %s: %s", token, (r.get("payload") or {}))
+            return []
         out = []
         for b in (r.get("payload") or {}).get("trendbar", []):
             low = int(b.get("low", 0)) / PRICE_SCALE

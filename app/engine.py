@@ -82,8 +82,10 @@ class Engine:
         stale = int(get_setting(db, "stale_minutes", "0") or 0)        # 0 = no staleness check
         return on, spread, stale
 
-    def book_fill(self, db: Session, ins, side: str, qty: int):
-        """Price a market order against the order book. Returns (avg_price, note, filled_qty) or raises EngineError."""
+    def book_fill(self, db: Session, ins, side: str, qty: int, limit_price: float = None):
+        """Price an order against the order book. Returns (avg_price, note, filled_qty) or raises EngineError.
+        With limit_price, only book levels at or better than the limit are used (a LIMIT order that has
+        become marketable), so a limit order is bounded by visible depth exactly like a market order."""
         tick = self.feed.prices.get(ins.token) or {}
         on, max_spread, stale_min = self.liquidity_settings(db)
         ltp = tick.get("ltp")
@@ -114,9 +116,14 @@ class Engine:
         raw_levels = asks if side == "BUY" else bids
         levels = []
         for lvl in raw_levels:
+            if limit_price is not None and ((side == "BUY" and lvl[0] > limit_price + 1e-9) or
+                                            (side == "SELL" and lvl[0] < limit_price - 1e-9)):
+                continue
             left = lvl[1] - sh[side_key].get(lvl[0], 0)
             if left > 0:
                 levels.append((lvl[0], left))
+        if not levels and limit_price is not None:
+            raise EngineError("limit not marketable")
         if not levels:
             raise EngineError("No remaining counterparty quantity at the moment — the visible "
                               f"{'offers' if side == 'BUY' else 'bids'} have already been taken; wait for the book to refresh")
@@ -149,6 +156,8 @@ class Engine:
             if remaining <= 0:
                 break
         avg = round(cost / filled / ins.tick_size) * ins.tick_size
+        if limit_price is not None:   # tick rounding must never breach the trader's limit
+            avg = min(avg, limit_price) if side == "BUY" else max(avg, limit_price)
         if (side == "BUY" and avg < levels[0][0] - 1e-9) or (side == "SELL" and avg > levels[0][0] + 1e-9):
             log.error("FILL ANOMALY %s %s qty=%s filled=%s cost=%s avg=%s levels=%s raw=%s consumed=%s tick=%s",
                       ins.symbol, side, qty, filled, cost, avg, levels[:3], raw_levels[:3], sh[side_key], ins.tick_size)
@@ -156,7 +165,7 @@ class Engine:
         b = px_s(levels[0][0]) if side == "SELL" else (px_s(bids[0][0]) if bids else "—")
         a = px_s(levels[0][0]) if side == "BUY" else (px_s(asks[0][0]) if asks else "—")
         note = f"matched vs book: bid {b} / ask {a}"
-        if abs(avg - levels[0][0]) > 1e-9:
+        if abs(avg - levels[0][0]) > ins.tick_size / 2:
             note += ", filled across levels"
         if filled < qty:
             note += f"; partial: {filled // ins.lot_size}/{qty // ins.lot_size} lots filled, rest cancelled (no more depth)"
@@ -410,14 +419,29 @@ class Engine:
                 for o in orders:
                     if not self.market_open(ins.exchange):
                         continue
-                    fill_at = None
+                    fill_at = None; note = ""
                     if o.order_type == "LIMIT":
                         if on:
-                            # real matching: a buy fills only when someone is offering at/below our price
-                            if o.side == "BUY" and ask is not None and ask <= o.limit_price:
-                                fill_at = o.limit_price
-                            elif o.side == "SELL" and bid is not None and bid >= o.limit_price:
-                                fill_at = o.limit_price
+                            # real matching: a buy fills only when someone is offering at/below our price,
+                            # and only for the quantity actually offered there (rest stays open)
+                            if o.side == "BUY" and ask is not None and ask <= o.limit_price or \
+                               o.side == "SELL" and bid is not None and bid >= o.limit_price:
+                                try:
+                                    fill_at, note, _f = self.book_fill(db, ins, o.side, o.qty, limit_price=o.limit_price)
+                                    note = note.split("; partial:")[0]
+                                except EngineError:
+                                    continue       # depth at our price already taken — keep waiting
+                                if _f < o.qty:
+                                    rest = o.qty - _f
+                                    # remainder keeps resting as its own order with its share of the reservation
+                                    db.add(Order(user_id=o.user_id, token=o.token, symbol=o.symbol, exchange=o.exchange,
+                                                 side=o.side, order_type="LIMIT", lots=rest // ins.lot_size, qty=rest,
+                                                 limit_price=o.limit_price, status="OPEN",
+                                                 margin_blocked=round((o.margin_blocked or 0) * rest / o.qty, 2),
+                                                 reason=f"remainder of order #{o.id}"))
+                                    o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)
+                                    o.qty = _f; o.lots = _f // ins.lot_size
+                                    note += f"; partial: {_f // ins.lot_size} lots filled, {rest // ins.lot_size} still open"
                         elif (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
                             fill_at = o.limit_price
                     elif o.order_type == "SL":
@@ -435,6 +459,8 @@ class Engine:
                         continue
                     user = db.get(User, o.user_id)
                     self._fill(db, user, o, fill_at)
+                    if note and o.status == "FILLED":
+                        o.reason = note
                     db.commit()
                     self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
                     self._emit(user.id, {"type": "refresh"})

@@ -53,7 +53,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     u = db.get(User, data["uid"])
     if not u or not u.is_active and not u.is_admin:
         raise HTTPException(401, "Account inactive")
+    # first login: nothing but the password change (and the few calls the change screen needs) until it's done
+    if getattr(u, "must_change_password", False) and request.url.path not in PASSWORD_CHANGE_ALLOWED:
+        raise HTTPException(403, "Password change required before you can use the platform")
     return u
+
+
+PASSWORD_CHANGE_ALLOWED = {"/api/password", "/api/me", "/api/logout", "/api/feed/status"}
 
 
 def optional_user(request: Request, db: Session = Depends(get_db)) -> User | None:

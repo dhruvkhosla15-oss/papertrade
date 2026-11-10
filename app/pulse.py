@@ -46,6 +46,9 @@ class Pulse:
                     d = json.load(f)
                 self._hist = {int(k): v for k, v in d.get("hist", {}).items()}
                 self._hist_day = d.get("day", "")
+                if d.get("fxver") != 2:
+                    # forex history built before the daily-bar fix held monthly bars — refetch those tokens
+                    self._hist = {k: v for k, v in self._hist.items() if k < 6_000_000_000}
                 for h in self._hist.values():        # json turned tuples into lists; keep shape
                     h["closes"] = [tuple(x) for x in h.get("closes", [])]
                 log.info("pulse history loaded from cache (%d tokens, built %s)", len(self._hist), self._hist_day)
@@ -58,7 +61,7 @@ class Pulse:
             p = self._cache_path()
             tmp = p + ".tmp"
             with open(tmp, "w") as f:
-                json.dump({"day": self._hist_day, "hist": self._hist}, f)
+                json.dump({"day": self._hist_day, "fxver": 2, "hist": self._hist}, f)
             os.replace(tmp, p)
         except Exception:
             log.exception("pulse cache save failed")

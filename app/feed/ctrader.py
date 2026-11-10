@@ -53,6 +53,8 @@ PT_SUB_DEPTH, PT_SUB_DEPTH_RES = 2156, 2157
 PT_UNSUB_DEPTH = 2158
 PT_DEPTH_EVENT = 2155
 PT_TRENDBARS, PT_TRENDBARS_RES = 2137, 2138
+# ProtoOATrendbarPeriod: M1=1 M2=2 M3=3 M4=4 M5=5 M10=6 M15=7 M30=8 H1=9 H4=10 H12=11 D1=12 W1=13 MN1=14
+D1 = 12
 PT_LEVERAGE, PT_LEVERAGE_RES = 2148, 2178
 PT_TRADER, PT_TRADER_RES = 2121, 2122     # ProtoOATraderReq -> account leverage (fallback)
 PT_REFRESH, PT_REFRESH_RES = 2173, 2174
@@ -368,7 +370,7 @@ class CTraderForex:
             d.update({"token": tok, "ltp": round(mid, 6), "ltt": time.time(), "ts": time.time()})
             tb = p.get("trendbar") or []
             for bar in tb:
-                if int(bar.get("period", 0)) == 14:    # D1
+                if int(bar.get("period", 0)) == D1:    # D1
                     low = int(bar.get("low", 0)) / PRICE_SCALE
                     d["open"] = low + int(bar.get("deltaOpen", 0)) / PRICE_SCALE
                     d["high"] = low + int(bar.get("deltaHigh", 0)) / PRICE_SCALE
@@ -446,10 +448,10 @@ class CTraderForex:
     def _candles(self, token, interval):
         if token not in self.items or not (self.connected and self._loop):
             return self._orig_candles(token, interval) if token not in self.items else []
-        period = {"1d": 14, "1h": 10, "15m": 7, "5m": 5, "1m": 1}.get(interval, 14)
+        period = {"1d": D1, "1h": 9, "15m": 7, "5m": 5, "1m": 1}.get(interval, D1)   # ProtoOATrendbarPeriod
         end = int(time.time() * 1000)
         # cTrader caps the span per period (D1: one year, intraday: a few weeks) — stay inside it
-        start = end - (360 * 86400 * 1000 if period == 14 else 5 * 86400 * 1000)
+        start = end - (360 * 86400 * 1000 if period == D1 else 5 * 86400 * 1000)
         fut = asyncio.run_coroutine_threadsafe(
             self._send(PT_TRENDBARS, {"ctidTraderAccountId": self.account_id, "fromTimestamp": start, "toTimestamp": end,
                                       "period": period, "symbolId": token - TOKEN_BASE, "count": 400}, timeout=30), self._loop)

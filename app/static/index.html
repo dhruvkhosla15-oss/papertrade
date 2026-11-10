@@ -98,7 +98,8 @@ td:first-child,th:first-child{text-align:left}
 .seg{display:flex;background:var(--seg);border-radius:8px;padding:3px}
 .seg button{flex:1;background:none;color:var(--mut);padding:8px;border:1px solid transparent}
 .seg button.active{background:rgba(154,209,60,.14);color:var(--acc);border-color:var(--acc);font-weight:700}
-#sideBuy.active,#sideSell.active{background:var(--card);color:var(--txt);border-color:transparent}
+#sideBuy.active{background:rgba(34,197,94,.16);color:var(--up);border-color:var(--up)}
+#sideSell.active{background:rgba(239,68,68,.16);color:var(--dn);border-color:var(--dn)}
 .toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
@@ -108,8 +109,14 @@ td:first-child,th:first-child{text-align:left}
 .homeSeg{display:flex;width:100%;margin-bottom:12px}.homeSeg button{flex:1;padding:10px;font-size:14px;font-weight:600}.homeSeg button.active,#pPeriod button.active{background:var(--acc);color:#0f1115}
 #pPeriod{display:inline-flex;border-radius:999px}#pPeriod button{flex:0 0 auto;padding:8px 14px;font-size:13px;font-weight:600;border-radius:999px}
 .pctl{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:12px}.pctl .seg{justify-self:start}
-.selwrap{position:relative;justify-self:end;min-width:160px}.selwrap:after{content:'⌄';position:absolute;right:12px;top:7px;color:var(--mut);pointer-events:none}
-.selwrap select{appearance:none;-webkit-appearance:none;width:100%;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:8px 32px 8px 14px;font-weight:600;font-size:13px}
+.selwrap{position:relative;justify-self:end;min-width:160px}
+.tsel{position:relative;width:100%}.tsel-native{display:none!important}
+.tselb{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:8px 12px 8px 14px;font-weight:600;font-size:13px;text-align:left}
+.tselb svg{width:14px;height:14px;color:var(--mut);flex:0 0 auto}
+.tselm{position:absolute;top:calc(100% + 6px);left:0;min-width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;z-index:40;box-shadow:0 10px 30px rgba(0,0,0,.45);max-height:280px;overflow:auto}
+.tsel.r .tselm{left:auto;right:0}
+.tselo{padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--txt);cursor:pointer;white-space:nowrap}
+.tselo:hover{background:rgba(255,255,255,.05)}.tselo.on{background:rgba(154,209,60,.14);color:var(--acc)}
 @media(max-width:480px){.pctl{grid-template-columns:1fr}.selwrap{justify-self:stretch}}
 .hero3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}.hero3 .hs{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
 .hero3 .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .v{font-size:15px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .s{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -544,7 +551,15 @@ function buildMarket(){
     onPrices(Object.values(state.prices));};
   $$('#catList .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,''));$$('#catListF .cat').forEach(c=>c.onclick=()=>openCat(c.dataset.cat,'f'));
 }
-async function boot(){
+function themeSelect(sel,right){const w=document.createElement('div');w.className='tsel'+(right?' r':'');const b=document.createElement('button');b.type='button';b.className='tselb';const m=document.createElement('div');m.className='tselm hidden';
+  sel.parentNode.insertBefore(w,sel);w.appendChild(b);w.appendChild(m);sel.classList.add('tsel-native');
+  const render=()=>{const o=sel.options[sel.selectedIndex];b.innerHTML=`<span>${o?o.text:'—'}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+    m.innerHTML=[...sel.options].map((x,i)=>`<div class="tselo ${i===sel.selectedIndex?'on':''}" data-i="${i}">${x.text}</div>`).join('');};
+  b.onclick=e=>{e.stopPropagation();render();$$('.tselm').forEach(x=>{if(x!==m)x.classList.add('hidden');});m.classList.toggle('hidden');};
+  m.onclick=e=>{const o=e.target.closest('.tselo');if(!o)return;e.stopPropagation();sel.selectedIndex=+o.dataset.i;sel.dispatchEvent(new Event('change'));m.classList.add('hidden');render();};
+  let sig='';setInterval(()=>{const s=sel.selectedIndex+'|'+sel.options.length+'|'+(sel.options[sel.selectedIndex]||{}).text;if(s!==sig){sig=s;render();}},250);render();}
+document.addEventListener('click',()=>$$('.tselm').forEach(x=>x.classList.add('hidden')));
+async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
   if(!me){return bootGuest();}
   state.me=me;if(me.usdinr)state.usdinr=me.usdinr;

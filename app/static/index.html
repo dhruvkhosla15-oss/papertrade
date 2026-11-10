@@ -29,7 +29,7 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 @font-face{font-family:'Rubik';font-weight:600;font-display:swap;src:url(/static/brand/rubik-latin-600-normal.woff2) format('woff2')}
 @font-face{font-family:'Rubik';font-weight:800;font-display:swap;src:url(/static/brand/rubik-latin-800-normal.woff2) format('woff2')}
-header .brand,.login h1{font-family:Rubik,Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.03em;font-size:28px;line-height:1.05;margin-bottom:8px}
+header .brand,.login h1{font-family:Rubik,Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.03em;font-size:28px;line-height:1.05}header .brand{margin:0}.login h1{margin-bottom:8px}
 header{padding:14px 14px 12px}
 .livepill{margin-top:0}
 header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}
@@ -53,6 +53,9 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .mchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:600;background:var(--bg);color:var(--txt);white-space:nowrap}
 .mchip:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dn);flex:0 0 auto}.mchip.on:before{background:var(--up);box-shadow:0 0 6px var(--up)}
 .mchip small{color:var(--mut);font-weight:500;font-size:11px}
+.mchip.down{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.5);color:#fecaca}.mchip.down small{color:#f87171}.mchip.down:before{box-shadow:0 0 0 3px rgba(239,68,68,.25)}
+.feedbar{display:flex;align-items:center;gap:9px;padding:7px 12px;background:rgba(239,68,68,.14);border-bottom:1px solid rgba(239,68,68,.45);color:#fca5a5;font-size:12px;line-height:1.3}.feedbar b{color:#fecaca}.feedbar:before{content:"";width:8px;height:8px;border-radius:50%;background:#ef4444;flex:0 0 auto;animation:fbp 1.4s infinite}@keyframes fbp{0%{box-shadow:0 0 0 0 rgba(239,68,68,.6)}100%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
+
 .livepill{display:none}
 .livepill.ok{background:rgba(34,197,94,.15);color:var(--up)}
 header .funds{text-align:right;font-size:12px}
@@ -189,14 +192,14 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div><div class="liverow"><div id="livePill" class="livepill"><span id="feedLight" class="feedlight"></span><span id="feedMsg">connecting…</span></div><button class="thbtn" id="thToggle" title="Light / dark">☾</button></div></div>
+  <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
+<div id="banner" class="feedbar hidden"></div>
 <div id="mkts" class="mkts"></div>
 <div class="marquee" id="tickerBox"><div class="track" id="ticker"></div></div>
-<div id="banner" class="banner hidden"></div>
 <main>
   <!-- WATCHLIST -->
   <section id="tab-watch">
@@ -500,9 +503,9 @@ $('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#121c2e'},textColor:t==='light'?'#6b7280':'#8da2c0'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1e2a44'},horzLines:{color:t==='light'?'#eef0f3':'#1e2a44'}}});}
 $('#thDark').onclick=()=>setTheme('dark');$('#thLight').onclick=()=>setTheme('light');
-$('#thToggle').onclick=()=>{const light=document.documentElement.getAttribute('data-theme')==='light';setTheme(light?'dark':'light');};
-const _setTheme=setTheme;setTheme=function(t){_setTheme(t);$('#thToggle').textContent=t==='light'?'☀':'☾';};
-(function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thToggle').textContent=t==='light'?'☀':'☾';})();
+
+
+
 (function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');})();
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 $('#fpBtn').onclick=async()=>{$('#fpErr').textContent='';const o=$('#fpOld').value,n=$('#fpNew').value,n2=$('#fpNew2').value;
@@ -592,7 +595,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
   const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=0?'':dd===1?'tmrw ':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
   const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null]];
   return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
-    if(!c)return `<span class="mchip off" title="${n}: price feed not connected">${n}<small>feed down</small></span>`;
+    if(!c)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
@@ -606,20 +609,11 @@ function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.
   box.addEventListener('click',e=>{if(drag&&drag.moved){e.preventDefault();e.stopPropagation();}},true);
   if(canHover){box.addEventListener('mouseenter',()=>hov=true);box.addEventListener('mouseleave',()=>hov=false);}}
 marquee($('#tickerBox'),32);marquee($('#mkts'),28);
-function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');if(m.dataset.h===html){const b=$('#banner');b.className='banner hidden';return;}m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;
-  const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');const b=$('#banner');b.className='banner hidden';return;
-  const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};
-  const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+':'+String(x.getMinutes()).padStart(2,'0')+(x.getHours()<12?' am':' pm');};
-  const todayS=nse.today||mcx.today||'';const dayOf=iso=>iso.slice(0,10);const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const when=iso=>{if(!iso)return '';const ds=dayOf(iso);const dd=Math.round((Date.parse(ds)-Date.parse(todayS))/86400000);const day=dd===0?'today':dd===1?'tomorrow':DN[new Date(ds+'T00:00:00Z').getUTCDay()];return `${day} ${t12(iso)}`;};
-  if(!f.connected){b.textContent='Live prices are not available right now. Please check back shortly.';b.className='banner';}
-  else if(nse.open&&mcx.open){b.className='banner hidden';}
-  else{let parts=[];let hol=(nse.holiday&&nse.holiday!=='Weekend')?nse.holiday:((mcx.holiday&&mcx.holiday!=='Weekend')?mcx.holiday:null);
-    if(nse.label==='weekend'&&!mcx.open)parts.push('<b>Weekend</b>');else if(hol)parts.push(`<b>Market holiday</b> — ${hol}`);
-    parts.push(nse.open?`<b>NSE &amp; BSE open</b> till ${t12(nse.closes_at)}`:`NSE &amp; BSE closed${nse.opens_at?' · open '+when(nse.opens_at):''}`);
-    const cds=ms.CDS;if(cds&&cds.open&&!nse.open)parts.push(`<b>Currency open</b> till ${t12(cds.closes_at)}`);
-    parts.push(mcx.open?`<b>MCX open</b> till ${t12(mcx.closes_at)}`:(mcx.opens_at&&dayOf(mcx.opens_at)===todayS?`<b>MCX resumes at ${t12(mcx.opens_at)}</b>`:`MCX closed${mcx.opens_at?' · open '+when(mcx.opens_at):''}`));
-    b.innerHTML=parts.join(' · ');b.className='banner'+((nse.open||mcx.open)?' soft':'');}}
+function feedDownText(f){const d=[];if(f.connected===false)d.push('NSE','BSE','MCX','Currency');if(f.crypto&&f.crypto.connected===false)d.push('Crypto');if(f.forex&&f.forex.connected===false)d.push('Forex');
+  if(!d.length)return '';const list=d.length>1?d.slice(0,-1).join(', ')+' &amp; '+d[d.length-1]:d[0];return `<div><b>Price feed down</b> — ${list} prices are currently unavailable. Orders on ${d.length>1?'these markets':'this market'} will be rejected until the feed is back up.</div>`;}
+function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');const b=$('#banner');const dt=feedDownText(f);if(dt){b.innerHTML=dt;b.className='feedbar';}else b.className='feedbar hidden';
+  if(m.dataset.h===html)return;m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;
+  const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');}
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);

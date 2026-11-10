@@ -542,8 +542,20 @@ async def _ensure_price(token: int, timeout=3.0):
             await asyncio.sleep(0.1)
 
 
+def _feed_up(exchange: str) -> bool:
+    """True when the price feed that serves this exchange is connected."""
+    if exchange == "CRYPTO":
+        return bool(crypto and crypto.connected)
+    if exchange == "FOREX":
+        return bool(forex and forex.connected)
+    return bool(feed.connected)
+
+
 @app.post("/api/orders")
 async def place_order(body: OrderIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ins = feed.instruments.get(body.token)
+    if ins and not _feed_up(ins.exchange):
+        raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
     await _ensure_price(body.token)
     async with engine._lock:
         try:

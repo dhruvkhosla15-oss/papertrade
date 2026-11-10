@@ -55,6 +55,9 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .mchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:600;background:var(--bg);color:var(--txt);white-space:nowrap}
 .mchip:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dn);flex:0 0 auto}.mchip.on:before{background:var(--up);box-shadow:0 0 6px var(--up)}
 .mchip small{color:var(--mut);font-weight:500;font-size:11px}
+.mchip.down{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.5);color:#fecaca}.mchip.down small{color:#f87171}.mchip.down:before{box-shadow:0 0 0 3px rgba(239,68,68,.25)}
+.feedbar{border-radius:10px;margin:0 0 12px;display:flex;align-items:center;gap:9px;padding:7px 12px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.45);color:#fca5a5;font-size:12px;line-height:1.3}.feedbar b{color:#fecaca}.feedbar:before{content:"";width:8px;height:8px;border-radius:50%;background:#ef4444;flex:0 0 auto;animation:fbp 1.4s infinite}@keyframes fbp{0%{box-shadow:0 0 0 0 rgba(239,68,68,.6)}100%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
+
 .kite{padding:12px 14px;border-radius:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0;border-left:4px solid var(--line)}
 .kite b{font-size:14px;display:flex;align-items:center;gap:8px}.kite b:before{content:'';width:9px;height:9px;border-radius:50%;background:var(--mut);flex:0 0 auto}
 .kite.ok{border-left-color:var(--up)}.kite.ok b:before{background:var(--up);box-shadow:0 0 8px var(--up)}
@@ -93,6 +96,7 @@ a{color:var(--acc)}
   <div class="bar" style="flex:0 0 auto"><a href="/" class="small mut">Trader view</a><button class="ghost" id="themeBtn" title="Light / dark">☾</button><button class="ghost" id="logoutBtn">Log out</button></div>
 </header>
 <main>
+  <div id="feedbar" class="feedbar hidden"></div>
   <div id="feeds">
   <div id="kiteBox" class="card kite hidden">
     <div style="flex:1"><b id="kiteTitle"></b><div class="small" id="kiteMsg"></div></div>
@@ -328,7 +332,7 @@ async function loadSettings(){const s=await api('/admin/settings');
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
-  const f=s.feed;$('#mkts').innerHTML=marketChips(f,s.market_status||{});
+  const f=s.feed;$('#mkts').innerHTML=marketChips(f,s.market_status||{});{const fb=$('#feedbar');const dt=feedDownText(f);if(dt){fb.innerHTML=dt+'<a href="#feeds" class="small" style="margin-left:auto;color:#fecaca;white-space:nowrap">Reconnect ›</a>';fb.className='feedbar';}else fb.className='feedbar hidden';}
   renderCrypto(f.crypto);renderForex(f.forex);
   const kb=$('#kiteBox');
   if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
@@ -356,12 +360,14 @@ $('#cryptoReconnect').onclick=async()=>{try{await api('/admin/feed/crypto/reconn
 $('#feedDisconnect').onclick=async()=>{if(!confirm('Disconnect the live price feed? Trainees will see OFFLINE and orders will be rejected until you reconnect.'))return;try{await api('/admin/feed/disconnect',{method:'POST'});toast('Live feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
 $('#feedReconnect').onclick=async()=>{try{await api('/admin/feed/reconnect',{method:'POST'});toast('Reconnecting…');setTimeout(loadSettings,2500);}catch(e){toast(e.message,1)}};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
+function feedDownText(f){const d=[];if(f.connected===false)d.push('NSE','BSE','MCX','Currency');if(f.crypto&&f.crypto.connected===false)d.push('Crypto');if(f.forex&&f.forex.connected===false)d.push('Forex');
+  if(!d.length)return '';const list=d.length>1?d.slice(0,-1).join(', ')+' &amp; '+d[d.length-1]:d[0];return `<div><b>Price feed down</b> — ${list} prices are currently unavailable. Orders on ${d.length>1?'these markets':'this market'} will be rejected until the feed is back up.</div>`;}
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
   const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const todayS=(ms.NFO&&ms.NFO.today)||(ms.MCX&&ms.MCX.today)||'';
   const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=0?'':dd===1?'tmrw ':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
   const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null]];
   return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
-    if(!c)return `<span class="mchip off" title="${n}: price feed not connected">${n}<small>feed down</small></span>`;
+    if(!c)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}

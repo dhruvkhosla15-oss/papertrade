@@ -113,6 +113,7 @@ a{color:var(--acc)}
     <div class="stat"><span class="mut small">Trainees</span><b id="sUsers">—</b></div>
     <div class="stat"><span class="mut small">Coins allocated</span><b id="sCredited" class="num">—</b></div>
     <div class="stat"><span class="mut small">Total equity</span><b id="sEquity" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Exposure (margin blocked)</span><b id="sExposure" class="num">—</b></div>
     <div class="stat"><span class="mut small">Net P&L (all)</span><b id="sPnl" class="num">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
     <div class="stat"><span class="mut small">Today's realised P&L</span><b id="sToday" class="num">—</b></div>
@@ -131,7 +132,7 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="balance">Balance</th><th class="sort" data-k="used_margin">Used margin</th><th class="sort" data-k="unrealised">Unrealised</th><th class="sort" data-k="equity">Equity</th><th class="sort" data-k="pnl">Net P&L</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="balance">Balance</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="Balance − exposure (± unrealised): what they can still trade with">Available</th><th class="sort" data-k="unrealised">Unrealised</th><th class="sort" data-k="equity">Equity</th><th class="sort" data-k="pnl">Net P&L</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -354,8 +355,8 @@ $('#tfaDisable').onclick=async()=>{try{await api('/admin/2fa/disable',{method:'P
 $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};
 $$('#uTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir=-sortDir;else{sortK=k;sortDir=k==='display_name'?1:-1;}renderUsers();});
 async function loadUsers(){users=await api('/admin/users');
-  const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0);
-  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);
+  const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
+  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);
   $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All trainees</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();
@@ -369,7 +370,7 @@ function renderUsers(){
   $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}">
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
-    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.balance)}</td><td class="num">${inr(u.used_margin)}</td>
+    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.balance)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
     <td class="num ${cls(u.unrealised)}">${inr(u.unrealised)}</td><td class="num">${inr(u.equity)}</td>
     <td class="num ${cls(u.pnl)}">${sgn(u.pnl)}<div class="small mut">${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
@@ -432,7 +433,7 @@ $$('[data-ddl]').forEach(b=>b.onclick=()=>{const p=$('#dRange').value;const[f,t]
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);
-  $('#dFunds').innerHTML=[['Balance',f.balance],['Used margin',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Equity',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'?cls(v):''}">${inr(v)}</b></div>`).join('');
+  $('#dFunds').innerHTML=[['Balance',f.balance],['Exposure (margin blocked)',f.used_margin],['Available',f.available],['Unrealised',f.unrealised],['Equity',f.equity],['Net P&L',f.equity-cred]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${k.includes('P&L')||k==='Unrealised'?cls(v):''}">${inr(v)}</b></div>`).join('');
   const T=$('#dTbl');
   if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Qty</th><th>Avg</th><th>LTP</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';
     T.tBodies[0].innerHTML=d.positions.map(p=>`<tr><td>${p.symbol}</td><td class="num ${p.qty>0?'up':'dn'}">${p.qty}</td><td class="num">${fmt(p.avg_price)}</td><td class="num">${fmt(p.ltp)}</td><td class="num ${cls(p.unrealised)}">${fmt(p.unrealised)}</td><td class="num">${inr(p.margin)}</td><td>${p.expiry}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No open positions</td></tr>';}

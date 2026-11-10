@@ -119,7 +119,16 @@ class Engine:
         sig = (tuple((x[0], x[1]) for x in bids), tuple((x[0], x[1]) for x in asks))
         sh = self._consumed.get(ins.token)
         if not sh or sh["sig"] != sig:
-            sh = {"sig": sig, "bids": {}, "asks": {}}
+            # New snapshot. Levels that are *unchanged* (same price, same quantity) are the same resting
+            # orders as before, so what paper fills already took from them stays taken — otherwise a thin
+            # book that merely ticks at the top could be hit again and again at the same four 1-lot bids.
+            old = sh or {"sig": ((), ()), "bids": {}, "asks": {}}
+            keep = {}
+            for key, old_side, new_side in (("bids", old["sig"][0], sig[0]), ("asks", old["sig"][1], sig[1])):
+                new_set = set(new_side)
+                keep[key] = {p: q for p, q in old[key].items()
+                             if any(lvl[0] == p and lvl in new_set for lvl in old_side)}
+            sh = {"sig": sig, "bids": keep["bids"], "asks": keep["asks"]}
             self._consumed[ins.token] = sh
         side_key = "asks" if side == "BUY" else "bids"
         raw_levels = asks if side == "BUY" else bids
@@ -164,8 +173,8 @@ class Engine:
             remaining -= take
             if remaining <= 0:
                 break
-        avg = round(cost / filled / ins.tick_size) * ins.tick_size
-        if limit_price is not None:   # tick rounding must never breach the trader's limit
+        avg = round(cost / filled, 6)          # exact average of the levels hit (as on a real contract note)
+        if limit_price is not None:
             avg = min(avg, limit_price) if side == "BUY" else max(avg, limit_price)
         if (side == "BUY" and avg < levels[0][0] - 1e-9) or (side == "SELL" and avg > levels[0][0] + 1e-9):
             log.error("FILL ANOMALY %s %s qty=%s filled=%s cost=%s avg=%s levels=%s raw=%s consumed=%s tick=%s",
@@ -184,10 +193,13 @@ class Engine:
         vf = self.vf(ins)
         if ins.instrument_type in ("CE", "PE") and side == "BUY":
             return round(price * qty * vf, 2)
-        und_tok = self.feed.index_token_for(ins.name)
-        und = self.feed.ltp(und_tok) if und_tok else None
-        if und is None:
-            und = ins.strike if ins.instrument_type in ("CE", "PE") else price
+        if ins.instrument_type in ("CE", "PE"):
+            und_tok = self.feed.index_token_for(ins.name)
+            und = self.feed.ltp(und_tok) if und_tok else None
+            if und is None:
+                und = ins.strike
+        else:
+            und = price            # a future is margined on its own price (a far month trades at its own level)
         # Delta margins options like perpetuals: initial_margin % of the underlying notional (0.5% for
         # BTC/ETH = 200x) plus the option's mark price for sellers; liquidation is decided on the mark.
         pct = ins.init_margin_pct or self.margin_pct(db, ins.exchange, ins.name)
@@ -302,6 +314,13 @@ class Engine:
             raise EngineError("limit_price required")
         if order_type == "SL" and (trigger_price is None or trigger_price <= 0):
             raise EngineError("trigger_price required")
+        if order_type == "SL" and ltp:
+            # Like the exchange: a sell SL must trigger below the market, a buy SL above it. A trigger on
+            # the wrong side would fire instantly as a market order — not what a stop is for.
+            if side == "SELL" and trigger_price >= ltp:
+                raise EngineError(f"Stop-loss SELL trigger ({trigger_price:g}) must be below the last price ({ltp:g})")
+            if side == "BUY" and trigger_price <= ltp:
+                raise EngineError(f"Stop-loss BUY trigger ({trigger_price:g}) must be above the last price ({ltp:g})")
 
         qty = lots * ins.lot_size
         from .config import FREEZE_QTY

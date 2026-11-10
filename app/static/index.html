@@ -935,7 +935,9 @@ function showTab(tab,home){if(state.guest&&!['watch','market'].includes(tab)){sh
   ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));
   if(tab==='orders')loadTrades();if(tab==='account'){loadLedger();loadPerf();renderTfa();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
 function currentHome(){try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}}
-$$('nav.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab,b.dataset.home));
+function resetMarket(){/* dock tap on Market always lands on the category page, not the last scrip */
+  for(const [cat,und,chain] of [['#catList','#undList','#chainPanel'],['#catListF','#undListF','#futPanel']]){const c=$(cat),u=$(und),ch=$(chain);if(c)c.classList.remove('hidden');if(u)u.classList.add('hidden');if(ch)ch.classList.add('hidden');}}
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='market')resetMarket();showTab(b.dataset.tab,b.dataset.home);});
 $('#hFunds').onclick=()=>showTab('account');
 
 boot();

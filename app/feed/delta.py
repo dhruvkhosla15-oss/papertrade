@@ -235,6 +235,8 @@ class DeltaCrypto:
         except Exception as e:
             log.warning("delta: product list failed: %s", e)
             self.message = f"product list failed: {e}"
+        # perpetuals are the underlying reference for every option's margin/maintenance: always stream them
+        self.feed.pin([t for t, i in self.items.items() if i.instrument_type == "FUT"])
         loop.create_task(self._run())
         loop.create_task(self._refresh_loop())
 

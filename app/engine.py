@@ -555,6 +555,12 @@ class Engine:
             db.commit()
             toks = {o.token for o in db.query(Order).filter_by(status="OPEN")}
             toks |= {p.token for p in db.query(Position).filter_by(is_closed=False)}
+            # underlying reference prices for margin / maintenance of open positions
+            for p in db.query(Position).filter_by(is_closed=False):
+                ins = self.feed.instruments.get(p.token)
+                ut = self.feed.index_token_for(ins.name) if ins else None
+                if ut:
+                    toks.add(ut)
             self._pending_tokens |= {o.token for o in db.query(Order).filter_by(status="OPEN")}
             from .feed.base import INDEX_NAMES
             idx = [i.token for i in self.feed.instruments.values() if i.segment == "INDICES" and i.name in INDEX_NAMES]

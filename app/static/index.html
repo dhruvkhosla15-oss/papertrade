@@ -48,7 +48,8 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .login input{margin-bottom:10px;padding:13px;font-size:16px}
 .login button{padding:13px;font-size:16px}
 .login .back{display:block;text-align:center;margin-top:16px;color:var(--mut);font-size:13px;cursor:pointer}
-.mkts{display:flex;gap:6px;overflow-x:auto;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}.mkts::-webkit-scrollbar{display:none}
+.mkts{overflow:hidden;white-space:nowrap;padding:6px 0;background:var(--card);border-bottom:1px solid var(--line)}
+.mkts .mtrack{display:inline-flex;gap:8px;padding-left:12px;will-change:transform}.mkts.run .mtrack{animation:scroll 40s linear infinite}.mkts:hover .mtrack{animation-play-state:paused}
 .mchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:600;background:var(--bg);color:var(--txt);white-space:nowrap}
 .mchip:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dn);flex:0 0 auto}.mchip.on:before{background:var(--up);box-shadow:0 0 6px var(--up)}
 .mchip small{color:var(--mut);font-weight:500;font-size:11px}
@@ -595,7 +596,8 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
-function renderFeed(f){const ms=state.marketStatus||{};$('#mkts').innerHTML=marketChips(f,ms);const b=$('#banner');b.className='banner hidden';return;
+function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');m.innerHTML=`<div class="mtrack">${html}</div>`;
+  const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');const b=$('#banner');b.className='banner hidden';return;
   const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};
   const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+':'+String(x.getMinutes()).padStart(2,'0')+(x.getHours()<12?' am':' pm');};
   const todayS=nse.today||mcx.today||'';const dayOf=iso=>iso.slice(0,10);const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];

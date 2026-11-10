@@ -61,9 +61,10 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .kite.bad{border-left-color:var(--dn)}.kite.bad b:before{background:var(--dn)}
 .kite .small{color:var(--mut)}.kite .bar button{padding:6px 12px;font-size:12px}
 .kite .bar{margin-left:auto}
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:20px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+.eq{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}.eq .stat{flex:1}.eq .opx{flex:0 0 18px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;font-size:16px}
 .stat{background:var(--bg);border-radius:10px;padding:10px;min-width:0}.stat b{font-size:18px;display:block;margin-top:2px}.stat .small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
-.stat.op{position:relative}.stat.op:before{content:attr(data-op);position:absolute;left:-16px;top:50%;transform:translate(-50%,-50%);color:var(--mut);font-weight:700;font-size:15px}
+
 .recon{font-size:12px;color:var(--mut);margin-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
 .tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#0f1115;background:var(--acc);border-color:var(--acc)}
 .nav{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:14px;width:max-content;max-width:100%}
@@ -123,12 +124,14 @@ a{color:var(--acc)}
   <!-- ===== Trainees ===== -->
   <section id="nav-trainees">
   <div class="card">
-  <div class="grid">
-    <div class="stat"><span class="mut small" title="Credits minus debits, all trainees">Coins allocated</span><b id="sCredited" class="num">—</b></div>
-    <div class="stat op" data-op="+"><span class="mut small" title="Realised + unrealised, before commission">Trading P&L</span><b id="sGross" class="num">—</b></div>
-    <div class="stat op" data-op="+"><span class="mut small" title="Brokerage deducted on every buy and sell">Commission</span><b id="sComm" class="num">—</b></div>
-    <div class="stat op" data-op="="><span class="mut small" title="What all accounts are worth now = Exposure + Available (+ unrealised profit)">Total equity</span><b id="sEquity" class="num">—</b></div>
+  <div class="eq">
+    <div class="stat"><span class="mut small" title="Credits minus debits, all trainees">Coins allocated</span><b id="sCredited" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Realised + unrealised, before commission">Trading P&L</span><b id="sGross" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Brokerage deducted on every buy and sell">Commission</span><b id="sComm" class="num">—</b></div><div class="opx">=</div>
+    <div class="stat"><span class="mut small" title="What all accounts are worth now = Exposure + Available (+ unrealised profit)">Total equity</span><b id="sEquity" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
     <div class="stat"><span class="mut small" title="Trading P&L + Commission; Total equity − Coins allocated">Net P&L (after commission)</span><b id="sPnl" class="num">—</b></div>
+  </div>
+  <div class="grid">
     <div class="stat"><span class="mut small">Trainees</span><b id="sUsers">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
     <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Exposure (margin blocked)</span><b id="sExposure" class="num">—</b></div>

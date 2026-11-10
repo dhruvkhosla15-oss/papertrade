@@ -431,11 +431,12 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // ---- crypto display currency (contracts are USD-quoted on Delta; INR view = USD x live USDINR) ----
 const isCryptoTok=t=>+t>=5e9;
 let CCCY=(()=>{try{return localStorage.getItem('lfx_cccy')||'INR'}catch(e){return 'INR'}})();
-const cRate=()=>CCCY==='INR'?(state.usdinr||84.5):1;
+const inrOn=()=>CCCY==='INR'&&!!state.usdinr;   // ₹ view only when Delta's rate is known
+const cRate=()=>inrOn()?state.usdinr:1;
 const cp=(ex,v)=>(v==null||ex!=='CRYPTO')?v:v*cRate();                     // convert one USD value for display
-const cpx=(ex,v)=>v==null?'—':(ex==='CRYPTO'?(CCCY==='INR'?'₹':'$'):'')+fmt(cp(ex,v));
+const cpx=(ex,v)=>v==null?'—':(ex==='CRYPTO'?(inrOn()?'₹':'$'):'')+fmt(cp(ex,v));
 const PXF=['ltp','bid','ask','open','high','low','close'];
-function dispTick(t){if(!t||!isCryptoTok(t.token)||CCCY!=='INR')return t;const r=cRate();const d={...t};for(const k of PXF)if(d[k]!=null)d[k]=d[k]*r;if(d.bids)d.bids=d.bids.map(x=>[x[0]*r,x[1],x[2]]);if(d.asks)d.asks=d.asks.map(x=>[x[0]*r,x[1],x[2]]);return d;}
+function dispTick(t){if(!t||!isCryptoTok(t.token)||!inrOn())return t;const r=cRate();const d={...t};for(const k of PXF)if(d[k]!=null)d[k]=d[k]*r;if(d.bids)d.bids=d.bids.map(x=>[x[0]*r,x[1],x[2]]);if(d.asks)d.asks=d.asks.map(x=>[x[0]*r,x[1],x[2]]);return d;}
 const ccyToggleHtml=()=>`<div class="seg ccyseg" style="flex:0 0 auto;padding:2px"><button data-ccy="INR" class="${CCCY==='INR'?'active':''}" style="padding:4px 12px">₹ INR</button><button data-ccy="USD" class="${CCCY==='USD'?'active':''}" style="padding:4px 12px">$ USD</button></div>`;
 function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));
   onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
@@ -673,7 +674,7 @@ function setChainMode(m){state.chainMode=m;$$('#chainMode button').forEach(b=>b.
   for(const i of (state.chain||[])){const c=document.getElementById('c'+i.token),t=state.prices[i.token];if(c&&t)chainCell(c,t);}}
 $$('#chainMode button').forEach(b=>b.onclick=()=>setChainMode(b.dataset.m));
 function renderGreeks(ins){const box=$('#oGreeks');const g=ins&&(ins.instrument_type==='CE'||ins.instrument_type==='PE')?greeks(ins,spotFor(ins)):null;box.classList.toggle('hidden',!g);if(!g)return;
-  const cry=ins.exchange==='CRYPTO';const L=cry?(ins.multiplier||1)*(state.usdinr||84.5)*100:(ins.lot_size||1);const pt=cry?'per $100':'per pt';
+  const cry=ins.exchange==='CRYPTO';const L=cry?(ins.multiplier||1)*(state.usdinr||0)*100:(ins.lot_size||1);const pt=cry?'per $100':'per pt';
   $('#gIV').textContent='IV '+g.iv.toFixed(1)+'%';$('#gD').textContent=g.delta.toFixed(2);$('#gDs').textContent='₹'+Math.round(Math.abs(g.delta)*L).toLocaleString('en-IN')+' '+pt+' / lot';
   $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=Math.abs(g.theta)>=1?g.theta.toFixed(1):g.theta.toFixed(3);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*(cry?L/100:L)).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=Math.abs(g.vega)>=1?g.vega.toFixed(1):g.vega.toFixed(3);$('#gR').textContent=g.rho.toFixed(2);}
 function onPrices(ticks){
@@ -727,7 +728,7 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
   $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
   onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
-  const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${CCCY==='INR'?'USD contract shown in ₹ at '+fmt(state.usdinr||84.5)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
+  const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'USD contract shown in ₹ at Delta\'s rate '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
   $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Delta Exchange · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
@@ -854,7 +855,7 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='oi')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label} · OI ${(r.oi||0).toLocaleString('en-IN')}</small></div><div class="px"><b class="${r.oi_chg>=0?'up':'dn'}">${pctS(r.oi_chg)} OI</b><small><span class="tag ${/Long build|Short cover/.test(r.buildup||'')?'up':/Short build|Long unwind/.test(r.buildup||'')?'dn':''}">${r.buildup||'—'}</span></small></div></div>`;
   if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
-function cvRow(r){if(r.exchange!=='CRYPTO'||CCCY!=='INR')return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
+function cvRow(r){if(r.exchange!=='CRYPTO'||!inrOn())return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
 async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
   for(const k of ['gainers','losers','traded','shockers','oi','near_hi','near_lo'])d[k]=(d[k]||[]).map(cvRow);for(const k of ['gainer','loser','traded'])if(d.hero[k])d.hero[k]=cvRow(d.hero[k]);
   const live=!d.session||d.session.live!==false||!d.session.date;

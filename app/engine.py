@@ -267,6 +267,8 @@ class Engine:
         cry = getattr(self.feed, "crypto", None)
         if cry and token in cry.items and not cry.connected:
             raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
+        if cry and token in cry.items and not cry.fx_ready():
+            raise EngineError("Waiting for Delta's USD/INR rate — crypto trading resumes once it is received")
         ltp = self.feed.ltp(token)
         if ltp is None or (self.feed.tick_age(token) or 0) > 300:
             # Not yet subscribed / stale. Subscribe and ask client to retry.

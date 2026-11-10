@@ -32,7 +32,6 @@ TOKEN_BASE = 5_000_000_000           # Delta product ids are small ints; keep th
 PERPS = [s.strip().upper() for s in os.getenv("PT_CRYPTO_PERPS", "BTCUSD,ETHUSD,SOLUSD,XRPUSD,BNBUSD,XAUTUSD").split(",") if s.strip()]
 OPTION_UNDERLYINGS = [s.strip().upper() for s in os.getenv("PT_CRYPTO_OPTIONS", "BTC,ETH").split(",") if s.strip()]
 OPTION_DAYS = int(os.getenv("PT_CRYPTO_OPTION_DAYS", "10"))   # list option expiries this far ahead
-FX_FALLBACK = float(os.getenv("PT_USDINR", "84.5"))
 IST = timedelta(hours=5, minutes=30)
 
 
@@ -128,25 +127,59 @@ class DeltaCrypto:
     # ---- helpers used by engine / pulse ---------------------------------------------------------
     INR_INDEX = ".DEUSDTINR"      # Delta's own USD(T)/INR index: what its app uses for rupee display
 
-    def usdinr(self) -> float:
-        """Delta's USDT/INR index if streaming (so our rupee figures match Delta's), else the NSE
-        USDINR monthly future, else the configured fallback."""
+    def usdinr(self):
+        """Delta's USDT/INR index — the only rate used for rupee figures, so ours always match
+        Delta's and there is no arbitrage against the NSE USDINR. The last value is remembered across
+        restarts; until a value is known crypto trading is blocked (fx_ready() is False)."""
         d = getattr(self, "_inr", None)
-        if d and time.time() - d[1] < 900:
-            return d[0]
-        tok = self._orig_index("USDINR")
-        p = self.feed.prices.get(tok) if tok else None
-        return float(p["ltp"]) if p and p.get("ltp") else FX_FALLBACK
+        if d is None:
+            d = self._load_inr()
+        return d[0] if d else None
+
+    def fx_ready(self) -> bool:
+        return self.usdinr() is not None
 
     def fx_source(self) -> str:
         d = getattr(self, "_inr", None)
-        return "Delta USDT/INR index" if (d and time.time() - d[1] < 900) else "NSE USDINR future"
+        if not d:
+            return "waiting for Delta USDT/INR index"
+        age = time.time() - d[1]
+        return "Delta USDT/INR index" + ("" if age < 120 else f" (last update {int(age // 60)} min ago)")
+
+    def _load_inr(self):
+        try:
+            from ..db import SessionLocal, get_setting
+            db = SessionLocal()
+            try:
+                v = get_setting(db, "delta_usdt_inr"); t = get_setting(db, "delta_usdt_inr_ts")
+            finally:
+                db.close()
+            if v:
+                self._inr = (float(v), float(t or 0)); return self._inr
+        except Exception:
+            pass
+        return None
+
+    def _save_inr(self):
+        now = time.time()
+        if now - getattr(self, "_inr_saved", 0) < 60:
+            return
+        self._inr_saved = now
+        try:
+            from ..db import SessionLocal, set_setting
+            db = SessionLocal()
+            try:
+                set_setting(db, "delta_usdt_inr", str(self._inr[0])); set_setting(db, "delta_usdt_inr_ts", str(self._inr[1])); db.commit()
+            finally:
+                db.close()
+        except Exception:
+            log.exception("delta: could not persist INR rate")
 
     def value_factor(self, ins) -> float:
         """Rupee value of a 1.0 price move on 1 unit of qty."""
         if ins is None or ins.exchange != "CRYPTO":
             return 1.0
-        return (ins.multiplier or 1.0) * self.usdinr()
+        return (ins.multiplier or 1.0) * (self.usdinr() or 0.0)
 
     def _index_token_for(self, name):
         for i in self.items.values():
@@ -202,9 +235,6 @@ class DeltaCrypto:
         except Exception as e:
             log.warning("delta: product list failed: %s", e)
             self.message = f"product list failed: {e}"
-        tok = self._orig_index("USDINR")
-        if tok:
-            self.feed.pin([tok])          # keep the INR conversion rate live
         loop.create_task(self._run())
         loop.create_task(self._refresh_loop())
 
@@ -262,7 +292,7 @@ class DeltaCrypto:
         sym = m.get("symbol")
         if t == "spot_price" and sym == self.INR_INDEX:
             try:
-                self._inr = (float(m["price"]), time.time())
+                self._inr = (float(m["price"]), time.time()); self._save_inr()
             except Exception:
                 pass
             return

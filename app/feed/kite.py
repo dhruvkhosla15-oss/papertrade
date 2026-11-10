@@ -14,7 +14,7 @@ from typing import List
 from kiteconnect import KiteConnect, KiteTicker
 
 from .base import PriceFeed, Instrument
-from ..config import ALLOWED_UNDERLYINGS, ALLOW_STOCK_FNO
+from ..config import CURRENCY_PAIRS, ALLOWED_UNDERLYINGS, ALLOW_STOCK_FNO
 from .base import INDEX_NAMES
 
 log = logging.getLogger("kite")
@@ -28,6 +28,10 @@ MCX_MULTIPLIER = {
     "LEAD": 5000, "LEADMINI": 1000, "NICKEL": 1500, "TIN": 1000,
     "MENTHAOIL": 360, "COTTONCNDY": 48, "COTTON": 48, "KAPAS": 200, "CPO": 1000, "RUBBER": 10, "CARDAMOM": 100,
 }
+# NSE currency futures/options: Zerodha quotes lot_size=1 (one lot); contract = 1,000 units of the base
+# currency (JPYINR is priced per 100 JPY for a 1,00,000 JPY contract -> also x1000).
+CDS_MULTIPLIER = {"USDINR": 1000, "EURINR": 1000, "GBPINR": 1000, "JPYINR": 1000}
+CDS_UNIT = {"USDINR": "USD 1,000", "EURINR": "EUR 1,000", "GBPINR": "GBP 1,000", "JPYINR": "JPY 1,00,000 (price per 100 JPY)"}
 # Human-readable contract size (shown on the order ticket)
 MCX_UNIT = {
     "GOLD": "1 kg (price per 10 g)", "GOLDM": "100 g (price per 10 g)", "GOLDGUINEA": "8 g", "GOLDPETAL": "1 g", "GOLDTEN": "10 g",
@@ -91,9 +95,12 @@ class KiteFeed(PriceFeed):
                 elif exch == "NSE" and row["instrument_type"] == "EQ" and row["segment"] == "NSE":
                     eq_rows[row["tradingsymbol"]] = row
         stock_names = set()
-        for exch in ("NFO", "BFO", "MCX"):
+        for exch in ("NFO", "BFO", "MCX", "CDS"):
             for row in self.kite.instruments(exch):
-                if exch != "MCX" and row["name"] not in ALLOWED_UNDERLYINGS:
+                if exch == "CDS":
+                    if row["name"] not in CURRENCY_PAIRS:
+                        continue
+                elif exch != "MCX" and row["name"] not in ALLOWED_UNDERLYINGS:
                     if not (ALLOW_STOCK_FNO and exch == "NFO" and row["name"] not in INDEX_NAMES and row["name"] in eq_rows):
                         continue
                     stock_names.add(row["name"])
@@ -113,6 +120,7 @@ class KiteFeed(PriceFeed):
         # contract multiplier. P&L and margin need the real multiplier, so apply it here.
         fixed, unknown = 0, set()
         kept = []
+        raw_cds = {}
         for i in items:
             if i.exchange == "MCX" and i.lot_size <= 1:
                 mult = MCX_MULTIPLIER.get(i.name)
@@ -122,7 +130,14 @@ class KiteFeed(PriceFeed):
                 else:
                     unknown.add(i.name)
                     continue  # unknown contract size -> don't offer it rather than risk wrong P&L
+            elif i.exchange == "CDS":
+                raw_cds.setdefault(i.name, i.lot_size)
+                if i.lot_size <= 1:
+                    i.lot_size = CDS_MULTIPLIER.get(i.name, 1000)
+                i.lot_label = CDS_UNIT.get(i.name, "")
             kept.append(i)
+        if raw_cds:
+            log.info("currency derivatives: %s (raw lot sizes from Zerodha: %s)", sorted(raw_cds), raw_cds)
         items = kept
         self.load_instruments(items)
         log.info("loaded %d instruments (MCX multiplier applied to %d; unknown multiplier for %s)",
@@ -209,7 +224,7 @@ class KiteFeed(PriceFeed):
             depth = t.get("depth") or {}
             # MCX quantities from Kite are in LOTS; convert to units so they match our lot_size (multiplier)
             ins = self.instruments.get(d["token"])
-            m = ins.lot_size if (ins and ins.exchange == "MCX" and ins.lot_size > 1) else 1
+            m = ins.lot_size if (ins and ins.exchange in ("MCX", "CDS") and ins.lot_size > 1) else 1
             bids = [(float(x["price"]), int(x["quantity"]) * m, int(x.get("orders", 0))) for x in depth.get("buy", []) if x.get("quantity")]
             asks = [(float(x["price"]), int(x["quantity"]) * m, int(x.get("orders", 0))) for x in depth.get("sell", []) if x.get("quantity")]
             if ohlc:

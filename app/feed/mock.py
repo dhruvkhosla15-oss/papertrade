@@ -34,6 +34,13 @@ MCX = {  # name: (price, tick, lot, vol, strike step)
     "ALUMINIUM": (240.0, 0.05, 5000, 0.18, 1),
 }
 
+CDS = {  # name: (price, tick, lot(units), vol, strike step)
+    "USDINR": (84.60, 0.0025, 1000, 0.05, 0.25),
+    "EURINR": (91.20, 0.0025, 1000, 0.07, 0.25),
+    "GBPINR": (107.40, 0.0025, 1000, 0.08, 0.25),
+    "JPYINR": (56.30, 0.0025, 1000, 0.09, 0.25),
+}
+
 
 def _n(x):  # standard normal cdf
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
@@ -123,6 +130,23 @@ class MockFeed(PriceFeed):
                             tok += 1
                             items.append(Instrument(tok, _sym(name, exp, strike, kind), name, "MCX",
                                                     "MCX-OPT", kind, e, strike, lot, tick, f"{lot} units"))
+        # NSE currency derivatives (CDS): price per unit, lot = 1,000 units
+        for name, (price, tick, lot, vol, step) in CDS.items():
+            self.spot[name] = price
+            self.vol[name] = vol
+            for mi in (0, 1, 2):
+                exp = _month_end_expiry(mi) - timedelta(days=2)
+                e = exp.isoformat()
+                tok += 1
+                items.append(Instrument(tok, _sym(name, exp), name, "CDS", "CDS-FUT", "FUT", e, 0, lot, tick, f"{name[:3]} 1,000"))
+                if mi == 0:
+                    atm = round(price / step) * step
+                    for k in range(-10, 11):
+                        strike = round(atm + k * step, 4)
+                        for kind in ("CE", "PE"):
+                            tok += 1
+                            items.append(Instrument(tok, _sym(name, exp, strike, kind), name, "CDS",
+                                                    "CDS-OPT", kind, e, strike, lot, tick, f"{name[:3]} 1,000"))
         self.load_instruments(items)
 
     def _price(self, ins: Instrument) -> float:
@@ -197,7 +221,7 @@ class MockFeed(PriceFeed):
                 dist = 0
                 if ins.instrument_type in ("CE", "PE"):
                     dist = abs(ins.strike - self.spot[ins.name]) / self.spot[ins.name]
-                if dist > 0.09 and ins.exchange != "MCX":
+                if dist > 0.09 and ins.exchange not in ("MCX", "CDS"):
                     bids, asks = [], []            # dead strike: no book at all
                 elif dist > 0.06:
                     bids = [(round(ltp * 0.9, 2), ins.lot_size, 1)]; asks = [(round(ltp * 1.1, 2), ins.lot_size, 1)]

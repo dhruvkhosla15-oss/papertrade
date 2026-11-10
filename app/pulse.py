@@ -46,9 +46,9 @@ class Pulse:
                 fut = futs[0] if futs else None
                 if not spot and not fut:
                     continue
-                price_tok = fut.token if kind == "mcx" and fut else spot
-                if kind == "mcx" and fut:
-                    label = "MCX · " + datetime.strptime(fut.expiry, "%Y-%m-%d").strftime("%b") + " fut"
+                price_tok = fut.token if kind in ("mcx", "currency") and fut else spot
+                if kind in ("mcx", "currency") and fut:
+                    label = ("MCX · " if kind == "mcx" else "NSE currency · ") + datetime.strptime(fut.expiry, "%Y-%m-%d").strftime("%b") + " fut"
                 elif kind == "stock":
                     label = "NSE stock"
                 else:
@@ -130,7 +130,7 @@ class Pulse:
         try:
             from .market_calendar import _sessions, ist_now
             now = ist_now()
-            sessions, _ = _sessions("NFO" if exchange in ("NFO", "BFO", "NSE", "BSE") else "MCX", now.date())
+            sessions, _ = _sessions("NFO" if exchange in ("NFO", "BFO", "NSE", "BSE") else exchange, now.date())
             return bool(sessions) and now.time() >= sessions[0][0]
         except Exception:
             return True
@@ -140,7 +140,7 @@ class Pulse:
         self.ensure_history()
         rows = []
         adv = dec = unch = 0
-        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX")}
+        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX", "CDS")}
         session_dates = set(); any_live = False
         for u in uni:
             if kind != "all" and u["kind"] != kind:
@@ -177,7 +177,7 @@ class Pulse:
                 fchg = round((fltp - fprev) / fprev * 100, 2) if fprev else dchg
                 hist_closes = closes[:-1]   # exclude the session being displayed from the look-back
                 session_dates.add(last["date"])
-            if u["kind"] == "mcx" and u["lot_size"] > 1:
+            if u["kind"] in ("mcx", "currency") and u["lot_size"] > 1:
                 if live:
                     avg_vol *= u["lot_size"]          # live volume is in units, candles in lots
                 else:

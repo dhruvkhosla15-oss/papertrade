@@ -26,10 +26,12 @@ ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "f
 
 # Approximate margin % of contract notional for futures / short options
 DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy and sell)
-DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0}  # STK = stock F&O (NFO non-index)
+DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0}  # STK = stock F&O (NFO non-index); CDS = NSE currency
+# NSE currency derivatives offered (CDS segment). Set PT_CURRENCIES= to turn off.
+CURRENCY_PAIRS = [c.strip().upper() for c in os.getenv("PT_CURRENCIES", "USDINR,EURINR,GBPINR,JPYINR").split(",") if c.strip()]
 
 # Exchange trading hours (IST)
-MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55")}  # see market_calendar.py (holidays, MCX DST close)
+MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55"), "CDS": ("09:00", "17:00")}  # see market_calendar.py (holidays, MCX DST close)
 ENFORCE_MARKET_HOURS = os.getenv("PT_ENFORCE_MARKET_HOURS", "true" if FEED == "kite" else "false").lower() == "true"
 
 IST_OFFSET_HOURS = 5.5

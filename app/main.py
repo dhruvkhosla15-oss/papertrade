@@ -324,8 +324,8 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
         for n in names:
             it = feed.index_token_for(n)
             out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
-    order = {"NFO": 0, "BFO": 1, "MCX": 2}
-    korder = {"index": 0, "mcx": 1, "stock": 2}
+    order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3}
+    korder = {"index": 0, "mcx": 1, "currency": 2, "stock": 3}
     out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
     return out
 
@@ -368,7 +368,7 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
 # Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
 _SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
                      "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
-                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER"]
+                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR"]
 SHOWCASE = [s.strip().upper() for s in os.environ.get("PT_SHOWCASE", ",".join(_SHOWCASE_DEFAULT)).split(",") if s.strip()]
 DEFAULT_WATCH = [(None, n) for n in SHOWCASE]
 
@@ -386,8 +386,8 @@ def _default_watch_instruments():
 def _market_status():
     from .market_calendar import status
     if not config.ENFORCE_MARKET_HOURS:
-        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX")}
-    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX")}
+        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS")}
+    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS")}
 
 
 def _public_tokens():
@@ -411,7 +411,7 @@ def _ticker():
     from .feed.base import kind_of
     out = []
     for i in _default_watch_instruments():
-        ex = i.exchange if i.exchange == "MCX" else ("BFO" if i.exchange == "BSE" else "NFO")
+        ex = i.exchange if i.exchange in ("MCX", "CDS") else ("BFO" if i.exchange == "BSE" else "NFO")
         out.append({"exchange": ex, "name": i.name, "spot_token": i.token, "kind": kind_of(ex, i.name)})
     return out
 
@@ -780,7 +780,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 @app.get("/api/admin/settings")
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
-    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK")},
+    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS")},
             "commission_pct": engine.commission_pct(db),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
@@ -1035,7 +1035,7 @@ pulse = Pulse(feed)
 def public_pulse(period: str = "today", kind: str = "all"):
     if period not in ("today", "week", "month"):
         period = "today"
-    if kind not in ("all", "index", "stock", "mcx"):
+    if kind not in ("all", "index", "stock", "mcx", "currency"):
         kind = "all"
     return pulse.snapshot(period, kind)
 

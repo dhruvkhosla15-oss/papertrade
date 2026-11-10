@@ -18,6 +18,8 @@ def kind_of(exchange: str, name: str) -> str:
     """index | stock | mcx — used for grouping, margins and the public ticker."""
     if exchange == "MCX":
         return "mcx"
+    if exchange == "CDS":
+        return "currency"
     return "index" if name in INDEX_NAMES else "stock"
 
 
@@ -96,7 +98,7 @@ class PriceFeed:
         for i in self.instruments.values():
             if i.segment == "INDICES" and i.name == name:
                 return i.token
-        # MCX: nearest future acts as underlying
+        # MCX / currency: nearest future acts as underlying
         futs = sorted((i for i in self.instruments.values()
                        if i.name == name and i.instrument_type == "FUT" and i.expiry),
                       key=lambda x: x.expiry)

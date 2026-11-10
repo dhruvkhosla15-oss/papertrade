@@ -159,6 +159,7 @@ a{color:var(--acc)}
       <div><label class="small mut">BFO (Sensex)</label><input id="mBFO" type="number" step="0.5"></div>
       <div><label class="small mut">Stock F&O (Reliance, TCS…)</label><input id="mSTK" type="number" step="0.5"></div>
       <div><label class="small mut">MCX</label><input id="mMCX" type="number" step="0.5"></div>
+      <div><label class="small mut">Currency (USDINR…)</label><input id="mCDS" type="number" step="0.5"></div>
     </div>
     <h2 style="margin-top:18px">Commission</h2>
     <div class="row">
@@ -279,7 +280,7 @@ async function boot(){
 }
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
-  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#commPct').value=s.commission_pct;
+  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#commPct').value=s.commission_pct;
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
   const f=s.feed;$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'Live prices':'Prices offline';
@@ -296,7 +297,7 @@ async function loadSettings(){const s=await api('/admin/settings');
 $('#feedDisconnect').onclick=async()=>{if(!confirm('Disconnect the live price feed? Trainees will see OFFLINE and orders will be rejected until you reconnect.'))return;try{await api('/admin/feed/disconnect',{method:'POST'});toast('Live feed disconnected');loadSettings();}catch(e){toast(e.message,1)}};
 $('#feedReconnect').onclick=async()=>{try{await api('/admin/feed/reconnect',{method:'POST'});toast('Reconnecting…');setTimeout(loadSettings,2500);}catch(e){toast(e.message,1)}};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password changed');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
-$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value},commission_pct:+$('#commPct').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
+$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value},commission_pct:+$('#commPct').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}

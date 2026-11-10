@@ -16,6 +16,7 @@ IST = timedelta(hours=5, minutes=30)
 
 # ---- hours -----------------------------------------------------------------------------------------
 EQ_OPEN, EQ_CLOSE = time(9, 15), time(15, 40)          # NFO / BFO (since 3 Aug 2026)
+CDS_OPEN, CDS_CLOSE = time(9, 0), time(17, 0)          # NSE currency derivatives
 MCX_OPEN, MCX_EVENING = time(9, 0), time(17, 0)
 
 # ---- holidays ---------------------------------------------------------------------------------------
@@ -78,6 +79,10 @@ def _sessions(exchange: str, d: date):
         if ds in NSE_HOLIDAYS:
             return [], NSE_HOLIDAYS[ds]
         return [(EQ_OPEN, EQ_CLOSE)], None
+    if exchange == "CDS":
+        if ds in NSE_HOLIDAYS:
+            return [], NSE_HOLIDAYS[ds]
+        return [(CDS_OPEN, CDS_CLOSE)], None
     if exchange == "MCX":
         close = mcx_close(d)
         if ds in MCX_HOLIDAYS:
@@ -130,4 +135,4 @@ def is_open(exchange: str) -> bool:
 def close_time_str(exchange: str, d: date | None = None) -> str:
     d = d or ist_now().date()
     s, _ = _sessions(exchange, d)
-    return s[-1][1].strftime("%H:%M") if s else ("15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))
+    return s[-1][1].strftime("%H:%M") if s else ("17:00" if exchange == "CDS" else "15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))

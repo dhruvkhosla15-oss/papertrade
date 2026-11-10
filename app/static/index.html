@@ -184,7 +184,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div id="pulseView">
       <div class="pctl">
         <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
-        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option></select></div>
+        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option></select></div>
       </div>
       <div class="card breadth" id="pBreadth"></div>
       <div class="hero3" id="pHero"></div>
@@ -221,6 +221,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div class="cat" data-cat="index"><div class="cat-ic">📈</div><div><b>Indices</b><div class="small mut">Nifty · Bank Nifty · Sensex</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStk">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
       </div>
       <div id="undList" class="card hidden" style="padding:0 12px"></div>
       <div id="chainPanel" class="hidden">
@@ -247,6 +248,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div class="cat" data-cat="index"><div class="cat-ic">📈</div><div><b>Indices</b><div class="small mut">Nifty · Bank Nifty · Sensex</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStkF">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
       </div>
       <div id="undListF" class="card hidden" style="padding:0 12px"></div>
       <div id="futPanel" class="hidden">
@@ -422,7 +424,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
+// currency contracts tick in 0.0025, so show 4 decimals when a price actually carries them (84.8725) and 2 otherwise
+const fmt=(n,d=2)=>{if(n==null)return '—';const x=Number(n);if(d===2&&Math.abs(x)<1000&&Math.round(x*1e4)%100!==0)d=4;return x.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});};
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
 const pnlCls=n=>n>0?'up':n<0?'dn':'';
 let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set(),positions:[],orders:[],sel:null,side:'BUY',otype:'MARKET',tab:'watch'};
@@ -486,16 +489,17 @@ async function bootGuest(){
 function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
-  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='stock'?'Stocks (F&O)':'Index';
+  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='stock'?'Stocks (F&O)':'Index';
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
-    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
   const nStk=state.und.filter(u=>u.kind==='stock').length;
+  const nCur=state.und.filter(u=>u.kind==='currency').length;$$('.cat[data-cat="currency"]').forEach(el=>el.classList.toggle('hidden',!nCur));
   $('#catStk').textContent=$('#catStkF').textContent=nStk?`Futures & options on ${nStk} NSE stocks`:'F&O on NSE stocks';
-  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities'};
+  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency'};
   const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);
     const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
     return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${filt}`+
-      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
+      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
   const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');
     list.querySelector('.backCat').onclick=()=>{list.classList.add('hidden');$(sfx?'#catListF':'#catList').classList.remove('hidden');};
     const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
@@ -538,6 +542,7 @@ function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':
   else{let parts=[];let hol=(nse.holiday&&nse.holiday!=='Weekend')?nse.holiday:((mcx.holiday&&mcx.holiday!=='Weekend')?mcx.holiday:null);
     if(nse.label==='weekend'&&!mcx.open)parts.push('<b>Weekend</b>');else if(hol)parts.push(`<b>Market holiday</b> — ${hol}`);
     parts.push(nse.open?`<b>NSE &amp; BSE open</b> till ${t12(nse.closes_at)}`:`NSE &amp; BSE closed${nse.opens_at?' · open '+when(nse.opens_at):''}`);
+    const cds=ms.CDS;if(cds&&cds.open&&!nse.open)parts.push(`<b>Currency open</b> till ${t12(cds.closes_at)}`);
     parts.push(mcx.open?`<b>MCX open</b> till ${t12(mcx.closes_at)}`:(mcx.opens_at&&dayOf(mcx.opens_at)===todayS?`<b>MCX resumes at ${t12(mcx.opens_at)}</b>`:`MCX closed${mcx.opens_at?' · open '+when(mcx.opens_at):''}`));
     b.innerHTML=parts.join(' · ');b.className='banner'+((nse.open||mcx.open)?' soft':'');}}
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
@@ -653,7 +658,7 @@ function setChainMode(m){state.chainMode=m;$$('#chainMode button').forEach(b=>b.
 $$('#chainMode button').forEach(b=>b.onclick=()=>setChainMode(b.dataset.m));
 function renderGreeks(ins){const box=$('#oGreeks');const g=ins&&(ins.instrument_type==='CE'||ins.instrument_type==='PE')?greeks(ins,spotFor(ins)):null;box.classList.toggle('hidden',!g);if(!g)return;
   const L=ins.lot_size||1;$('#gIV').textContent='IV '+g.iv.toFixed(1)+'%';$('#gD').textContent=g.delta.toFixed(2);$('#gDs').textContent='₹'+Math.round(Math.abs(g.delta)*L).toLocaleString('en-IN')+' per pt / lot';
-  $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=g.theta.toFixed(1);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*L).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=g.vega.toFixed(1);$('#gR').textContent=g.rho.toFixed(2);}
+  $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=Math.abs(g.theta)>=1?g.theta.toFixed(1):g.theta.toFixed(3);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*L).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=Math.abs(g.vega)>=1?g.vega.toFixed(1):g.vega.toFixed(3);$('#gR').textContent=g.rho.toFixed(2);}
 function onPrices(ticks){
   for(const t of ticks){
     const prev=lastPx[t.token];const dir=prev==null?0:Math.sign(t.ltp-prev);lastPx[t.token]=t.ltp;
@@ -762,7 +767,7 @@ $('#cSell').onclick=()=>{$('#chartModal').classList.add('hidden');openSheet(stat
 state.watch=[];
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function monthName(e){return e?MON[+e.slice(5,7)-1]:'';}
-function isNearMonth(w){const u=(state.und||[]).find(x=>x.exchange==='MCX'&&x.name===w.name);return !u||u.spot_token===w.token;}
+function isNearMonth(w){const u=(state.und||[]).find(x=>(x.exchange==='MCX'||x.exchange==='CDS')&&x.name===w.name);return !u||u.spot_token===w.token;}
 function initDrag(){const list=$('#wlist');
   $$('#wlist .drag').forEach(h=>h.onpointerdown=e=>{const item=h.closest('.wl-item');const startY=e.clientY;let moved=false;e.preventDefault();
     const move=ev=>{if(!moved&&Math.abs(ev.clientY-startY)<4)return;moved=true;item.classList.add('dragging');ev.preventDefault();

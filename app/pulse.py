@@ -47,12 +47,16 @@ class Pulse:
                 if not spot and not fut:
                     continue
                 price_tok = fut.token if kind in ("mcx", "currency") and fut else spot
-                if kind in ("mcx", "currency") and fut:
+                if kind == "crypto":
+                    label = "Crypto · perpetual"
+                elif kind in ("mcx", "currency") and fut:
                     label = ("MCX · " if kind == "mcx" else "NSE currency · ") + datetime.strptime(fut.expiry, "%Y-%m-%d").strftime("%b") + " fut"
                 elif kind == "stock":
                     label = "NSE stock"
                 else:
                     label = "BSE index" if exch == "BFO" else "NSE index"
+                if kind == "crypto":
+                    fut = self.feed.instruments.get(spot)      # the perpetual is both spot and traded contract
                 out.append({"name": n, "kind": kind, "exchange": exch, "spot_token": spot,
                             "fut_token": fut.token if fut else None, "price_token": price_tok,
                             "lot_size": fut.lot_size if fut else 1, "label": label})
@@ -140,7 +144,7 @@ class Pulse:
         self.ensure_history()
         rows = []
         adv = dec = unch = 0
-        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX", "CDS")}
+        started = {ex: self._session_started(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
         session_dates = set(); any_live = False
         for u in uni:
             if kind != "all" and u["kind"] != kind:
@@ -193,7 +197,8 @@ class Pulse:
             if dchg is not None:
                 adv += dchg > 0; dec += dchg < 0; unch += dchg == 0
             spark = [c for _, c in hist_closes[-10:]] + [ltp]
-            turnover = vol * fltp
+            vfac = getattr(self.feed, "value_factor", None)
+            turnover = vol * fltp * (vfac(self.feed.instruments.get(u["fut_token"])) if (vfac and u["kind"] == "crypto") else 1.0)
             vol_x = round(vol / avg_vol, 2) if avg_vol and vol else None
             oi_chg = round((oi - prev_oi) / prev_oi * 100, 2) if oi and prev_oi else None
             buildup = None

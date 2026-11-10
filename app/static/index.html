@@ -184,7 +184,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <div id="pulseView">
       <div class="pctl">
         <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
-        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option></select></div>
+        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option><option value="crypto">Crypto</option></select></div>
       </div>
       <div class="card breadth" id="pBreadth"></div>
       <div class="hero3" id="pHero"></div>
@@ -222,6 +222,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStk">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="crypto"><div class="cat-ic">₿</div><div><b>Crypto</b><div class="small mut">BTC · ETH · SOL · XRP · BNB · Gold — perpetuals &amp; options · 24×7</div></div><span class="mut">›</span></div>
       </div>
       <div id="undList" class="card hidden" style="padding:0 12px"></div>
       <div id="chainPanel" class="hidden">
@@ -249,6 +250,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div class="cat" data-cat="stock"><div class="cat-ic">🏢</div><div><b>Stocks</b><div class="small mut" id="catStkF">F&amp;O on NSE stocks</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="mcx"><div class="cat-ic">🪙</div><div><b>MCX Commodities</b><div class="small mut">Gold · Silver · Crude · Gas · Metals</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
+        <div class="cat" data-cat="crypto"><div class="cat-ic">₿</div><div><b>Crypto</b><div class="small mut">BTC · ETH · SOL · XRP · BNB · Gold — perpetuals &amp; options · 24×7</div></div><span class="mut">›</span></div>
       </div>
       <div id="undListF" class="card hidden" style="padding:0 12px"></div>
       <div id="futPanel" class="hidden">
@@ -364,6 +366,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
       <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div><button class="ghost small" id="oWatch" style="padding:3px 8px;margin-top:4px">+ Watchlist</button></div>
     </div>
+    <div id="oCcy" class="hidden" style="margin-top:8px;display:flex;justify-content:flex-end"></div>
     <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:center" class="mut">Market depth</div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
     <div id="oIlliq" class="small dn hidden" style="margin-top:6px"></div>
     <div id="depth" style="margin-top:10px;background:var(--bg);border-radius:10px;padding:8px">
@@ -424,6 +427,19 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+// ---- crypto display currency (contracts are USD-quoted on Delta; INR view = USD x live USDINR) ----
+const isCryptoTok=t=>+t>=5e9;
+let CCCY=(()=>{try{return localStorage.getItem('lfx_cccy')||'INR'}catch(e){return 'INR'}})();
+const cRate=()=>CCCY==='INR'?(state.usdinr||84.5):1;
+const cp=(ex,v)=>(v==null||ex!=='CRYPTO')?v:v*cRate();                     // convert one USD value for display
+const cpx=(ex,v)=>v==null?'—':(ex==='CRYPTO'?(CCCY==='INR'?'₹':'$'):'')+fmt(cp(ex,v));
+const PXF=['ltp','bid','ask','open','high','low','close'];
+function dispTick(t){if(!t||!isCryptoTok(t.token)||CCCY!=='INR')return t;const r=cRate();const d={...t};for(const k of PXF)if(d[k]!=null)d[k]=d[k]*r;if(d.bids)d.bids=d.bids.map(x=>[x[0]*r,x[1],x[2]]);if(d.asks)d.asks=d.asks.map(x=>[x[0]*r,x[1],x[2]]);return d;}
+const ccyToggleHtml=()=>`<div class="seg ccyseg" style="flex:0 0 auto;padding:2px"><button data-ccy="INR" class="${CCCY==='INR'?'active':''}" style="padding:4px 12px">₹ INR</button><button data-ccy="USD" class="${CCCY==='USD'?'active':''}" style="padding:4px 12px">$ USD</button></div>`;
+function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));
+  onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
+function bindCcyToggles(){$$('.ccyseg button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));}
+const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 // currency contracts tick in 0.0025, so show 4 decimals when a price actually carries them (84.8725) and 2 otherwise
 const fmt=(n,d=2)=>{if(n==null)return '—';const x=Number(n);if(d===2&&Math.abs(x)<1000&&Math.round(x*1e4)%100!==0)d=4;return x.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});};
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
@@ -479,28 +495,30 @@ function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
 async function bootGuest(){
   setGuest(true);
   const home=await fetch('/api/public/home').then(r=>r.json());
-  state.marketOpen=home.market_open;state.marketStatus=home.market_status;renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
+  state.marketOpen=home.market_open;state.marketStatus=home.market_status;if(home.usdinr)state.usdinr=home.usdinr;renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
   try{state.und=await api('/underlyings');buildMarket();}catch(e){}
   setHome((()=>{try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}})());
-  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());state.marketOpen=h.market_open;state.marketStatus=h.market_status;renderFeed(h.feed);}catch(e){}},10000);
+  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());state.marketOpen=h.market_open;state.marketStatus=h.market_status;if(h.usdinr)state.usdinr=h.usdinr;renderFeed(h.feed);}catch(e){}},10000);
 }
 function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
-  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='stock'?'Stocks (F&O)':'Index';
+  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='crypto'?'Crypto':u.kind==='stock'?'Stocks (F&O)':'Index';
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
-    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Delta · 24×7':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
   const nStk=state.und.filter(u=>u.kind==='stock').length;
   const nCur=state.und.filter(u=>u.kind==='currency').length;$$('.cat[data-cat="currency"]').forEach(el=>el.classList.toggle('hidden',!nCur));
+  const nCry=state.und.filter(u=>u.kind==='crypto').length;$$('.cat[data-cat="crypto"]').forEach(el=>el.classList.toggle('hidden',!nCry));
   $('#catStk').textContent=$('#catStkF').textContent=nStk?`Futures & options on ${nStk} NSE stocks`:'F&O on NSE stocks';
-  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency'};
+  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency',crypto:'Crypto'};
   const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);
     const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
-    return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${filt}`+
-      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
-  const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');
+    const ctog=cat==='crypto'?`<div class="row" style="justify-content:space-between;align-items:center;padding:6px 0 2px"><span class="small mut">Show crypto prices in</span>${ccyToggleHtml()}</div>`:'';
+    return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${ctog}${filt}`+
+      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Delta · 24×7':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
+  const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');bindCcyToggles();
     list.querySelector('.backCat').onclick=()=>{list.classList.add('hidden');$(sfx?'#catListF':'#catList').classList.remove('hidden');};
     const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
     sub(state.und.filter(u=>u.kind===cat&&u.spot_token).map(u=>u.spot_token));
@@ -512,7 +530,7 @@ function buildMarket(){
 async function boot(){
   let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
   if(!me){return bootGuest();}
-  state.me=me;
+  state.me=me;if(me.usdinr)state.usdinr=me.usdinr;
   if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
   if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
   setGuest(false);$('#loginView').classList.add('hidden');
@@ -595,11 +613,7 @@ async function loadChain(){
   // build table
   const strikes=[...new Set(state.chain.filter(i=>i.strike).map(i=>i.strike))].sort((a,b)=>a-b);
   const ce={},pe={};state.chain.forEach(i=>{if(i.instrument_type==='CE')ce[i.strike]=i;if(i.instrument_type==='PE')pe[i.strike]=i;});
-  $('#chainTbl tbody').innerHTML=strikes.map(s=>`<tr data-strike="${s}">
-    <td class="ce num" data-tok="${ce[s]?.token||''}" id="p${ce[s]?.token}">—</td><td class="ce num small mut" id="c${ce[s]?.token}"></td>
-    <td class="strike num">${s}</td>
-    <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
-  $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
+  state._chainStrikes={strikes,ce,pe};renderChainRows();
   unsub(old);
   const toks=state.chain.map(i=>i.token);if(state.spotToken)toks.push(state.spotToken);
   sub(toks);
@@ -657,10 +671,11 @@ function setChainMode(m){state.chainMode=m;$$('#chainMode button').forEach(b=>b.
   for(const i of (state.chain||[])){const c=document.getElementById('c'+i.token),t=state.prices[i.token];if(c&&t)chainCell(c,t);}}
 $$('#chainMode button').forEach(b=>b.onclick=()=>setChainMode(b.dataset.m));
 function renderGreeks(ins){const box=$('#oGreeks');const g=ins&&(ins.instrument_type==='CE'||ins.instrument_type==='PE')?greeks(ins,spotFor(ins)):null;box.classList.toggle('hidden',!g);if(!g)return;
-  const L=ins.lot_size||1;$('#gIV').textContent='IV '+g.iv.toFixed(1)+'%';$('#gD').textContent=g.delta.toFixed(2);$('#gDs').textContent='₹'+Math.round(Math.abs(g.delta)*L).toLocaleString('en-IN')+' per pt / lot';
-  $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=Math.abs(g.theta)>=1?g.theta.toFixed(1):g.theta.toFixed(3);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*L).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=Math.abs(g.vega)>=1?g.vega.toFixed(1):g.vega.toFixed(3);$('#gR').textContent=g.rho.toFixed(2);}
+  const cry=ins.exchange==='CRYPTO';const L=cry?(ins.multiplier||1)*(state.usdinr||84.5)*100:(ins.lot_size||1);const pt=cry?'per $100':'per pt';
+  $('#gIV').textContent='IV '+g.iv.toFixed(1)+'%';$('#gD').textContent=g.delta.toFixed(2);$('#gDs').textContent='₹'+Math.round(Math.abs(g.delta)*L).toLocaleString('en-IN')+' '+pt+' / lot';
+  $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=Math.abs(g.theta)>=1?g.theta.toFixed(1):g.theta.toFixed(3);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*(cry?L/100:L)).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=Math.abs(g.vega)>=1?g.vega.toFixed(1):g.vega.toFixed(3);$('#gR').textContent=g.rho.toFixed(2);}
 function onPrices(ticks){
-  for(const t of ticks){
+  for(const t0 of ticks){const t=dispTick(t0);
     const prev=lastPx[t.token];const dir=prev==null?0:Math.sign(t.ltp-prev);lastPx[t.token]=t.ltp;
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
@@ -678,8 +693,8 @@ function onPrices(ticks){
   let unreal=0,touched=false;
   for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
-    const u=(mk-p.avg_price)*p.qty;unreal+=u;
-    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=fmt(mk);}
+    const u=(mk-p.avg_price)*p.qty*(p.value_factor||1);unreal+=u;
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+fmt2(u);l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);}
   if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);const rt=state.funds.realised_today||0;$('#fTot').textContent=((rt+unreal)>=0?'+':'')+inr(rt+unreal);$('#fTot').className='big num '+pnlCls(rt+unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
@@ -702,32 +717,42 @@ function renderBook(pr){$('#oBid').textContent=pr?.bid!=null?fmt(pr.bid):'—';$
     $('#dLtt').textContent=pr.ltt?new Date(pr.ltt*1000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
     const sp=(B[0]&&A[0])?((A[0][0]-B[0][0])/((A[0][0]+B[0][0])/2)*100):null;$('#dSpread').textContent=sp==null?'—':sp.toFixed(2)+'%';const lim=state.me?.liquidity?.max_spread_pct||0;$('#dSpread').className='num '+(sp!=null&&lim>0&&sp>lim?'dn':'');}}
 
-function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');renderBook(state.prices[ins.token]);
-  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=`${ins.exchange} · exp ${ins.expiry}`;
+function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!strikes)return;const cry=state.chain.length&&state.chain[0].exchange==='CRYPTO';
+  $('#chainTbl tbody').innerHTML=strikes.map(s=>`<tr data-strike="${s}">
+    <td class="ce num" data-tok="${ce[s]?.token||''}" id="p${ce[s]?.token}">—</td><td class="ce num small mut" id="c${ce[s]?.token}"></td>
+    <td class="strike num">${cry?fmt(cp('CRYPTO',s),0):s}</td>
+    <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
+  $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
+  onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
+function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
+  const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${CCCY==='INR'?'USD contract shown in ₹ at '+fmt(state.usdinr||84.5)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
+function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
+  $('#oSym').textContent=ins.symbol;$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Delta Exchange · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
   $('#oWatch').onclick=()=>addWatch(ins.token);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
-  const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';
+  openSheetPrices(ins);$('#oChg').textContent='';
   const stok=((state.und||[]).find(u=>u.name===ins.name&&u.spot_token)||{}).spot_token;
   sub(stok?[ins.token,stok]:[ins.token]);renderGreeks(ins);$('#sheet').classList.remove('hidden');updateMargin();}
 function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
   $('#oSubmit').textContent=s;$('#oSubmit').className=s==='BUY'?'buy':'sell';updateMargin();}
 function setOT(t){state.otype=t;$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
   $('#limitWrap').classList.toggle('hidden',t!=='LIMIT');$('#trigWrap').classList.toggle('hidden',t!=='SL');
-  const pr=state.prices[state.sel?.token]?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=pr;if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=pr;updateMargin();}
+  const pr=dispTick(state.prices[state.sel?.token])?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=+pr.toFixed(4);if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=+pr.toFixed(4);updateMargin();}
 $('#sideBuy').onclick=()=>setSide('BUY');$('#sideSell').onclick=()=>setSide('SELL');
 $$('[data-ot]').forEach(b=>b.onclick=()=>setOT(b.dataset.ot));
 $('#oLots').oninput=()=>{$('#oQty').value=(+$('#oLots').value||0)*state.sel.lot_size;updateMargin();};
 $('#oLimit').oninput=updateMargin;
 $('#oCancel').onclick=()=>$('#sheet').classList.add('hidden');
 $('#sheet').onclick=e=>{if(e.target.id==='sheet')$('#sheet').classList.add('hidden');};
+const toUsd=v=>(state.sel?.exchange==='CRYPTO'&&v)?+(v/cRate()).toFixed(6):v;   // ticket inputs are typed in the display currency
 let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
-  const price=state.otype==='LIMIT'?+$('#oLimit').value:undefined;
+  const price=state.otype==='LIMIT'?toUsd(+$('#oLimit').value):undefined;
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}`);
-    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?'₹'+fmt(j.commission):'—';$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
+    $('#oMargin').textContent=inr(j.margin)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?'₹'+fmt2(j.commission):'—';$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};
-  if(state.otype==='LIMIT')b.limit_price=+$('#oLimit').value;if(state.otype==='SL')b.trigger_price=+$('#oTrig').value;
+  if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
   $('#oSubmit').disabled=true;
   try{const j=await api('/orders',{method:'POST',body:b});renderFunds(j.funds);$('#sheet').classList.add('hidden');
     if(j.order.status==='FILLED')toast(`${j.order.side} ${j.order.qty} ${j.order.symbol} filled @ ${j.order.fill_price}`);else toast('Order placed');refreshAll();}
@@ -800,20 +825,20 @@ let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{co
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
-    <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · exp ${p.expiry}</div></div>
-      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
-    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${fmt(p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${fmt(p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${p.symbol}</span><div class="small mut">${p.exchange} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span> · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
+    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${inr(p.margin)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
 function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${o.symbol}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}</td>
-  <td class="num">${o.fill_price!=null?fmt(o.fill_price):(o.limit_price?fmt(o.limit_price):o.trigger_price?'trg '+fmt(o.trigger_price):'MKT')}</td>
+  <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
   <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
-async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.price)}</td><td class="num mut">${x.commission?'-'+fmt(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
-async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt(x.amount)}</td><td class="num">${fmt(x.balance_after)}</td></tr>`).join('');}
+async function loadTrades(){const t=await api('/trades');$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${x.symbol}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${cpx(x.exchange,x.price)}</td><td class="num mut">${x.commission?'-'+fmt2(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt2(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
+async function loadLedger(){const l=await api('/ledger');$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'})[x.kind]||x.kind}<div class="small mut">${(x.note||'').replace('->','→')}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt2(x.amount)}</td><td class="num">${fmt2(x.balance_after)}</td></tr>`).join('');}
 
 // ---------- Pulse (home) ----------
 let pulseP='today',pulseK='all',pulseTimer=null;
@@ -827,7 +852,9 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='oi')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label} · OI ${(r.oi||0).toLocaleString('en-IN')}</small></div><div class="px"><b class="${r.oi_chg>=0?'up':'dn'}">${pctS(r.oi_chg)} OI</b><small><span class="tag ${/Long build|Short cover/.test(r.buildup||'')?'up':/Short build|Long unwind/.test(r.buildup||'')?'dn':''}">${r.buildup||'—'}</span></small></div></div>`;
   if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
+function cvRow(r){if(r.exchange!=='CRYPTO'||CCCY!=='INR')return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
 async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
+  for(const k of ['gainers','losers','traded','shockers','oi','near_hi','near_lo'])d[k]=(d[k]||[]).map(cvRow);for(const k of ['gainer','loser','traded'])if(d.hero[k])d.hero[k]=cvRow(d.hero[k]);
   const live=!d.session||d.session.live!==false||!d.session.date;
   const sd=!live?new Date(d.session.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}):'';
   const day=live?'Today':'Last session · '+sd;

@@ -68,6 +68,11 @@ class Engine:
         v = get_setting(db, f"margin_pct_{key}")
         return float(v) if v else DEFAULT_MARGIN_PCT.get(key, 12.0)
 
+    def vf(self, ins) -> float:
+        """Rupee value of a 1.0 price move per unit qty (1.0 for NSE/BSE/MCX; contract size x USDINR for crypto)."""
+        f = getattr(self.feed, "value_factor", None)
+        return f(ins) if f else 1.0
+
     def market_open(self, exchange: str) -> bool:
         if not ENFORCE_MARKET_HOURS:
             return True
@@ -172,8 +177,9 @@ class Engine:
         return round(avg, 2), note, filled
 
     def required_margin(self, db: Session, ins, side: str, qty: int, price: float) -> float:
+        vf = self.vf(ins)
         if ins.instrument_type in ("CE", "PE") and side == "BUY":
-            return round(price * qty, 2)
+            return round(price * qty * vf, 2)
         und_tok = self.feed.index_token_for(ins.name)
         und = self.feed.ltp(und_tok) if und_tok else None
         if und is None:
@@ -182,7 +188,7 @@ class Engine:
         m = und * qty * pct / 100.0
         if ins.instrument_type in ("CE", "PE"):
             m += price * qty  # short option: margin + premium received as collateral
-        return round(m, 2)
+        return round(m * vf, 2)
 
     def mark_price(self, token: int, qty: int) -> Optional[float]:
         """Liquidation value: longs marked at best bid, shorts at best ask. Falls back to LTP if
@@ -212,7 +218,7 @@ class Engine:
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             mk = self.mark_price(p.token, p.qty)
             if mk is not None:
-                unreal += (mk - p.avg_price) * p.qty
+                unreal += (mk - p.avg_price) * p.qty * self.vf(self.feed.instruments.get(p.token))
         # realised today (IST calendar day) net of commission, from the ledger
         from datetime import datetime, timedelta
         day_start = datetime.combine(ist_now().date(), datetime.min.time()) - timedelta(hours=5, minutes=30)
@@ -343,7 +349,8 @@ class Engine:
         else:
             opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
         need = self.required_margin(db, ins, order.side, opening_qty, price) if opening_qty else 0.0
-        comm = round(price * qty * self.commission_pct(db) / 100.0, 2)
+        vf = self.vf(ins)
+        comm = round(price * qty * vf * self.commission_pct(db) / 100.0, 2)
         db.flush()
         f = self.funds(db, user)  # reservation already zeroed above, so not double counted
         avail = f["available"]
@@ -366,7 +373,7 @@ class Engine:
         else:
             # reducing / closing / flipping
             closing = min(abs(cur), qty)
-            realised = (price - pos.avg_price) * closing * (1 if cur > 0 else -1)
+            realised = (price - pos.avg_price) * closing * (1 if cur > 0 else -1) * vf
             pos.realised_pnl = round(pos.realised_pnl + realised, 2)
             # release margin proportionally
             released = pos.margin_blocked * closing / abs(cur)
@@ -387,7 +394,7 @@ class Engine:
 
         if comm > 0:
             self._ledger(db, user, -comm, "COMMISSION",
-                         f"{self.commission_pct(db):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty:,.0f})")
+                         f"{self.commission_pct(db):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
         order.status = "FILLED"; order.fill_price = price
         db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
                      exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
@@ -533,7 +540,7 @@ class Engine:
                                 continue  # wait until the underlying price is available
                             ltp = p.avg_price
                         user = db.get(User, p.user_id)
-                        realised = (ltp - p.avg_price) * p.qty
+                        realised = (ltp - p.avg_price) * p.qty * self.vf(ins)
                         p.realised_pnl = round(p.realised_pnl + realised, 2)
                         db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
                                      side="SELL" if p.qty > 0 else "BUY", qty=abs(p.qty), price=ltp,
@@ -562,8 +569,9 @@ class Engine:
     def position_dict(self, p: Position) -> dict:
         ltp = self.feed.ltp(p.token)
         mk = self.mark_price(p.token, p.qty)
-        unreal = round((mk - p.avg_price) * p.qty, 2) if (mk is not None and p.qty) else 0.0
-        return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size,
-                "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 2),
+        vf = self.vf(self.feed.instruments.get(p.token))
+        unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty) else 0.0
+        return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf,
+                "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 4),
                 "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}

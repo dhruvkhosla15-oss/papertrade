@@ -72,6 +72,8 @@ def mcx_close(d: date) -> time:
 
 def _sessions(exchange: str, d: date):
     """List of (open_time, close_time) sessions on date d, or [] if closed. Also returns holiday name."""
+    if exchange == "CRYPTO":
+        return [(time(0, 0), time(23, 59, 59))], None       # 24x7
     if d.weekday() >= 5:
         return [], "Weekend"
     ds = d.isoformat()
@@ -135,4 +137,6 @@ def is_open(exchange: str) -> bool:
 def close_time_str(exchange: str, d: date | None = None) -> str:
     d = d or ist_now().date()
     s, _ = _sessions(exchange, d)
+    if exchange == "CRYPTO":
+        return "21:30"     # Delta options settle 16:00 UTC
     return s[-1][1].strftime("%H:%M") if s else ("17:00" if exchange == "CDS" else "15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))

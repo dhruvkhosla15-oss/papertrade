@@ -20,6 +20,8 @@ def kind_of(exchange: str, name: str) -> str:
         return "mcx"
     if exchange == "CDS":
         return "currency"
+    if exchange == "CRYPTO":
+        return "crypto"
     return "index" if name in INDEX_NAMES else "stock"
 
 
@@ -36,6 +38,7 @@ class Instrument:
     lot_size: int
     tick_size: float
     lot_label: str = ""   # e.g. "1 kg (price per 10 g)" for MCX; blank for NSE/BSE
+    multiplier: float = 1.0   # contract size per unit of qty when the price is per 1 underlying (crypto: 0.001 BTC)
 
     def to_dict(self):
         d = asdict(self)

@@ -45,6 +45,10 @@ if config.FEED == "kite":
     feed = KiteFeed(config.KITE_API_KEY, config.KITE_API_SECRET)
 else:
     feed = MockFeed()
+crypto = None
+if config.ENABLE_CRYPTO:
+    from .feed.delta import DeltaCrypto
+    crypto = DeltaCrypto(feed)
 engine = Engine(feed)
 
 # ---- websocket client registry -----------------------------------------------
@@ -107,6 +111,8 @@ async def startup():
     finally:
         db.close()
     await feed.start(asyncio.get_event_loop())
+    if crypto:
+        await crypto.start(asyncio.get_event_loop())
     engine.load_pending()
     asyncio.create_task(broadcaster())
     asyncio.create_task(engine.expiry_loop())
@@ -286,7 +292,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": feed.status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
-            "market_status": _market_status(),
+            "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}}
 
 
@@ -324,8 +330,8 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
         for n in names:
             it = feed.index_token_for(n)
             out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
-    order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3}
-    korder = {"index": 0, "mcx": 1, "currency": 2, "stock": 3}
+    order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3, "CRYPTO": 4}
+    korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "stock": 4}
     out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
     return out
 
@@ -350,7 +356,7 @@ def chain(exchange: str, name: str, expiry: str, user: User = Depends(current_us
 def futures(exchange: str, name: str, user: Optional[User] = Depends(optional_user)):   # visitors may see futures prices
     today = date.today().isoformat()
     items = sorted((i for i in feed.instruments.values()
-                    if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and i.expiry >= today),
+                    if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and (i.expiry >= today or not i.expiry)),
                    key=lambda x: x.expiry)
     return [i.to_dict() for i in items]
 
@@ -368,7 +374,7 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
 # Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
 _SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
                      "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
-                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR"]
+                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR", "BTC", "ETH"]
 SHOWCASE = [s.strip().upper() for s in os.environ.get("PT_SHOWCASE", ",".join(_SHOWCASE_DEFAULT)).split(",") if s.strip()]
 DEFAULT_WATCH = [(None, n) for n in SHOWCASE]
 
@@ -386,8 +392,8 @@ def _default_watch_instruments():
 def _market_status():
     from .market_calendar import status
     if not config.ENFORCE_MARKET_HOURS:
-        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS")}
-    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS")}
+        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
+    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO")}
 
 
 def _public_tokens():
@@ -411,7 +417,7 @@ def _ticker():
     from .feed.base import kind_of
     out = []
     for i in _default_watch_instruments():
-        ex = i.exchange if i.exchange in ("MCX", "CDS") else ("BFO" if i.exchange == "BSE" else "NFO")
+        ex = i.exchange if i.exchange in ("MCX", "CDS", "CRYPTO") else ("BFO" if i.exchange == "BSE" else "NFO")
         out.append({"exchange": ex, "name": i.name, "spot_token": i.token, "kind": kind_of(ex, i.name)})
     return out
 
@@ -422,7 +428,7 @@ def public_home():
     tick = _ticker()
     return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
-            "market_status": _market_status()}
+            "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
 
 @app.get("/api/watchlist")
@@ -549,7 +555,8 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None,
     qty = lots * ins.lot_size
     return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p), "qty": qty,
             "full_margin": engine.required_margin(db, ins, side.upper(), qty, p),
-            "commission": round(p * qty * engine.commission_pct(db) / 100.0, 2), "commission_pct": engine.commission_pct(db)}
+            "commission": round(p * qty * engine.vf(ins) * engine.commission_pct(db) / 100.0, 2), "commission_pct": engine.commission_pct(db),
+            "value_factor": engine.vf(ins), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
 
 @app.delete("/api/orders/{order_id}")
@@ -780,7 +787,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
 @app.get("/api/admin/settings")
 def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
-    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS")},
+    return {"margin_pct": {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")},
             "commission_pct": engine.commission_pct(db),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": feed.status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
@@ -1035,7 +1042,7 @@ pulse = Pulse(feed)
 def public_pulse(period: str = "today", kind: str = "all"):
     if period not in ("today", "week", "month"):
         period = "today"
-    if kind not in ("all", "index", "stock", "mcx", "currency"):
+    if kind not in ("all", "index", "stock", "mcx", "currency", "crypto"):
         kind = "all"
     return pulse.snapshot(period, kind)
 
@@ -1089,4 +1096,7 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
 
 @app.get("/api/feed/status")
 def feed_status(user: User = Depends(current_user)):
-    return feed.status()
+    s = feed.status()
+    if crypto:
+        s["crypto"] = crypto.status()
+    return s

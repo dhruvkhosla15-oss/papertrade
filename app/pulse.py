@@ -242,8 +242,8 @@ class Pulse:
                 if len(hist_closes) >= back:
                     ref = hist_closes[-back][1]
                     pct = round((ltp - ref) / ref * 100, 2) if ref else None
-            if dchg is not None:
-                adv += dchg > 0; dec += dchg < 0; unch += dchg == 0
+            if pct is not None:                 # breadth follows the selected timeframe
+                adv += pct > 0; dec += pct < 0; unch += pct == 0
             spark = [c for _, c in hist_closes[-10:]] + [ltp]
             ins_mult = (self.feed.instruments.get(u["fut_token"]).multiplier if (u["kind"] == "crypto" and self.feed.instruments.get(u["fut_token"])) else 1)
             if u["kind"] == "crypto":

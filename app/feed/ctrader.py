@@ -54,6 +54,7 @@ PT_UNSUB_DEPTH = 2158
 PT_DEPTH_EVENT = 2155
 PT_TRENDBARS, PT_TRENDBARS_RES = 2137, 2138
 PT_LEVERAGE, PT_LEVERAGE_RES = 2148, 2178
+PT_TRADER, PT_TRADER_RES = 2121, 2122     # ProtoOATraderReq -> account leverage (fallback)
 PT_REFRESH, PT_REFRESH_RES = 2173, 2174
 PT_HEARTBEAT = 51
 PRICE_SCALE = 100000.0
@@ -297,6 +298,14 @@ class CTraderForex:
         full = {int(s["symbolId"]): s for s in (r.get("payload") or {}).get("symbol", [])}
         lev_cache = {}
         items = {}
+        self.diag = {}
+        acct_lev = None
+        try:                                   # account-level leverage, used when a symbol has no dynamic tiers
+            rr = await self._send(PT_TRADER, {"ctidTraderAccountId": self.account_id}, timeout=15)
+            lic = ((rr.get("payload") or {}).get("trader") or {}).get("leverageInCents")
+            acct_lev = int(lic) / 100.0 if lic else None
+        except Exception as e:
+            self.diag["trader_err"] = str(e)[:120]
         for s in light:
             sid = int(s["symbolId"]); d = full.get(sid, {})
             tok = TOKEN_BASE + sid
@@ -311,16 +320,24 @@ class CTraderForex:
                         rr = await self._send(PT_LEVERAGE, {"ctidTraderAccountId": self.account_id, "leverageId": int(lev_id)})
                         tiers = ((rr.get("payload") or {}).get("leverage") or {}).get("tiers", [])
                         lev_cache[lev_id] = (int(tiers[0]["leverage"]) / 100.0) if tiers else None
-                    except Exception:
+                    except Exception as e:
                         lev_cache[lev_id] = None
+                        self.diag[f"lev_err_{lev_id}"] = str(e)[:120]
                 lev = lev_cache[lev_id]
+            lev = lev or acct_lev
             init_pct = (100.0 / lev) if lev else 1.0          # 1:500 -> 0.2 %
             name = s["symbolName"].upper()
-            items[tok] = Instrument(tok, name, name, "FOREX", "FOREX-SPOT", "FUT", "", 0, LOT_UNITS,
-                                    10 ** (-digits), f"{LOT_UNITS:,} {base} (price in {quote})",
+            # One limeFX lot = the broker's minimum volume (0.01 standard lot): 1,000 units for a currency
+            # pair, 1 oz for gold, 50 oz for silver. A flat 1,000 units made gold a ₹38 lakh-margin contract.
+            min_vol = int(int(d.get("minVolume", 0)) / VOL_SCALE) if d.get("minVolume") else 0
+            lot_units = min_vol or LOT_UNITS
+            unit = "oz" if base in ("XAU", "XAG", "XPT", "XPD") else base
+            items[tok] = Instrument(tok, name, name, "FOREX", "FOREX-SPOT", "FUT", "", 0, lot_units,
+                                    10 ** (-digits), f"{lot_units:,} {unit} (price in {quote})",
                                     multiplier=1.0, init_margin_pct=round(init_pct, 4), maint_margin_pct=round(init_pct / 2, 4),
                                     pos_limit=int(int(d.get("maxVolume", 0)) / VOL_SCALE) if d.get("maxVolume") else 0,
                                     leverage_options=tuple(s for s in (1, 2, 5, 10, 20, 30, 50, 100, 200, 500) if s <= (lev or 1)))
+            self.diag[name] = {"lev_id": lev_id, "lev": lev, "min_vol": min_vol, "lot": lot_units}
             self.meta[tok] = {"quote": quote, "base": base, "digits": digits, "leverage": lev,
                               "min_volume": int(int(d.get("minVolume", 0)) / VOL_SCALE) if d.get("minVolume") else 0,
                               "description": s.get("description", "")}
@@ -358,7 +375,8 @@ class CTraderForex:
                     d["low"] = low
             if "bids" not in d:
                 # no depth yet: top of book with the broker's typical liquidity unknown -> 1 lot each side
-                d["bids"] = [(d["bid"], LOT_UNITS * 100, 0)]; d["asks"] = [(d["ask"], LOT_UNITS * 100, 0)]
+                _lot = self.items[tok].lot_size if tok in self.items else LOT_UNITS
+                d["bids"] = [(d["bid"], _lot * 100, 0)]; d["asks"] = [(d["ask"], _lot * 100, 0)]
             if d.get("close"):
                 d["change"] = round((d["ltp"] - d["close"]) / d["close"] * 100, 2)
             self.feed._publish(d)
@@ -458,4 +476,4 @@ class CTraderForex:
     def status(self):
         return {"configured": bool(CLIENT_ID and CLIENT_SECRET), "has_token": bool(self.token), "connected": self.connected,
                 "paused": self.paused, "message": self.message, "instruments": len(self.items), "subscribed": len(self._subs),
-                "account": ACCOUNT_LOGIN, "usdinr": self._usdinr()}
+                "account": ACCOUNT_LOGIN, "usdinr": self._usdinr(), "diag": getattr(self, "diag", {})}

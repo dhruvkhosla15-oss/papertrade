@@ -79,6 +79,11 @@ td:first-child,th:first-child{text-align:left}
 .chain td.illq{opacity:.35}
 .depth{width:100%;font-size:12px}.depth th{font-weight:500;color:var(--mut);padding:2px 4px;border:0}.depth td{padding:3px 4px;border:0}.depth td.b{color:#60a5fa}.depth td.a{color:#f87171}
 .chain .atm td.strike{color:#fbbf24}
+.gk{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+.gk div{background:var(--bg);border-radius:10px;padding:7px 4px;text-align:center;min-width:0}
+.gk .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}.gk .v{font-weight:700;margin-top:2px;font-size:13px}.gk .s{font-size:10px;color:var(--mut);margin-top:1px;line-height:1.25}
+.pill{font-size:11px;background:rgba(132,204,22,.15);color:var(--acc);padding:2px 8px;border-radius:999px;font-weight:700;flex:0 0 auto}
+.chainmode{margin-top:8px}.chainmode button{padding:6px}
 .pill.active{background:#14532d;color:#bbf7d0}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1e293b;color:#cbd5e1}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
@@ -226,10 +231,11 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
             <div style="flex:1;min-width:0"><div class="sym" id="undName" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div><div class="small mut" style="white-space:nowrap"><b id="spotLtp" class="num" style="color:var(--txt)">—</b> <span id="spotChg" class="num"></span></div></div>
           </div>
           <div class="row" style="margin-top:8px;align-items:center"><select id="selExp"></select><div class="small mut" style="flex:0 0 auto">Lot size <b id="lotSize" style="color:var(--txt)"></b></div></div>
+          <div class="seg chainmode" id="chainMode"><button data-m="price" class="active">Price</button><button data-m="greeks">Greeks</button><button data-m="oi">OI</button></div>
         </div>
         <div class="card" id="chainWrap" style="padding:0;overflow:auto;max-height:58vh">
           <table class="chain" id="chainTbl">
-            <thead><tr><th>CE LTP</th><th>Chg%</th><th style="text-align:center">Strike</th><th>Chg%</th><th>PE LTP</th></tr></thead>
+            <thead><tr><th>CE LTP</th><th class="cmh">Chg%</th><th style="text-align:center">Strike</th><th class="cmh">Chg%</th><th>PE LTP</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -366,6 +372,16 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
         <div><span class="mut">Low</span> <span class="num" id="dLow">—</span></div><div style="text-align:right"><span class="mut">High</span> <span class="num" id="dHigh">—</span></div>
         <div><span class="mut">Volume</span> <span class="num" id="dVol">—</span></div><div style="text-align:right"><span class="mut">OI</span> <span class="num" id="dOi">—</span></div>
         <div><span class="mut">Last trade</span> <span class="num" id="dLtt">—</span></div><div style="text-align:right"><span class="mut">Spread</span> <span class="num" id="dSpread">—</span></div>
+      </div>
+    </div>
+    <div id="oGreeks" class="hidden" style="margin-top:10px">
+      <div class="row" style="justify-content:space-between"><span class="small mut" style="text-transform:uppercase;letter-spacing:.06em">Greeks</span><span class="pill" id="gIV">IV —</span></div>
+      <div class="gk">
+        <div><div class="k">Delta</div><div class="v num" id="gD">—</div><div class="s" id="gDs"></div></div>
+        <div><div class="k">Gamma</div><div class="v num" id="gG">—</div><div class="s">Δ per pt</div></div>
+        <div><div class="k">Theta</div><div class="v num dn" id="gT">—</div><div class="s" id="gTs"></div></div>
+        <div><div class="k">Vega</div><div class="v num" id="gV">—</div><div class="s">per 1% IV</div></div>
+        <div><div class="k">Rho</div><div class="v num" id="gR">—</div><div class="s">per 1% rate</div></div>
       </div>
     </div>
     <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
@@ -609,16 +625,46 @@ function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)retur
   if(!state._scrolled&&best){const w=$('#chainWrap');w.scrollTop=best.offsetTop-w.clientHeight/2;state._scrolled=true;}}
 const lastPx={};
 function flash(el,dir){if(!el||!dir)return;el.classList.remove('fu','fd');void el.offsetWidth;el.classList.add(dir>0?'fu':'fd');}
+// ---------- option greeks (Black-Scholes, computed locally) ----------
+const RF=0.065;
+const nCdf=x=>{const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);let p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;};
+const nPdf=x=>Math.exp(-x*x/2)/Math.sqrt(2*Math.PI);
+function bsPrice(S,K,T,v,call){const d1=(Math.log(S/K)+(RF+v*v/2)*T)/(v*Math.sqrt(T)),d2=d1-v*Math.sqrt(T);return call?S*nCdf(d1)-K*Math.exp(-RF*T)*nCdf(d2):K*Math.exp(-RF*T)*nCdf(-d2)-S*nCdf(-d1);}
+function impliedVol(S,K,T,px,call){const intr=Math.max(0,call?S-K*Math.exp(-RF*T):K*Math.exp(-RF*T)-S);if(px<=intr+1e-6)return null;let lo=0.005,hi=5;for(let i=0;i<60;i++){const mid=(lo+hi)/2;if(bsPrice(S,K,T,mid,call)>px)hi=mid;else lo=mid;}return (lo+hi)/2;}
+function yearsToExpiry(exp){if(!exp)return null;const e=new Date(exp+'T15:30:00+05:30').getTime();return Math.max((e-Date.now())/(365*86400e3),1/(365*24*4));}
+function greeks(ins,spot){const px=state.prices[ins.token]?.ltp;if(!spot||!px||!ins.strike||!(ins.instrument_type==='CE'||ins.instrument_type==='PE'))return null;
+  const call=ins.instrument_type==='CE',T=yearsToExpiry(ins.expiry),K=ins.strike,S=spot;const v=impliedVol(S,K,T,px,call);if(!v)return null;
+  const sq=Math.sqrt(T),d1=(Math.log(S/K)+(RF+v*v/2)*T)/(v*sq),d2=d1-v*sq;
+  const delta=call?nCdf(d1):nCdf(d1)-1,gamma=nPdf(d1)/(S*v*sq),vega=S*nPdf(d1)*sq/100;
+  const theta=(-(S*nPdf(d1)*v)/(2*sq)-(call?1:-1)*RF*K*Math.exp(-RF*T)*nCdf(call?d2:-d2))/365;
+  const rho=(call?1:-1)*K*T*Math.exp(-RF*T)*nCdf(call?d2:-d2)/100;
+  return {iv:v*100,delta,gamma,theta,vega,rho};}
+function spotFor(ins){if(state.chain?.some(x=>x.token===ins.token)&&state.spotToken)return state.prices[state.spotToken]?.ltp;
+  const u=(state.und||[]).find(u=>u.name===ins.name&&u.spot_token);return u?state.prices[u.spot_token]?.ltp:null;}
+const fmtOI=v=>v==null?'—':v>=1e7?(v/1e7).toFixed(2)+' Cr':v>=1e5?(v/1e5).toFixed(1)+' L':v>=1e3?(v/1e3).toFixed(1)+' K':String(v);
+state.chainMode='price';
+function chainCell(c,t){const mode=state.chainMode;if(mode==='price'||!c.closest('#chainTbl')){if(t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}return;}
+  c.className=c.className.replace(/ up| dn/g,'');
+  if(mode==='oi'){c.textContent=fmtOI(t.oi);return;}
+  const ins=state.chain?.find(x=>x.token===t.token);const g=ins?greeks(ins,state.prices[state.spotToken]?.ltp):null;c.textContent=g?g.iv.toFixed(1)+' · '+g.delta.toFixed(2):'—';}
+function setChainMode(m){state.chainMode=m;$$('#chainMode button').forEach(b=>b.classList.toggle('active',b.dataset.m===m));
+  $$('#chainTbl .cmh').forEach(th=>th.textContent=m==='price'?'Chg%':m==='oi'?'OI':'IV · Δ');
+  for(const i of (state.chain||[])){const c=document.getElementById('c'+i.token),t=state.prices[i.token];if(c&&t)chainCell(c,t);}}
+$$('#chainMode button').forEach(b=>b.onclick=()=>setChainMode(b.dataset.m));
+function renderGreeks(ins){const box=$('#oGreeks');const g=ins&&(ins.instrument_type==='CE'||ins.instrument_type==='PE')?greeks(ins,spotFor(ins)):null;box.classList.toggle('hidden',!g);if(!g)return;
+  const L=ins.lot_size||1;$('#gIV').textContent='IV '+g.iv.toFixed(1)+'%';$('#gD').textContent=g.delta.toFixed(2);$('#gDs').textContent='₹'+Math.round(Math.abs(g.delta)*L).toLocaleString('en-IN')+' per pt / lot';
+  $('#gG').textContent=g.gamma.toFixed(4);$('#gT').textContent=g.theta.toFixed(1);$('#gTs').textContent='₹'+Math.round(Math.abs(g.theta)*L).toLocaleString('en-IN')+' per day / lot';$('#gV').textContent=g.vega.toFixed(1);$('#gR').textContent=g.rho.toFixed(2);}
 function onPrices(ticks){
   for(const t of ticks){
     const prev=lastPx[t.token];const dir=prev==null?0:Math.sign(t.ltp-prev);lastPx[t.token]=t.ltp;
     const p=document.getElementById('p'+t.token);if(p){p.textContent=fmt(t.ltp);flash(p,dir);if(p.dataset.tok!==undefined){p.classList.toggle('illq',!!illiq(t));}}
     const bb=document.getElementById('b'+t.token),aa=document.getElementById('a'+t.token);if(bb){bb.textContent=t.bid!=null?fmt(t.bid):'—';aa.textContent=t.ask!=null?fmt(t.ask):'—';flash(bb,dir);flash(aa,dir);}
-    const c=document.getElementById('c'+t.token);if(c&&t.change!=null){c.textContent=(t.change>0?'+':'')+t.change+'%';c.className=c.className.replace(/ up| dn/g,'')+(t.change>0?' up':t.change<0?' dn':'');}
+    const c=document.getElementById('c'+t.token);if(c)chainCell(c,t);
     for(const [pp,cc] of [['mp','mc']]){const mp=document.getElementById(pp+t.token);if(mp){mp.textContent=fmt(t.ltp);flash(mp,dir);const mc=document.getElementById(cc+t.token);if(mc&&t.change!=null){mc.textContent=(t.change>0?'+':'')+t.change+'%';mc.className='small num '+pnlCls(t.change);}}}
     const fp=document.getElementById('fp'+t.token);if(fp){fp.textContent=fmt(t.ltp);flash(fp,dir);const fc=document.getElementById('fc'+t.token);if(fc&&t.change!=null){fc.textContent=(t.change>0?'+':'')+t.change+'%';fc.className='small num '+pnlCls(t.change);}}
     for(const pre of ['tp','tp2_']){const tp=document.getElementById(pre+t.token);if(tp){tp.textContent=fmt(t.ltp);tp.className='num '+(t.change>0?'up':t.change<0?'dn':'');flash(tp,dir);const tc=document.getElementById((pre==='tp'?'tc':'tc2_')+t.token);if(tc&&t.change!=null){tc.textContent=(t.change>0?'+':'')+t.change+'%';tc.className='small num '+pnlCls(t.change);}}}
-    if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();}
+    if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();if(state.chainMode==='greeks')setChainMode('greeks');}
+    if(state.sel&&(t.token===state.sel.token||t.token===state.spotToken))renderGreeks(state.sel);
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
     chartTick(t);
     if(state.sel&&t.token===state.sel.token){renderBook(t);$('#oLtp').textContent=(dir>0?'▲ ':dir<0?'▼ ':'')+fmt(t.ltp);$('#oLtp').style.color=dir>0?'var(--up)':dir<0?'var(--dn)':'';flash($('#oBid'),dir);flash($('#oAsk'),dir);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
@@ -657,7 +703,8 @@ function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(s
   $('#oWatch').onclick=()=>addWatch(ins.token);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
   const pr=state.prices[ins.token];$('#oLtp').textContent=pr?fmt(pr.ltp):'—';$('#oChg').textContent='';
-  sub([ins.token]);$('#sheet').classList.remove('hidden');updateMargin();}
+  const stok=((state.und||[]).find(u=>u.name===ins.name&&u.spot_token)||{}).spot_token;
+  sub(stok?[ins.token,stok]:[ins.token]);renderGreeks(ins);$('#sheet').classList.remove('hidden');updateMargin();}
 function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
   $('#oSubmit').textContent=s;$('#oSubmit').className=s==='BUY'?'buy':'sell';updateMargin();}
 function setOT(t){state.otype=t;$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));

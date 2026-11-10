@@ -101,10 +101,16 @@ class PriceFeed:
         for i in self.instruments.values():
             if i.segment == "INDICES" and i.name == name:
                 return i.token
-        # MCX / currency: nearest future acts as underlying
+        # MCX / currency: nearest future acts as underlying. NSE currency also lists weekly futures,
+        # which barely trade, so prefer the monthly contract (USDINR26NOVFUT, not USDINR26N13FUT).
+        import re
         futs = sorted((i for i in self.instruments.values()
                        if i.name == name and i.instrument_type == "FUT" and i.expiry),
                       key=lambda x: x.expiry)
+        if futs and futs[0].exchange == "CDS":
+            monthly = [f for f in futs if re.fullmatch(rf"{re.escape(name)}\d\d[A-Z]{{3}}FUT", f.symbol)]
+            if monthly:
+                return monthly[0].token
         return futs[0].token if futs else None
 
     # ---- prices --------------------------------------------------------------

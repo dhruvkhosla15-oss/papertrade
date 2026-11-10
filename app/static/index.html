@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -89,6 +89,8 @@ td:first-child,th:first-child{text-align:left}
 .pill.FILLED{background:#14532d;color:#bbf7d0}.pill.OPEN{background:#1e3a8a;color:#bfdbfe}.pill.REJECTED,.pill.CANCELLED{background:#7f1d1d;color:#fecaca}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;z-index:20}
 .sheet .box{background:var(--card);width:100%;max-width:520px;margin:0 auto;border-radius:16px 16px 0 0;padding:16px;max-height:92vh;overflow:auto}
+.sheet .chartbox{height:100vh;height:100dvh;max-height:100dvh;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))!important;overflow:hidden}
+.sheet .chartbox #chartBox{min-height:160px}
 .seg{display:flex;background:var(--seg);border-radius:8px;padding:3px}
 .seg button{flex:1;background:none;color:var(--mut);padding:8px}
 .seg button.active{background:var(--card);color:var(--txt)}
@@ -416,7 +418,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <!-- CHART -->
 <div id="chartModal" class="sheet hidden" style="align-items:stretch">
-  <div class="box" style="max-width:100%;border-radius:0;max-height:100vh;height:100vh;display:flex;flex-direction:column;padding:12px 14px">
+  <div class="box chartbox" style="max-width:100%;border-radius:0;display:flex;flex-direction:column;padding:12px 14px">
     <div class="row" style="justify-content:space-between;align-items:center">
       <div><div class="sym" id="cSym"></div><div class="small mut" id="cMeta"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="cLtp">—</div><div class="small num" id="cChg"></div></div>
@@ -692,7 +694,7 @@ function onPrices(ticks){
     if(t.token===state.spotToken){$('#spotLtp').textContent=fmt(t.ltp);$('#spotChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChg').className='small num '+pnlCls(t.change);highlightATM();if(state.chainMode==='greeks')setChainMode('greeks');}
     if(state.sel&&(t.token===state.sel.token||t.token===state.spotToken))renderGreeks(state.sel);
     if(t.token===state.spotTokenF){$('#spotLtpF').textContent=fmt(t.ltp);$('#spotChgF').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#spotChgF').className='small num '+pnlCls(t.change);}
-    chartTick(t);
+    chartTick(t0);
     if(state.sel&&t.token===state.sel.token){renderBook(t);$('#oLtp').textContent=(dir>0?'▲ ':dir<0?'▼ ':'')+fmt(t.ltp);$('#oLtp').style.color=dir>0?'var(--up)':dir<0?'var(--dn)':'';flash($('#oBid'),dir);flash($('#oAsk'),dir);$('#oChg').textContent=t.change!=null?((t.change>0?'+':'')+t.change+'%'):'';$('#oChg').className='small num '+pnlCls(t.change);if(state.otype==='MARKET')updateMargin();}
   }
   // live P&L on positions
@@ -776,12 +778,12 @@ function openChart(ins){cTok=ins.token;$('#cSym').textContent=ins.symbol;$('#cMe
     new ResizeObserver(()=>chart.applyOptions({width:$('#chartBox').clientWidth,height:$('#chartBox').clientHeight})).observe($('#chartBox'));}
   loadCandles();}
 async function loadCandles(){cStep=stepOf(cTf);cData=[];cSeries.setData([]);vSeries.setData([]);
-  try{const j=await api(`/candles?token=${cTok}&interval=${cTf}`);cData=j.candles.map(c=>({...c,time:c.time+IST}));
+  try{const j=await api(`/candles?token=${cTok}&interval=${cTf}`);const k=isCryptoTok(cTok)?cRate():1;cData=j.candles.map(c=>({...c,open:c.open*k,high:c.high*k,low:c.low*k,close:c.close*k,time:c.time+IST}));
     cSeries.setData(cData.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
     vSeries.setData(cData.map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'rgba(34,197,94,.35)':'rgba(239,68,68,.35)'})));
     chart.timeScale().fitContent();if(cData.length>80)chart.timeScale().setVisibleLogicalRange({from:cData.length-80,to:cData.length+2});}
   catch(e){toast(e.message,1);}}
-function chartTick(t){if(!chart||t.token!==cTok||$('#chartModal').classList.contains('hidden'))return;
+function chartTick(t){if(!chart||t.token!==cTok||$('#chartModal').classList.contains('hidden'))return;t=dispTick(t);
   $('#cLtp').textContent=fmt(t.ltp);if(t.change!=null){$('#cChg').textContent=(t.change>0?'+':'')+t.change+'%';$('#cChg').className='small num '+pnlCls(t.change);}
   const bucket=Math.floor((t.ts||Date.now()/1000)/cStep)*cStep+IST;const last=cData[cData.length-1];
   if(last&&last.time===bucket){last.high=Math.max(last.high,t.ltp);last.low=Math.min(last.low,t.ltp);last.close=t.ltp;}

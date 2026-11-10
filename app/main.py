@@ -286,6 +286,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     on, spread, stale = engine.liquidity_settings(db)
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": feed.status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
+            "market_status": _market_status(),
             "liquidity": {"on": on, "max_spread_pct": spread}}
 
 
@@ -298,16 +299,20 @@ class PasswordIn(BaseModel):
 def change_password(body: PasswordIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not verify_password(body.old_password, user.password_hash):
         raise HTTPException(400, "Current password is wrong")
-    if len(body.new_password) < 4:
-        raise HTTPException(400, "Password too short")
+    if len(body.new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    if body.new_password == body.old_password:
+        raise HTTPException(400, "Choose a new password that is different from the current one")
     user.password_hash = hash_password(body.new_password)
+    user.must_change_password = False
     db.commit()
     return {"ok": True}
 
 
 def _user_dict(u: User):
     return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin,
-            "is_active": u.is_active, "balance": round(u.balance, 2), "twofa": bool(u.totp_enabled)}
+            "is_active": u.is_active, "balance": round(u.balance, 2), "twofa": bool(u.totp_enabled),
+            "must_change_password": bool(u.must_change_password)}
 
 
 # ---- market data ------------------------------------------------------------------------
@@ -329,7 +334,8 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
 def expiries(exchange: str, name: str, user: User = Depends(current_user)):
     from .engine import ist_now
     n = ist_now(); today = n.date().isoformat()
-    close = config.MARKET_HOURS.get(exchange, ("09:15", "15:30"))[1]
+    from .market_calendar import close_time_str
+    close = close_time_str(exchange)
     out = [e for e in feed.expiries(exchange, name) if e > today or (e == today and n.strftime("%H:%M") < close)]
     return out
 
@@ -377,6 +383,13 @@ def _default_watch_instruments():
     return out
 
 
+def _market_status():
+    from .market_calendar import status
+    if not config.ENFORCE_MARKET_HOURS:
+        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX")}
+    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX")}
+
+
 def _public_tokens():
     """Tokens a not-logged-in visitor may stream: every spot and every futures contract (no option
     chains — those, and trading, need a login). Cached per instrument load."""
@@ -408,7 +421,8 @@ def public_home():
     """What a visitor sees before logging in."""
     tick = _ticker()
     return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": feed.status(),
-            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS}
+            "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
+            "market_status": _market_status()}
 
 
 @app.get("/api/watchlist")
@@ -668,7 +682,8 @@ def admin_create_user(body: UserIn, admin: User = Depends(current_admin), db: Se
     uname = body.username.strip().lower()
     if not uname or db.query(User).filter_by(username=uname).first():
         raise HTTPException(400, "Username empty or already exists")
-    u = User(username=uname, display_name=body.display_name or uname, password_hash=hash_password(body.password))
+    u = User(username=uname, display_name=body.display_name or uname, password_hash=hash_password(body.password),
+             must_change_password=True)
     db.add(u); db.flush()
     if body.initial_coins:
         engine._ledger(db, u, body.initial_coins, "ADMIN_CREDIT", "initial allocation")
@@ -708,6 +723,7 @@ def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_ad
         u.is_active = body.is_active
     if body.password:
         u.password_hash = hash_password(body.password)
+        u.must_change_password = True
     if body.display_name is not None:
         u.display_name = body.display_name
     if body.reset_2fa:

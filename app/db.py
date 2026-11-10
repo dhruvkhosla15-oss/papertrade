@@ -34,6 +34,7 @@ class User(Base):
     password_hash = Column(String(256), nullable=False)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)   # set on creation / admin reset; cleared when the user changes it
     totp_secret = Column(String(64), default="")   # master 2FA (TOTP); empty = not set up
     totp_enabled = Column(Boolean, default=False)
     balance = Column(Float, default=0.0)        # coins (₹ equivalent). Realised P&L flows in here.
@@ -147,6 +148,11 @@ def init_db():
             con.execute(text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) DEFAULT ''"))
         if "totp_enabled" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0"))
+        if "must_change_password" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
+            # trainees created earlier who have never placed an order still get the first-login prompt
+            con.execute(text("UPDATE users SET must_change_password = 1 WHERE is_admin = 0 "
+                             "AND id NOT IN (SELECT DISTINCT user_id FROM orders)"))
     tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
     if "commission" not in tcols:
         with engine.begin() as con:

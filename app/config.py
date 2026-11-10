@@ -29,11 +29,7 @@ DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy a
 DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0}  # STK = stock F&O (NFO non-index)
 
 # Exchange trading hours (IST)
-MARKET_HOURS = {
-    "NFO": ("09:15", "15:30"),
-    "BFO": ("09:15", "15:30"),
-    "MCX": ("09:00", "23:55"),
-}
+MARKET_HOURS = {"NFO": ("09:15", "15:40"), "BFO": ("09:15", "15:40"), "MCX": ("09:00", "23:55")}  # see market_calendar.py (holidays, MCX DST close)
 ENFORCE_MARKET_HOURS = os.getenv("PT_ENFORCE_MARKET_HOURS", "true" if FEED == "kite" else "false").lower() == "true"
 
 IST_OFFSET_HOURS = 5.5

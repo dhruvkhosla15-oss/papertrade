@@ -133,6 +133,20 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 </head>
 <body>
 
+<div id="pwForce" class="login hidden">
+  <div class="box">
+    <h1><span class="lm">lime</span><span class="fx">FX</span></h1>
+    <div style="height:10px"></div>
+    <p style="text-align:left;margin-bottom:4px"><b>Set your own password</b></p>
+    <p class="small mut" style="text-align:left;margin-bottom:14px">Your trainer created this account with a temporary password. Choose a new one to continue (at least 6 characters).</p>
+    <input id="fpOld" type="password" placeholder="Temporary password" autocomplete="current-password">
+    <input id="fpNew" type="password" placeholder="New password" autocomplete="new-password">
+    <input id="fpNew2" type="password" placeholder="Repeat new password" autocomplete="new-password">
+    <button id="fpBtn" style="width:100%">Save and continue</button>
+    <p id="fpErr" class="dn small" style="margin-top:10px;min-height:16px"></p>
+    <a class="back" id="fpLogout">Log out</a>
+  </div>
+</div>
 <div id="loginView" class="login hidden">
   <div class="box">
     <h1><span class="lm">lime</span><span class="fx">FX</span></h1>
@@ -427,6 +441,11 @@ const _setTheme=setTheme;setTheme=function(t){_setTheme(t);$('#thToggle').textCo
 (function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thToggle').textContent=t==='light'?'☀':'☾';})();
 (function(){let t='dark';try{t=localStorage.getItem('lfx_theme')||'dark';}catch(e){}$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');})();
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
+$('#fpBtn').onclick=async()=>{$('#fpErr').textContent='';const o=$('#fpOld').value,n=$('#fpNew').value,n2=$('#fpNew2').value;
+  if(n.length<6)return $('#fpErr').textContent='New password must be at least 6 characters';if(n!==n2)return $('#fpErr').textContent='The two new passwords don\'t match';
+  try{await api('/password',{method:'POST',body:{old_password:o,new_password:n}});location.reload();}catch(e){$('#fpErr').textContent=e.message;}};
+$('#fpNew2').addEventListener('keydown',e=>{if(e.key==='Enter')$('#fpBtn').click()});
+$('#fpLogout').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
 
 // ---------- boot ----------
@@ -441,12 +460,12 @@ function renderTicker(list){state.tickerTokens=list.map(u=>u.spot_token);
 async function bootGuest(){
   setGuest(true);
   const home=await fetch('/api/public/home').then(r=>r.json());
-  state.marketOpen=home.market_open;state.marketHours=home.market_hours;renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
+  state.marketOpen=home.market_open;state.marketStatus=home.market_status;renderFeed(home.feed);renderTicker(home.ticker);state.und=home.ticker;
   state.watch=home.watchlist;renderWatch();
   connectWS();sub([...state.tickerTokens,...state.watch.map(w=>w.token)]);
   try{state.und=await api('/underlyings');buildMarket();}catch(e){}
   setHome((()=>{try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}})());
-  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());state.marketOpen=h.market_open;renderFeed(h.feed);}catch(e){}},10000);
+  setInterval(async()=>{try{const h=await fetch('/api/public/home').then(r=>r.json());state.marketOpen=h.market_open;state.marketStatus=h.market_status;renderFeed(h.feed);}catch(e){}},10000);
 }
 function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
@@ -474,10 +493,11 @@ async function boot(){
   let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
   if(!me){return bootGuest();}
   state.me=me;
+  if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
   if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
   setGuest(false);$('#loginView').classList.add('hidden');
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';$('#hAvatar').textContent=(state.me.user.display_name||state.me.user.username).split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
-  state.marketOpen=state.me.market_open;state.marketHours=state.me.market_hours||state.marketHours;renderFunds(state.me.funds);renderFeed(state.me.feed);
+  state.marketOpen=state.me.market_open;state.marketStatus=state.me.market_status;renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
   try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
   buildMarket();
@@ -492,21 +512,25 @@ async function boot(){
   setInterval(refreshFunds,5000);
 }
 function renderFeed(f){$('#feedLight').className='feedlight'+(f.connected?' ok':'');$('#feedMsg').textContent=f.connected?'LIVE':'OFFLINE';$('#livePill').className='livepill'+(f.connected?' ok':'');
-  const mo=state.marketOpen||{};const hrs=state.marketHours||{NFO:['09:15','15:30'],BFO:['09:15','15:30'],MCX:['09:00','23:55']};
-  const t12=s=>{const[h,m]=s.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm');};
-  const nseOpen=mo.NFO!==false,mcxOpen=mo.MCX!==false;const b=$('#banner');
+  const ms=state.marketStatus||{};const b=$('#banner');
+  const nse=ms.NFO||{open:true},mcx=ms.MCX||{open:true};
+  const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+':'+String(x.getMinutes()).padStart(2,'0')+(x.getHours()<12?' am':' pm');};
+  const todayS=nse.today||mcx.today||'';const dayOf=iso=>iso.slice(0,10);const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const when=iso=>{if(!iso)return '';const ds=dayOf(iso);const dd=Math.round((Date.parse(ds)-Date.parse(todayS))/86400000);const day=dd===0?'today':dd===1?'tomorrow':DN[new Date(ds+'T00:00:00Z').getUTCDay()];return `${day} ${t12(iso)}`;};
   if(!f.connected){b.textContent='Live prices are not available right now. Please check back shortly.';b.className='banner';}
-  else if(!nseOpen&&!mcxOpen){b.innerHTML=`All markets closed · NSE &amp; BSE open ${t12(hrs.NFO[0])}–${t12(hrs.NFO[1])} · MCX ${t12(hrs.MCX[0])}–${t12(hrs.MCX[1])}`;b.className='banner';}
-  else if(!nseOpen){b.innerHTML=`NSE &amp; BSE closed (open ${t12(hrs.NFO[0])}–${t12(hrs.NFO[1])}) · <b>MCX open</b> till ${t12(hrs.MCX[1])}`;b.className='banner soft';}
-  else if(!mcxOpen){b.innerHTML=`MCX closed (opens ${t12(hrs.MCX[0])}) · <b>NSE &amp; BSE open</b> till ${t12(hrs.NFO[1])}`;b.className='banner soft';}
-  else b.className='banner hidden';}
+  else if(nse.open&&mcx.open){b.className='banner hidden';}
+  else{let parts=[];let hol=(nse.holiday&&nse.holiday!=='Weekend')?nse.holiday:((mcx.holiday&&mcx.holiday!=='Weekend')?mcx.holiday:null);
+    if(nse.label==='weekend'&&!mcx.open)parts.push('<b>Weekend</b>');else if(hol)parts.push(`<b>Market holiday</b> — ${hol}`);
+    parts.push(nse.open?`<b>NSE &amp; BSE open</b> till ${t12(nse.closes_at)}`:`NSE &amp; BSE closed${nse.opens_at?' · open '+when(nse.opens_at):''}`);
+    parts.push(mcx.open?`<b>MCX open</b> till ${t12(mcx.closes_at)}`:(mcx.opens_at&&dayOf(mcx.opens_at)===todayS?`<b>MCX resumes at ${t12(mcx.opens_at)}</b>`:`MCX closed${mcx.opens_at?' · open '+when(mcx.opens_at):''}`));
+    b.innerHTML=parts.join(' · ');b.className='banner'+((nse.open||mcx.open)?' soft':'');}}
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);
   $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);}
-async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
+async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();

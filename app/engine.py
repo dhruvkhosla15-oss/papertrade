@@ -71,12 +71,8 @@ class Engine:
     def market_open(self, exchange: str) -> bool:
         if not ENFORCE_MARKET_HOURS:
             return True
-        n = ist_now()
-        if n.weekday() >= 5:
-            return False
-        o, c = MARKET_HOURS.get(exchange, ("09:15", "15:30"))
-        hm = n.strftime("%H:%M")
-        return o <= hm <= c
+        from .market_calendar import is_open
+        return is_open(exchange)
 
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
@@ -494,7 +490,8 @@ class Engine:
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.expiry:
                         continue
-                    close_time = MARKET_HOURS.get(p.exchange, ("09:15", "15:30"))[1]
+                    from .market_calendar import close_time_str
+                    close_time = close_time_str(p.exchange)
                     if p.expiry < today or (p.expiry == today and hm >= close_time):
                         ins = self.feed.instruments.get(p.token)
                         ltp = None

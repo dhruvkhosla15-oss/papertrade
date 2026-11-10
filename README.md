@@ -40,7 +40,10 @@ with those coins and see their profit/loss. No real money moves anywhere.
   brokerage + charges, so only a genuine edge shows up as profit. Change or zero it in Settings; it appears in
   the ledger, trades, performance tables and the Excel statements (net P&L is after commission).
 - Positions net per contract; realised P&L credits/debits the coin balance immediately.
-- Orders are only accepted during exchange hours (NFO/BFO 09:15–15:30, MCX 09:00–23:55 IST).
+- Orders are only accepted during exchange hours: NFO/BFO 09:15–15:40 (since 3 Aug 2026), MCX 09:00–23:30 while US
+  daylight saving is on, 09:00–23:55 otherwise. Weekends and exchange holidays are built in (`app/market_calendar.py`,
+  incl. MCX half-days where only the 5 pm evening session trades); the banner under the ticker says what is closed,
+  why, and when it reopens. Update the holiday tables each December or set `PT_HOLIDAYS_JSON`.
 - On expiry day after close, open positions are **auto-settled** at the last traded price.
 - Coins are a ledger: every admin credit/debit and every P&L hit is recorded and visible to the trainee.
 
@@ -119,7 +122,8 @@ The master panel has three tabs: **Trainees**, **Performance**, **Settings**.
 
 ## Managing trainees
 
-- **Create:** username, display name, password, initial coins.
+- **Create:** username, display name, password, initial coins. The password you set is temporary: the trainee must
+  choose their own at first login (same after you reset a password).
 - **Add / remove coins:** type an amount in the row and press **+** or **−**; a note is optional. Shows up in the trainee's ledger instantly.
 - **View:** click a row for live positions, orders, trades and coin ledger.
 - **Square off all** closes every open position of that trainee at market.

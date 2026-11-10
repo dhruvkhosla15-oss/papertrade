@@ -77,6 +77,8 @@ class Pulse:
                 futs = sorted((i for i in self.feed.instruments.values()
                                if i.name == n and i.instrument_type == "FUT" and i.expiry >= today), key=lambda x: x.expiry)
                 fut = futs[0] if futs else None
+                if kind == "currency" and spot in self.feed.instruments:
+                    fut = self.feed.instruments[spot]      # monthly contract (weeklies barely trade)
                 if not spot and not fut:
                     continue
                 price_tok = fut.token if kind in ("mcx", "currency") and fut else spot

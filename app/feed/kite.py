@@ -53,6 +53,8 @@ INDEX_SYMBOLS = {"NIFTY": ("NSE", "NIFTY 50"), "BANKNIFTY": ("NSE", "NIFTY BANK"
 class KiteFeed(PriceFeed):
     name = "kite"
 
+    cds_all: dict = {}
+
     def __init__(self, api_key: str, api_secret: str):
         super().__init__()
         self.api_key = api_key
@@ -98,6 +100,7 @@ class KiteFeed(PriceFeed):
         for exch in ("NFO", "BFO", "MCX", "CDS"):
             for row in self.kite.instruments(exch):
                 if exch == "CDS":
+                    self.cds_all.setdefault(row["name"], set()).add((row["instrument_type"], int(row["lot_size"] or 0), float(row["tick_size"] or 0)))
                     if row["name"] not in CURRENCY_PAIRS:
                         continue
                 elif exch != "MCX" and row["name"] not in ALLOWED_UNDERLYINGS:
@@ -121,6 +124,7 @@ class KiteFeed(PriceFeed):
         fixed, unknown = 0, set()
         kept = []
         raw_cds = {}
+        self.cds_seen = sorted({i.name for i in items if i.exchange == "CDS"})
         for i in items:
             if i.exchange == "MCX" and i.lot_size <= 1:
                 mult = MCX_MULTIPLIER.get(i.name)
@@ -136,8 +140,9 @@ class KiteFeed(PriceFeed):
                     i.lot_size = CDS_MULTIPLIER.get(i.name, 1000)
                 i.lot_label = CDS_UNIT.get(i.name, "")
             kept.append(i)
+        self.cds_raw_lots = raw_cds
         if raw_cds:
-            log.info("currency derivatives: %s (raw lot sizes from Zerodha: %s)", sorted(raw_cds), raw_cds)
+            log.info("currency derivatives: %s (raw lot sizes from Zerodha: %s); all CDS names: %s", sorted(raw_cds), raw_cds, sorted(self.cds_all))
         items = kept
         self.load_instruments(items)
         log.info("loaded %d instruments (MCX multiplier applied to %d; unknown multiplier for %s)",
@@ -312,4 +317,8 @@ class KiteFeed(PriceFeed):
         s["needs_login"] = not self.token_valid_today()
         s["paused"] = bool(getattr(self, "paused", False))
         s["can_reconnect"] = self.token_valid_today() and not self.connected
+        # diagnostic: what Zerodha lists on the currency segment and the raw lot sizes it reports
+        s["cds"] = {"offered": sorted(getattr(self, "cds_all", {})),
+                    "raw": {n: sorted(v) for n, v in getattr(self, "cds_all", {}).items()},
+                    "loaded_raw_lot": getattr(self, "cds_raw_lots", {})}
         return s

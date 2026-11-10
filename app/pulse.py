@@ -153,6 +153,8 @@ class Pulse:
             f = (self.feed.prices.get(u["fut_token"]) or {}) if u["fut_token"] else {}
             fh = (self._hist.get(u["fut_token"]) or {}) if u["fut_token"] else {}
             flast = fh.get("last") if not live else None
+            if not live and not last and self._hist:
+                continue          # history still filling in for this one; a 0% pre-market tick would mislead
             if live or not last:
                 ltp = p.get("ltp")
                 if not ltp:

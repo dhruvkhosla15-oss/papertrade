@@ -213,7 +213,7 @@ class MockFeed(PriceFeed):
             now = time.time()
             for t in list(self._refcount):
                 ins = self.instruments.get(t)
-                if ins is None or ins.name not in self.spot:
+                if ins is None or ins.name not in self.spot or t >= 5_000_000_000:
                     continue                      # crypto/forex tokens are priced by their own feeds
                 ltp = self._price(ins)
                 prev = self.prices.get(t, {})

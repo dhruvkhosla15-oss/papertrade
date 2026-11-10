@@ -21,7 +21,9 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.brand{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-size:24px;letter-spacing:-.04em;line-height:1}
+@font-face{font-family:'Rubik';font-weight:600;font-display:swap;src:url(/static/brand/rubik-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Rubik';font-weight:800;font-display:swap;src:url(/static/brand/rubik-latin-800-normal.woff2) format('woff2')}
+.brand{font-family:Rubik,Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-size:24px;letter-spacing:-.03em;line-height:1}
 .brand .lm{color:var(--acc);font-weight:600}.brand .fx{font-weight:800}
 .feedlight{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dn);margin-right:6px}
 .feedlight.ok{background:var(--up)}

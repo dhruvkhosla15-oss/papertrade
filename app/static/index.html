@@ -27,7 +27,9 @@ input,select{font:inherit;background:var(--card);border:1px solid var(--line);co
 .num{font-variant-numeric:tabular-nums}
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-header .brand,.login h1{font-family:Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.04em;font-size:28px;line-height:1.05;margin-bottom:8px}
+@font-face{font-family:'Rubik';font-weight:600;font-display:swap;src:url(/static/brand/rubik-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Rubik';font-weight:800;font-display:swap;src:url(/static/brand/rubik-latin-800-normal.woff2) format('woff2')}
+header .brand,.login h1{font-family:Rubik,Poppins,'Avenir Next','Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:-.03em;font-size:28px;line-height:1.05;margin-bottom:8px}
 header{padding:14px 14px 12px}
 .livepill{margin-top:0}
 header .brand .lm,.login h1 .lm{color:var(--acc);font-weight:600;letter-spacing:-.03em}

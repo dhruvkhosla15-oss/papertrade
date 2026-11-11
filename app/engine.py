@@ -85,6 +85,13 @@ class Engine:
             return self.commission_pct(db, "FOREX"), 0.0
         pct = self.commission_pct(db)
         flat = 0.0
+        if ex == "CRYPTO":
+            v = get_setting(db, "commission_pct_CRYPTO")
+            if v not in (None, ""):
+                try:
+                    pct = max(0.0, float(v))
+                except ValueError:
+                    pass
         if ex in ("NFO", "BFO", "MCX", "CDS"):
             try:
                 flat = max(0.0, float(get_setting(db, "commission_flat") or 0))

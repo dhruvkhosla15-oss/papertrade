@@ -1360,6 +1360,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "commission_pct_options": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_options")),
             "commission_flat": float(get_setting(db, "commission_flat") or 0),
+            "commission_pct_crypto": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_CRYPTO")),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
@@ -1371,6 +1372,7 @@ class SettingsIn(BaseModel):
     commission_pct_forex: Optional[float] = None
     commission_pct_options: Optional[float] = None
     commission_flat: Optional[float] = None
+    commission_pct_crypto: Optional[float] = None
     mcx_option_factor: Optional[float] = None
     liquidity_check: Optional[bool] = None
     max_spread_pct: Optional[float] = None
@@ -1391,6 +1393,8 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, "commission_pct_options", str(max(0.0, min(5.0, float(body.commission_pct_options)))))
     if body.commission_flat is not None:
         set_setting(db, "commission_flat", str(max(0.0, min(1000.0, float(body.commission_flat)))))
+    if body.commission_pct_crypto is not None:
+        set_setting(db, "commission_pct_CRYPTO", str(max(0.0, min(5.0, float(body.commission_pct_crypto)))))
     if body.liquidity_check is not None:
         set_setting(db, "liquidity_check", "true" if body.liquidity_check else "false")
     if body.max_spread_pct is not None:
@@ -1717,7 +1721,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
              ["Unrealised", "Open positions valued at the price they could exit at right now."],
              ["Realised", "Profit or loss booked on closed trades, before commission."],
              ["P&L", "Unrealised + Realised."],
-             ["Commission", "Charged on every buy and sell. Negative for the user, positive for us."],
+             ["Commission", "Charged on every buy and sell: a percentage of the traded value (of the premium for options), plus the flat fee per order where one is set. Negative for the user, positive for us."],
              ["Net P&L", "P&L + Commission (commission is negative for the user)."],
              ["Net Balance", "Allocated + Net P&L. What the account is worth now."],
              ["", ""],

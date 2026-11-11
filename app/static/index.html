@@ -1015,7 +1015,7 @@ boot();
   let dismissed=false;try{dismissed=localStorage.getItem('lfx_pwa_dismissed')==='1';}catch(e){}
   function hideAll(){bar.classList.add('hidden');if(row)row.classList.add('hidden');}
   if(standalone){hideAll();return;}
-  function showIosHint(){$('#pwaMsg').innerHTML='On iPhone: tap <b>Share</b> <span style="font-size:14px">&#x2B06;&#xFE0E;</span> below, then <b>Add to Home Screen</b>.';$('#pwaGo').classList.add('hidden');}
+  function showIosHint(){$('#pwaMsg').innerHTML='On iPhone (Safari): tap <b>•••</b> at the bottom right, then <b>Share</b>, scroll down and choose <b>Add to Home Screen</b>.';$('#pwaGo').classList.add('hidden');}
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(!dismissed&&state.me)bar.classList.remove('hidden');});
   async function install(){if(deferred){deferred.prompt();const r=await deferred.userChoice;deferred=null;if(r&&r.outcome==='accepted')hideAll();}else if(ios){showIosHint();bar.classList.remove('hidden');}else{$('#pwaMsg').textContent='Open this page in Chrome, then use the browser menu → "Add to Home screen".';bar.classList.remove('hidden');}}
   $('#pwaGo').onclick=install;if(row)$('#pwaRowGo').onclick=install;

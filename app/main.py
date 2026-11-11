@@ -565,6 +565,8 @@ def _feed_up(exchange: str) -> bool:
 
 @app.post("/api/orders")
 async def place_order(body: OrderIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if user.is_admin:
+        raise HTTPException(400, "Master login is view-only here — it has no coins. Use a trainee login to place orders.")
     ins = feed.instruments.get(body.token)
     if ins and not _feed_up(ins.exchange):
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")

@@ -590,8 +590,7 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   if(!me){return bootGuest();}
   state.me=me;if(me.usdinr)state.usdinr=me.usdinr;setTimeout(()=>{if(window.lfxPwaAfterLogin)window.lfxPwaAfterLogin();},1500);
   if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
-  if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
-  setGuest(false);$('#loginView').classList.add('hidden');
+  setGuest(false);$('#loginView').classList.add('hidden');if(state.me.user.is_admin){state.master=true;const hb=$('#hLogin');hb.classList.remove('hidden');hb.textContent='Master';hb.title='Back to the master panel';hb.onclick=()=>location.href='/admin';}
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';$('#hAvatar').textContent=(state.me.user.display_name||state.me.user.username).split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
   state.marketOpen=state.me.market_open;state.marketStatus=state.me.market_status;renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');

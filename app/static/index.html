@@ -1007,30 +1007,36 @@ $('#hFunds').onclick=()=>showTab('account');
 boot();
 
 
-/* ---- phone/browser Back button: step back inside the app instead of leaving it ---- */
+/* ---- phone/browser Back button: step back inside the app, one screen at a time ---- */
 (function(){
   const vis=id=>{const e=document.getElementById(id);return !!e&&!e.classList.contains('hidden')&&e.getClientRects().length>0;};
   const hide=id=>document.getElementById(id).classList.add('hidden');
-  function topLayer(){
-    if(vis('chartModal'))return ()=>$('#cClose').click();
-    if(vis('dlSheet'))return ()=>hide('dlSheet');
-    if(vis('sheet'))return ()=>hide('sheet');
-    if(state.guest&&vis('loginView')&&$('#loginClose'))return ()=>$('#loginClose').click();
-    if(state.tab==='market'){
-      if(vis('chainPanel'))return ()=>$('#backUnd').click();
-      if(vis('futPanel'))return ()=>$('#backUndF').click();
-      for(const id of ['undList','undListF']){if(vis(id)){const b=document.querySelector('#'+id+' .backCat');if(b)return ()=>b.click();}}
-    }
+  // the screens currently stacked, bottom to top; each entry knows how to close itself
+  function layers(){const L=[];
+    if(!vis('appView')&&!vis('loginView'))return L;
     const home=state.tab==='watch'&&vis('pulseView');
-    if(state.tab&&!home&&vis('appView'))return ()=>{const b=document.querySelector('nav.tabs button[data-home=pulse]');if(b)b.click();};
-    return null;
-  }
-  let armed=!!(history.state&&history.state.lfx),ignore=false;   // a reload can land on our own entry
-  setInterval(()=>{const need=!!topLayer();
-    if(need&&!armed){history.pushState({lfx:1},'');armed=true;}
-    else if(!need&&armed){armed=false;ignore=true;history.back();}
-  },250);
-  window.addEventListener('popstate',()=>{if(ignore){ignore=false;return;}armed=false;const f=topLayer();if(f)f();});
+    if(state.tab&&!home&&vis('appView'))L.push(()=>{const b=document.querySelector('nav.tabs button[data-home=pulse]');if(b)b.click();});
+    if(state.tab==='market'){
+      for(const [list,panel,back] of [['undList','chainPanel','backUnd'],['undListF','futPanel','backUndF']]){
+        const bc=()=>{const b=document.querySelector('#'+list+' .backCat');if(b)b.click();};
+        if(vis(panel)){L.push(bc);L.push(()=>$('#'+back).click());}
+        else if(vis(list)&&document.querySelector('#'+list+' .backCat'))L.push(bc);
+      }
+    }
+    if(state.guest&&vis('loginView')&&$('#loginClose'))L.push(()=>$('#loginClose').click());
+    if(vis('sheet'))L.push(()=>hide('sheet'));
+    if(vis('dlSheet'))L.push(()=>hide('dlSheet'));
+    if(vis('chartModal'))L.push(()=>$('#cClose').click());
+    return L;}
+  let hd=(history.state&&history.state.lfx)||0,skip=0;       // hd = history entries we own (survives a reload)
+  setInterval(()=>{const n=layers().length;
+    while(hd<n){hd++;history.pushState({lfx:hd},'');}
+    if(hd>n){const d=hd-n;hd=n;skip++;history.go(-d);}
+  },200);
+  window.addEventListener('popstate',e=>{if(skip>0){skip--;return;}
+    hd=(e.state&&e.state.lfx)||0;
+    for(let k=0;k<6;k++){const L=layers();if(L.length<=hd)break;L[L.length-1]();}
+  });
 })();
 /* ---- installable app (PWA) ---- */
 (function(){

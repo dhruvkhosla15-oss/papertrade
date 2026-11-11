@@ -646,9 +646,38 @@ async def run_and_report(app, engine, feed, scheduled: bool = False) -> dict:
         return res
 
 
+def _forward_nightly_report():
+    """The nightly review (a separate session that hunts for new loopholes) leaves its plain-language
+    report in app/nightly_report.txt. Each new report is sent once to Telegram when the server starts."""
+    import hashlib
+    from pathlib import Path
+    f = Path(__file__).with_name("nightly_report.txt")
+    if not f.exists():
+        return
+    text = f.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
+        return
+    h = hashlib.sha256(text.encode()).hexdigest()
+    db = SessionLocal()
+    try:
+        if get_setting(db, "nightly_report_hash") == h:
+            return
+        err = _telegram("limefx nightly loophole hunt\n\n" + text)
+        if not err:
+            set_setting(db, "nightly_report_hash", h)
+        else:
+            log.warning("nightly report not sent: %s", err)
+    finally:
+        db.close()
+
+
 async def loop(app, engine, feed):
     """Once a day at RUN_AT (IST). If the server was down at that minute, it runs when it is back."""
     await asyncio.sleep(150)          # let the price feeds connect after a restart
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _forward_nightly_report)
+    except Exception:
+        log.exception("nightly report forward failed")
     while True:
         try:
             now = _ist()

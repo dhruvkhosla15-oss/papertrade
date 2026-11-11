@@ -212,7 +212,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div style="min-width:0"><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div><a id="hMaster" class="hidden" href="/admin" style="display:none;font-size:12px;font-weight:600;color:var(--acc);text-decoration:none;margin-top:3px">‹ Master panel</a></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
-  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">Balance ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
+  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">Available Balance ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
 <div id="maintBar" class="maintbar hidden"></div>
 <div id="banner" class="feedbar hidden"></div>
@@ -338,7 +338,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <!-- ACCOUNT -->
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
-    <div class="seg" id="pfSeg" style="margin-bottom:12px"><button data-pf="orders" class="active">Orders</button><button data-pf="acct">Account</button></div>
+    <div class="seg" id="pfSeg" style="margin-bottom:12px"><button data-pf="orders" class="active">Order Book</button><button data-pf="acct">Account</button></div>
     <div id="pfOrders">
     <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download</button></div>
     <div class="card" style="padding:0;overflow:auto">

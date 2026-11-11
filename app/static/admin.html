@@ -66,6 +66,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
 #uTbl th,#uTbl td{text-align:center}#uTbl th:first-child,#uTbl td:first-child{text-align:left}
 .fchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:8px;scrollbar-width:none}.fchips::-webkit-scrollbar{display:none}.fchip{flex:0 0 auto;background:var(--bg);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}.fchip small{font-weight:500;opacity:.8;margin-left:4px}.fchip.active{color:var(--acc);border-color:var(--acc);background:rgba(154,209,60,.14)}.frow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.frow select{flex:1 1 90px;width:auto;min-width:0;padding:8px}.frow input{flex:2 1 150px;min-width:0;padding:8px 10px}
+.pdbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}.pdbar .fchip{padding:5px 11px;font-size:12.5px}.pdbar .pdl{font-size:13px;font-weight:600;min-width:150px;text-align:center}.pdbar .pdn{background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:4px 10px;font-size:14px;cursor:pointer}.pdbar .pdn:disabled{opacity:.35;cursor:default}
 .bookh{display:flex;align-items:baseline;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}.bookh b{font-size:15px}.stat.hl{box-shadow:inset 0 0 0 1px var(--line)}.stat.hl b{font-size:20px}.grid.g6{grid-template-columns:repeat(6,1fr)}@media(max-width:900px){.grid.g6{grid-template-columns:repeat(3,1fr)}}@media(max-width:520px){.grid.g6{grid-template-columns:repeat(2,1fr)}}
 .eq{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}.eq .stat{flex:1}.eq .opx{flex:0 0 18px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;font-size:16px}
 @media(max-width:760px){header>div:first-child{min-width:0;flex:1 1 100%}header .mkts{flex-wrap:wrap;gap:6px}header .bar{width:100%;justify-content:flex-end}}
@@ -151,7 +152,7 @@ a{color:var(--acc)}
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
   <div class="card">
-  <div class="bookh"><b>Dashboard</b><span class="small mut" id="sUsersTxt"></span></div>
+  <div class="bookh"><b>Dashboard</b><span class="small mut" id="sUsersTxt"></span><span class="pdbar" id="pdBar"></span></div>
   <div class="grid g6">
     <div class="stat"><span class="mut small">Allocated</span><b id="sCredited" class="num">—</b></div><div class="stat"><span class="mut small">Available Balance</span><b id="sAvail" class="num">—</b></div><div class="stat"><span class="mut small">Margin Used</span><b id="sExposure" class="num">—</b></div><div class="stat"><span class="mut small" title="The opposite of the users’ unrealised">Unrealised</span><b id="hOpen" class="num">—</b></div><div class="stat"><span class="mut small" title="The opposite of the users’ realised">Realised</span><b id="hBooked" class="num">—</b></div><div class="stat"><span class="mut small" title="Unrealised + Realised">P&amp;L</span><b id="hGross" class="num">—</b></div>
   </div>
@@ -325,6 +326,7 @@ a{color:var(--acc)}
         <button class="ghost" id="dClose">✕</button>
       </div>
     </div>
+    <div class="pdbar" id="pdBar2" style="margin:12px 0 0"></div>
     <div class="grid" style="margin:12px 0" id="dFunds"></div>
     <div class="tabs" style="justify-content:space-between"><div style="display:flex;gap:6px;flex-wrap:wrap"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div></div>
     <div class="bar" style="margin-bottom:10px"><span class="small mut">Download:</span><select id="dRange" style="width:auto;padding:6px 8px"><option value="month">This month</option><option value="today">Today</option><option value="week">This week</option><option value="lastmonth">Last month</option><option value="all">All history</option><option value="custom">Pick dates…</option></select><span id="dCustom" class="bar hidden"><input type="date" id="dFrom" style="width:auto;padding:6px"><span class="mut">to</span><input type="date" id="dTo" style="width:auto;padding:6px"></span>
@@ -375,6 +377,7 @@ async function boot(){
   // idle for 30 minutes -> log out (the panel is too powerful to leave open on a shared screen)
   {let last=Date.now();['mousemove','keydown','click','touchstart','scroll'].forEach(ev=>addEventListener(ev,()=>last=Date.now(),{passive:true}));setInterval(async()=>{if(Date.now()-last>30*60*1000){try{await api('/logout',{method:'POST'});}catch(e){}location.reload();}},30000);}
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
+  pdBars();
   await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);loadBackups();loadMaint();
   setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
@@ -476,15 +479,36 @@ function renderLive(){const l=[...livePos];l.sort((a,b)=>{const x=a[lpK],y=b[lpK
     return `<tr class="clickable" data-uid="${p.user_id}"><td><b>${p.display_name}</b><div class="small mut">${p.username}</div></td><td><b>${p.symbol}</b><div class="small mut">${p.exchange==='FOREX'?(p.segment==='GLOBAL-SPOT'?'Global':'Forex'):p.exchange==='CRYPTO'?'Crypto':p.exchange}${p.leverage?' · '+p.leverage+'x':''}</div></td><td><span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'}</span></td><td class="num">${Math.abs(p.lots)}<div class="small mut">${Math.abs(p.qty)} qty</div></td><td class="num">${lpPx(p.avg_price)}</td><td class="num">${lpPx(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}"><b>${sgn(p.unrealised)}</b></td><td class="num">${inr(p.margin)}</td><td>${p.product==='MIS'?'Intraday':'Overnight'}</td><td class="small mut">${when}</td></tr>`}).join('')||'<tr><td colspan=10 class="mut">No one is holding a position right now</td></tr>';
   $$('#lpTbl tr.clickable').forEach(r=>r.onclick=()=>openDetail(+r.dataset.uid));}
 async function loadLive(){try{livePos=await api('/admin/positions');renderLive();}catch(e){}}
-async function loadUsers(){loadLive();users=await api('/admin/users');
-  const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
-  $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(users.reduce((a,u)=>a+(u.available||0),0));$('#sTrades').textContent=users.reduce((a,u)=>a+(u.trades||0),0);$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(tx);
-  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hGross',-tr-tu);set('#hComm',tcm);set('#hNet',tc-te);}$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+const PD={mode:'all',off:0,data:null,key:'',at:0};
+function pdRange(){if(PD.mode==='all')return null;const now=new Date(Date.now()+330*60000);const iso=d=>d.toISOString().slice(0,10);
+  let a=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate())),b;
+  if(PD.mode==='day'){a.setUTCDate(a.getUTCDate()+PD.off);b=new Date(a);}
+  else if(PD.mode==='week'){a.setUTCDate(a.getUTCDate()-(a.getUTCDay()+6)%7+7*PD.off);b=new Date(a);b.setUTCDate(a.getUTCDate()+6);}
+  else{a=new Date(Date.UTC(a.getUTCFullYear(),a.getUTCMonth()+PD.off,1));b=new Date(Date.UTC(a.getUTCFullYear(),a.getUTCMonth()+1,0));}
+  const f=(d,o)=>d.toLocaleDateString('en-IN',{timeZone:'UTC',...o});
+  const label=PD.mode==='day'?f(a,{weekday:'short',day:'numeric',month:'short',year:'numeric'}):PD.mode==='week'?f(a,{weekday:'short',day:'numeric',month:'short'})+' – '+f(b,{weekday:'short',day:'numeric',month:'short'}):f(a,{month:'long',year:'numeric'});
+  return {from:iso(a),to:iso(b),label,current:PD.off===0};}
+async function loadPeriod(force){const r=pdRange();if(!r){PD.data=null;PD.key='';return;}const key=r.from+r.to;if(!force&&PD.key===key&&Date.now()-PD.at<15000)return;
+  try{const rep=await api(`/admin/report?from=${r.from}&to=${r.to}`);const m={};for(const u of rep.users)m[u.id]={real:(u.gross_profit||0)+(u.gross_loss||0),comm:u.commission||0,trades:u.trades||0};PD.data=m;PD.key=key;PD.at=Date.now();}catch(e){}}
+function pdRow(u){const x={...u};const r=pdRange();
+  if(r&&PD.data&&PD.key===r.from+r.to){const p=PD.data[u.id]||{real:0,comm:0,trades:0};x.realised_all=p.real;x.commission_total=p.comm;x.trades=p.trades;x.unrealised=r.current?(u.unrealised||0):0;}
+  else{x.realised_all=u.balance-u.total_credited+(u.commission_total||0);x.commission_total=u.commission_total||0;x.unrealised=u.unrealised||0;}
+  x.pl_total=x.unrealised+x.realised_all;x.pnl=x.pl_total-x.commission_total;return x;}
+function pdBars(){const r=pdRange();const h=[['all','All Time'],['day','Daily'],['week','Weekly'],['month','Monthly']].map(([k,l])=>`<button class="fchip${PD.mode===k?' active':''}" data-pm="${k}">${l}</button>`).join('')+(r?`<button class="pdn" data-pn="-1" title="Earlier">‹</button><span class="pdl">${r.label}</span><button class="pdn" data-pn="1" title="Later"${r.current?' disabled':''}>›</button>`:'');
+  for(const id of ['#pdBar','#pdBar2']){const el=$(id);if(!el)continue;el.innerHTML=h;
+    el.querySelectorAll('[data-pm]').forEach(b=>b.onclick=async()=>{PD.mode=b.dataset.pm;PD.off=0;pdBars();await loadPeriod(true);paintUsers();if(detail)refreshDetail();});
+    el.querySelectorAll('[data-pn]').forEach(b=>b.onclick=async()=>{PD.off=Math.min(0,PD.off+(+b.dataset.pn));pdBars();await loadPeriod(true);paintUsers();if(detail)refreshDetail();});}}
+function paintUsers(){const L=users.map(pdRow);const S=k=>L.reduce((a,u)=>a+(u[k]||0),0);
+  const tc=S('total_credited'),te=S('equity');
+  $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(S('available'));$('#sTrades').textContent=S('trades');$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(S('used_margin'));$('#sPos').textContent=S('open_positions');
+  const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-S('realised_all'));set('#hOpen',-S('unrealised'));set('#hGross',-S('pl_total'));set('#hComm',S('commission_total'));set('#hNet',-S('pnl'));
+  renderUsers();}
+async function loadUsers(){loadLive();users=await api('/admin/users');await loadPeriod();
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All users</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
-  renderUsers();if(detail)refreshDetail();
+  paintUsers();if(detail)refreshDetail();
 }
 function renderUsers(){
-  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0),pl_total:(u.unrealised||0)+u.balance-u.total_credited+(u.commission_total||0)}));
+  let list=users.map(pdRow);
   if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
@@ -562,9 +586,10 @@ function doApply(list){const s=$('#doSide').value,t=$('#doType').value,m=$('#doM
 ['doSide','doType','doMkt'].forEach(i=>$('#'+i).onchange=()=>{refreshDetail();});$('#doQ').oninput=()=>{refreshDetail();};
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
-  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);const realised=f.balance-cred+comm;
-  {const pl=(f.unrealised||0)+realised;const PN=new Set(['Unrealised','Realised','P&L','Net P&L']);
-  $('#dFunds').innerHTML=[['Allocated',cred],['Available Balance',f.available],['Margin Used',f.used_margin],['Unrealised',f.unrealised],['Realised',realised],['P&L',pl],['Commission',-comm],['Net P&L',f.equity-cred],['Net Balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
+  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);let realised=f.balance-cred+comm,commV=comm,unr=f.unrealised||0,netV=f.equity-cred;
+  {const r=pdRange();if(r&&PD.data&&PD.key===r.from+r.to){const pp=PD.data[u.id]||{real:0,comm:0};realised=pp.real;commV=pp.comm;unr=r.current?unr:0;netV=unr+realised-commV;}}
+  {const pl=unr+realised;const PN=new Set(['Unrealised','Realised','P&L','Net P&L']);
+  $('#dFunds').innerHTML=[['Allocated',cred],['Available Balance',f.available],['Margin Used',f.used_margin],['Unrealised',unr],['Realised',realised],['P&L',pl],['Commission',-commV],['Net P&L',netV],['Net Balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
   const T=$('#dTbl');$('#doWrap').classList.toggle('hidden',dtab!=='orders');
   const lotTxt=(qty,lot)=>{const l=lot?qty/lot:qty;const n=Math.abs(l);return `${l>0?'+':'−'}${n%1?n.toFixed(2):n} lot${n===1?'':'s'}<div class="small mut">${Math.abs(qty)} units</div>`;};
   if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Lots</th><th>Avg</th><th title="Price the user could exit at right now (bid for a long, ask for a short) — unrealised P&L is marked to this, same as the user screen">Exit px</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';

@@ -122,6 +122,7 @@ class Engine:
         ltp = tick.get("ltp")
         if ltp is None:
             raise EngineError("No live price for this contract")
+        self._last_take = None
         if not on:
             return ltp, "", qty
         bids, asks = tick.get("bids") or [], tick.get("asks") or []
@@ -188,13 +189,16 @@ class Engine:
                 if remaining <= 0: break
         # record what this fill consumed so the next order (any trainee) can't take the same quantity again
         remaining = filled
+        taken = []
         for price, avail in levels:
             take = min(remaining, avail)
             if take > 0:
                 sh[side_key][price] = sh[side_key].get(price, 0) + take
+                taken.append((price, take))
             remaining -= take
             if remaining <= 0:
                 break
+        self._last_take = (ins.token, side_key, taken)   # released again if the order is then rejected
         avg = round(cost / filled, 6)          # exact average of the levels hit (as on a real contract note)
         if limit_price is not None:
             avg = min(avg, limit_price) if side == "BUY" else max(avg, limit_price)
@@ -463,6 +467,24 @@ class Engine:
             db.commit()
         return n
 
+    def _release_take(self):
+        """Give back depth consumed by a book_fill whose order was rejected afterwards (e.g. no margin),
+        so a trainee with no coins can't block a thin contract for everyone else."""
+        lt = getattr(self, "_last_take", None)
+        self._last_take = None
+        if not lt:
+            return
+        token, side_key, taken = lt
+        sh = self._consumed.get(token)
+        if not sh:
+            return
+        for price, take in taken:
+            left = sh[side_key].get(price, 0) - take
+            if left > 0:
+                sh[side_key][price] = left
+            else:
+                sh[side_key].pop(price, None)
+
     def _fill(self, db: Session, user: User, order: Order, price: float):
         ins = self.feed.instruments[order.token]
         qty = order.qty
@@ -491,6 +513,7 @@ class Engine:
         if opening_qty and need + comm > avail + 1e-6:
             order.status = "REJECTED"
             order.reason = f"Insufficient coins: need ₹{need + comm:,.2f} (incl. ₹{comm:,.2f} commission), available ₹{avail:,.2f}"
+            self._release_take()
             return
 
         if pos is None:

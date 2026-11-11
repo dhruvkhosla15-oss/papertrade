@@ -64,6 +64,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .kite .small{color:var(--mut)}.kite .bar button{padding:6px 12px;font-size:12px}
 .kite .bar{margin-left:auto}
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+.bookh{display:flex;align-items:baseline;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}.bookh b{font-size:15px}.stat.hl{box-shadow:inset 0 0 0 1px var(--line)}.stat.hl b{font-size:20px}.grid.g4{grid-template-columns:repeat(4,1fr)}@media(max-width:760px){.grid.g4{grid-template-columns:repeat(2,1fr)}}
 .eq{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}.eq .stat{flex:1}.eq .opx{flex:0 0 18px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;font-size:16px}
 @media(max-width:760px){header>div:first-child{min-width:0;flex:1 1 100%}header .mkts{flex-wrap:wrap;gap:6px}header .bar{width:100%;justify-content:flex-end}}
 @media(max-width:760px){.eq{flex-direction:column;gap:2px}.eq .stat{flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 12px}.eq .stat b{margin:0;font-size:17px}.eq .stat .small{white-space:normal;padding-right:10px}.eq .opx{flex:none;height:16px;justify-content:flex-start;padding-left:14px;font-size:14px}.eq .opx[style]{display:none}.stat .small{white-space:normal}}
@@ -148,21 +149,28 @@ a{color:var(--acc)}
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
   <div class="card">
+  <div class="bookh"><b>Our book</b><span class="small mut">the other side of every user trade — what users lose we gain, what they gain we lose, and commission is ours</span></div>
+  <div class="eq">
+    <div class="stat"><span class="mut small" title="Opposite of the users' realised P&L on closed trades, before commission">From closed trades</span><b id="hBooked" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Opposite of the users' unrealised P&L: what we would make or lose if every open position were closed now">From open positions</span><b id="hOpen" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Brokerage users paid on every buy and sell">Commission earned</span><b id="hComm" class="num">—</b></div><div class="opx">=</div>
+    <div class="stat hl"><span class="mut small" title="Coins allocated − Users' net balance">Our net P&L</span><b id="hNet" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
+    <div class="stat"><span class="mut small" title="Closed trades today, commission included (open positions not counted)">Our P&L today</span><b id="sToday" class="num">—</b></div>
+  </div>
+  <div class="bookh" style="margin-top:14px"><b>Users' book</b><span class="small mut">the same money from the users' side</span></div>
   <div class="eq">
     <div class="stat"><span class="mut small" title="Credits minus debits, all users">Coins allocated</span><b id="sCredited" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Realised + unrealised, before commission">Trading P&L</span><b id="sGross" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Brokerage deducted on every buy and sell">Commission</span><b id="sComm" class="num">—</b></div><div class="opx">=</div>
-    <div class="stat"><span class="mut small" title="What all accounts are worth now = Exposure + Available (+ unrealised profit)">Total equity</span><b id="sEquity" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
-    <div class="stat"><span class="mut small" title="Trading P&L + Commission; Total equity − Coins allocated">Net P&L (after commission)</span><b id="sPnl" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Unrealised + realised, before commission">Users' P&L</span><b id="sGross" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Brokerage deducted on every buy and sell">Commission paid</span><b id="sComm" class="num">—</b></div><div class="opx">=</div>
+    <div class="stat hl"><span class="mut small" title="What all user accounts are worth now = Margin used + Available balance (+ unrealised profit)">Users' net balance</span><b id="sEquity" class="num">—</b></div>
   </div>
-  <div class="grid">
+  <div class="grid g4">
     <div class="stat"><span class="mut small">Users</span><b id="sUsers">—</b></div>
     <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
-    <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Exposure (margin blocked)</span><b id="sExposure" class="num">—</b></div>
-    <div class="stat"><span class="mut small" title="Total equity − exposure − unrealised losses">Available to trade</span><b id="sAvail" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Today's realised P&L</span><b id="sToday" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin used</span><b id="sExposure" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Users' net balance − margin used − unrealised losses">Available balance</span><b id="sAvail" class="num">—</b></div>
   </div>
-  <div class="recon"><span>Coins allocated + Trading P&L + Commission = Total equity · Total equity = Exposure + Available (+ unrealised profit)</span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
+  <div class="recon"><span>Our net P&L = Coins allocated − Users' net balance · Users' net balance = Margin used + Available balance (+ unrealised profit)</span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
   </div>
 
   <div class="card">
@@ -447,7 +455,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
 $('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
-async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=r.daily[istToday()]||0;$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}
+async function loadToday(){try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=-(r.daily[istToday()]||0);$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);}catch(e){}}
 
 // ----- master accounts & 2FA -----
 let meAdmin=null;
@@ -481,7 +489,7 @@ async function loadLive(){try{livePos=await api('/admin/positions');renderLive()
 async function loadUsers(){loadLive();users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
   $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);$('#sAvail').textContent=inr(users.reduce((a,u)=>a+(u.available||0),0));{const c=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sComm').textContent=c?'-'+inr(c):'₹0';$('#sComm').className='num '+(c?'dn':'');}
-  $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sGross').textContent=sgn(te-tc+tcm);$('#sGross').className='num '+cls(te-tc+tcm);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hComm',tcm);set('#hNet',tc-te);}$('#sGross').textContent=sgn(te-tc+tcm);$('#sGross').className='num '+cls(te-tc+tcm);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All users</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();
 }

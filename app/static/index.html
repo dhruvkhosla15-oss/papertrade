@@ -152,6 +152,7 @@ td:first-child,th:first-child{text-align:left}
 .catHead{display:flex;align-items:center;gap:10px;padding:10px 0 2px}
 .dlp{display:flex;flex-wrap:wrap;gap:6px}.dlp button{background:var(--seg);color:var(--mut);padding:7px 12px;font-weight:500}.dlp button.active{background:var(--acc);color:#0f1115;font-weight:600}
 .dlgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dlgrid button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px}.dlgrid button span{font-weight:400;white-space:normal}
+.plrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 2px;font-size:15px}.plrow span{color:var(--mut)}.plrow b{font-weight:600}.plrow.tot span{color:var(--txt);font-weight:600}.plrow.tot b{font-size:17px;font-weight:700}.plrow.sep{border-top:1px solid var(--line)}
 .perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ulist button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between}
@@ -338,7 +339,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <!-- ACCOUNT -->
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
-    <div class="seg" id="pfSeg" style="margin-bottom:12px"><button data-pf="orders" class="active">Order Book</button><button data-pf="acct">Account</button></div>
+    <div class="seg" id="pfSeg" style="margin-bottom:12px"><button data-pf="orders" class="active">Order Book</button><button data-pf="pnl">P&amp;L</button><button data-pf="acct">Account</button></div>
     <div id="pfOrders">
     <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download</button></div>
     <div class="card" style="padding:0;overflow:auto">
@@ -349,6 +350,16 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
       <table id="trdTbl"><thead><tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Comm.</th><th>Realised</th></tr></thead><tbody></tbody></table>
     </div>
       </div>
+    <div id="pfPnl" class="hidden">
+    <h3 style="margin-top:0">My P&amp;L</h3>
+    <div class="card"><div id="pnlCards"></div><div class="small mut" style="margin-top:8px">P&amp;L = Unrealised + Realised · Net P&amp;L = P&amp;L − Commission · Net balance = Allocated + Net P&amp;L</div></div>
+    <h3>By period <span class="small mut" style="text-transform:none;letter-spacing:0">closed trades, after commission</span></h3>
+    <div class="card">
+      <div class="perf3" id="perfCards"></div>
+      <div class="small mut" id="perfMeta" style="margin-top:8px"></div>
+      <button class="ghost" id="xlsBtn" style="width:100%;margin-top:10px">⬇ Download reports (Excel)</button>
+    </div>
+    </div>
     <div id="pfAcct" class="hidden">
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
     <div class="card row hidden" id="masterRow" style="align-items:center"><div><b>Master test coins</b><div class="small mut">Your own balance for trying trades here. Not counted in any user total.</div></div><button class="btn" id="masterCoins" style="flex:0 0 auto">+ ₹10,00,000</button></div>
@@ -362,12 +373,6 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
           <div class="row" style="margin-top:8px"><input id="tfaCode" inputmode="numeric" placeholder="123 456" style="font-size:18px;letter-spacing:.15em;text-align:center"><button id="tfaConfirm" style="flex:0 0 auto">Confirm</button></div>
         </div></div>
       <div id="tfaOn" class="hidden" style="margin-top:10px"><div class="row"><input id="tfaOffCode" inputmode="numeric" placeholder="current code" style="text-align:center"><button class="ghost" id="tfaDisable" style="flex:0 0 auto">Turn off</button></div><div class="small mut" style="margin-top:6px">Lost your phone? Your trainer can reset it for you.</div></div>
-    </div>
-    <h3>My Performance</h3>
-    <div class="card">
-      <div class="perf3" id="perfCards"></div>
-      <div class="small mut" id="perfMeta" style="margin-top:8px"></div>
-      <button class="ghost" id="xlsBtn" style="width:100%;margin-top:10px">⬇ Download reports (Excel)</button>
     </div>
     <h3>Coin Ledger</h3>
     <div class="card" style="padding:0;overflow:auto">
@@ -993,7 +998,9 @@ $('#tfaDisable').onclick=async()=>{try{await api('/2fa/disable',{method:'POST',b
 const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 function perfRange(p){const t=new Date(Date.now()+330*60000),d=istDay();if(p==='today')return[d,d];if(p==='week'){const m=new Date(t);m.setUTCDate(t.getUTCDate()-(t.getUTCDay()+6)%7);return[m.toISOString().slice(0,10),d];}if(p==='month')return[d.slice(0,8)+'01',d];return['',''];}
 async function loadPerf(){try{const d=istDay();const[w]=perfRange('week'),[m]=perfRange('month');
-  const [rt,rw,rm]=await Promise.all([api(`/report?from=${d}&to=${d}`),api(`/report?from=${w}&to=${d}`),api(`/report?from=${m}&to=${d}`)]);
+  const [rt,rw,rm,ra]=await Promise.all([api(`/report?from=${d}&to=${d}`),api(`/report?from=${w}&to=${d}`),api(`/report?from=${m}&to=${d}`),api(`/report?from=2024-01-01&to=${d}`)]);
+  {const a=ra.users[0]||{},f=state.funds||{};const un=f.unrealised||0,comm=a.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=pl-un;const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';
+  $('#pnlCards').innerHTML=[['Allocated',inr(a.allocated||0),''],['Available balance',inr(f.available||0),''],['Margin used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L',sg(net),c(net)],['Net balance',inr(eq),'']].map(([k,x,cl])=>`<div class="plrow${['P&L','Net P&L','Net balance'].includes(k)?' tot':''}${['Unrealised','Commission','Net balance'].includes(k)?' sep':''}"><span>${k}</span><b class="num ${cl}">${x}</b></div>`).join('');}
   const v=r=>r.users[0]?r.users[0].net_pnl:0,u=rm.users[0]||{};
   $('#perfCards').innerHTML=[['Today',v(rt)],['This week',v(rw)],['This month',v(rm)]].map(([k,x])=>`<div class="stat"><span class="small mut">${k}</span><b class="num ${x>0?'up':x<0?'dn':''}">${(x>0?'+':'')+inr(x)}</b></div>`).join('');
   $('#perfMeta').textContent=u.closing_trades?`This month: ${u.closing_trades} closed trades · ${u.win_rate}% winners · best ${inr(u.best)} · worst ${inr(u.worst)}`:'No closed trades this month yet.';}catch(e){}}
@@ -1011,7 +1018,7 @@ $$('[data-dl]').forEach(b=>b.onclick=()=>{const[f,t]=dlRange(dlPreset);if(dlPres
 
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>showTab('market');
-function setPf(k){$$('#pfSeg button').forEach(b=>b.classList.toggle('active',b.dataset.pf===k));$('#pfOrders').classList.toggle('hidden',k!=='orders');$('#pfAcct').classList.toggle('hidden',k!=='acct');}
+function setPf(k){$$('#pfSeg button').forEach(b=>b.classList.toggle('active',b.dataset.pf===k));$('#pfOrders').classList.toggle('hidden',k!=='orders');$('#pfPnl').classList.toggle('hidden',k!=='pnl');$('#pfAcct').classList.toggle('hidden',k!=='acct');}
 function showTab(tab,home){if(tab==='orders'){tab='account';setPf('orders');}if(state.guest&&!['watch','market'].includes(tab)){showLogin();return;}state.tab=tab;
   $$('nav.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab&&(tab!=='watch'||x.dataset.home===(home||currentHome()))));
   ['watch','market','positions','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));

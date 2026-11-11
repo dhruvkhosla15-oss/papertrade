@@ -24,6 +24,7 @@ from .feed.mock import MockFeed
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("app")
+logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print full request URLs
 
 app = FastAPI(title="LimeFX")
 from fastapi.middleware.gzip import GZipMiddleware
@@ -51,10 +52,6 @@ async def _security_headers(request: Request, call_next):
     h.setdefault("X-Frame-Options", "DENY")
     h.setdefault("Referrer-Policy", "same-origin")
     h.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-    if request.url.path.startswith("/static/film/"):   # temporary brand-film preview page: videos live on the generator's CDN
-        h["Content-Security-Policy"] = ("default-src 'none'; style-src 'unsafe-inline'; "
-                                        "media-src https://d8j0ntlcm91z4.cloudfront.net https://d2ol7oe51mr4n9.cloudfront.net; img-src https://d8j0ntlcm91z4.cloudfront.net; "
-                                        "frame-ancestors 'none'; base-uri 'none'")
     h.setdefault("Content-Security-Policy", _CSP)
     if request.url.path.startswith("/static/") and resp.status_code == 200:
         h.setdefault("Cache-Control", "public, max-age=86400")   # fonts, icons, chart library
@@ -913,9 +910,106 @@ async def backup_loop():
                     log.info("daily backup written: %s", today.name)
                 for old in sorted(d.glob("limefx-*.db"))[:-14]:
                     old.unlink(missing_ok=True)
+                if _tg_ready() and today.exists() and _tg_state().get("sent") != today.name:
+                    await asyncio.get_event_loop().run_in_executor(None, _tg_send, today)
         except Exception:
             log.exception("daily backup failed")
         await asyncio.sleep(3600)
+
+
+# ---- off-server copy: the daily snapshot, encrypted, sent to a private Telegram chat --------------------
+# Railway variables: PT_TG_BOT_TOKEN, PT_TG_CHAT_ID, PT_BACKUP_PASSWORD (all three required; never logged).
+def _tg_cfg():
+    return (os.getenv("PT_TG_BOT_TOKEN", "").strip(), os.getenv("PT_TG_CHAT_ID", "").strip(), os.getenv("PT_BACKUP_PASSWORD", ""))
+
+
+def _tg_ready() -> bool:
+    return all(_tg_cfg())
+
+
+def _tg_state_file() -> Path:
+    return config.DATA_DIR / "backups" / "offsite.json"
+
+
+def _tg_state() -> dict:
+    try:
+        return json.loads(_tg_state_file().read_text())
+    except Exception:
+        return {}
+
+
+def _encrypt_backup(raw: bytes, password: str) -> bytes:
+    """gzip, then AES-256-GCM with a key derived from the password (scrypt). Layout: LFXB1 | salt16 | nonce12 | data."""
+    import gzip
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    salt, nonce = os.urandom(16), os.urandom(12)
+    key = Scrypt(salt=salt, length=32, n=2 ** 15, r=8, p=1).derive(password.encode())
+    return b"LFXB1" + salt + nonce + AESGCM(key).encrypt(nonce, gzip.compress(raw), b"LFXB1")
+
+
+def _tg_send(snapshot: Path, daily: bool = True) -> dict:
+    """Send one encrypted snapshot. Records the outcome; never raises and never logs the token."""
+    import httpx
+    token, chat, password = _tg_cfg()
+    st = _tg_state()
+    now = f"{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d %H:%M}"
+    try:
+        blob = _encrypt_backup(snapshot.read_bytes(), password)
+        name = snapshot.name.replace(".db", ".db.enc")
+        r = httpx.post(f"{os.getenv('PT_TG_API', 'https://api.telegram.org')}/bot{token}/sendDocument", timeout=60,
+                       data={"chat_id": chat, "caption": f"limefx backup {snapshot.stem.replace('limefx-', '')} (encrypted)"},
+                       files={"document": (name, blob, "application/octet-stream")})
+        if r.status_code == 200 and r.json().get("ok"):
+            st.update(sent_at=now, error="", ok_at=now)
+            if daily:
+                st["sent"] = snapshot.name
+            log.info("off-server backup sent: %s (%d KB)", name, len(blob) // 1024)
+        else:
+            try:
+                desc = str(r.json().get("description", ""))[:160]
+            except Exception:
+                desc = ""
+            st.update(error=f"{now}: Telegram refused it ({r.status_code}) {desc}")
+            log.warning("off-server backup refused: %s %s", r.status_code, desc)
+    except Exception as e:   # the exception text can contain the request URL (and so the token): keep only its type
+        st.update(error=f"{now}: could not send ({type(e).__name__})")
+        log.warning("off-server backup failed: %s", type(e).__name__)
+    try:
+        _tg_state_file().parent.mkdir(exist_ok=True)
+        _tg_state_file().write_text(json.dumps(st))
+    except Exception:
+        pass
+    return st
+
+
+@app.get("/api/admin/backup/offsite")
+def admin_offsite(admin: User = Depends(current_admin)):
+    token, chat, password = _tg_cfg()
+    st = _tg_state()
+    return {"configured": _tg_ready(), "missing": [n for n, v in (("PT_TG_BOT_TOKEN", token), ("PT_TG_CHAT_ID", chat), ("PT_BACKUP_PASSWORD", password)) if not v],
+            "last_sent": st.get("sent_at", ""), "last_file": st.get("sent", ""), "error": st.get("error", "")}
+
+
+@app.post("/api/admin/backup/offsite")
+def admin_offsite_send(admin: User = Depends(current_admin)):
+    """Send a fresh encrypted copy right now (also the way to test the setup)."""
+    if not _tg_ready():
+        raise HTTPException(400, "Off-server backup is not set up yet")
+    f = _db_file()
+    if not f or not f.exists():
+        raise HTTPException(400, "Backups are only available for the built-in database")
+    import tempfile
+    tmp = Path(tempfile.gettempdir()) / f"limefx-{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d-%H%M}.db"
+    _backup_to(tmp)
+    try:
+        st = _tg_send(tmp, daily=False)
+        ok = not st.get("error") and bool(st.get("ok_at"))
+    finally:
+        tmp.unlink(missing_ok=True)
+    if not ok:
+        raise HTTPException(502, st.get("error") or "Could not send")
+    return {"ok": True, "sent_at": st.get("sent_at")}
 
 
 @app.get("/api/admin/backup")

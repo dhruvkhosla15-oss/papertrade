@@ -265,6 +265,7 @@ a{color:var(--acc)}
     <h2>Backups &amp; activity</h2>
     <p class="small mut" style="margin-bottom:10px">A snapshot of all accounts, orders and ledgers is saved on the server every day and kept for 14 days. Download a copy to keep one off the server as well.</p>
     <div class="bar"><button id="bkDownload">⬇ Download backup now</button><span class="small mut" id="bkInfo"></span></div>
+    <div class="bar" style="margin-top:10px"><button class="ghost" id="osSend">Send a copy to Telegram now</button><span class="small mut" id="osInfo"></span></div>
     <div style="margin-top:14px"><b class="small">Master activity</b> <button class="ghost small" id="auLoad" style="padding:3px 8px;margin-left:6px">Show last 200</button></div>
     <div id="auList" class="small" style="margin-top:8px;max-height:260px;overflow:auto"></div>
   </div>
@@ -368,11 +369,13 @@ async function boot(){
   setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
 $('#bkDownload').onclick=()=>{location.href='/api/admin/backup';toast('Preparing backup…');};
+$('#osSend').onclick=async()=>{const b=$('#osSend');b.disabled=true;try{await api('/admin/backup/offsite',{method:'POST'});toast('Encrypted copy sent to Telegram');}catch(e){toast(e.message||'Could not send',1);}loadOffsite();};
 $('#auLoad').onclick=async()=>{try{const a=await api('/admin/audit');$('#auList').innerHTML=a.length?a.map(r=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(r.at).toLocaleString('en-IN')}</span> · <b>${r.admin}</b> · ${r.action.replace(/</g,'&lt;')}</div>`).join(''):'<span class="mut">Nothing recorded yet.</span>';}catch(e){toast(e.message,1);}};
 async function loadMaint(){try{const j=await fetch('/api/public/maintenance').then(r=>r.json());const m=j.maintenance;$('#mtInfo').innerHTML=m?`<b>Announced:</b> ${new Date(m.at_ms).toLocaleString('en-IN')} · about ${m.minutes} min${m.message?' · '+m.message.replace(/</g,'&lt;'):''}`:'<span class="mut">Nothing scheduled.</span>';}catch(e){}}
 $('#mtSet').onclick=async()=>{if(!$('#mtAt').value){toast('Pick a time',1);return;}try{await api('/admin/maintenance',{method:'POST',body:{at:$('#mtAt').value,minutes:+$('#mtMin').value||10,message:$('#mtMsg').value}});toast('Maintenance announced to all users');loadMaint();}catch(e){toast(e.message,1);}};
 $('#mtClear').onclick=async()=>{try{await api('/admin/maintenance',{method:'DELETE'});toast('Notice cleared');loadMaint();}catch(e){toast(e.message,1);}};
-async function loadBackups(){try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
+async function loadOffsite(){try{const o=await api('/admin/backup/offsite');const b=$('#osSend');b.disabled=!o.configured;$('#osInfo').textContent=!o.configured?'Off-server copy: not set up (missing '+o.missing.join(', ')+' in Railway variables)':(o.error?'Off-server copy: last attempt failed — '+o.error:(o.last_sent?'Off-server copy: encrypted file sent to Telegram every day · last sent '+o.last_sent:'Off-server copy: set up · first file goes out within the hour'));$('#osInfo').style.color=o.error?'var(--red,#ef4444)':'';}catch(e){}}
+async function loadBackups(){loadOffsite();try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;

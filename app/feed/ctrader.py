@@ -38,8 +38,10 @@ WANTED = [s.strip().upper() for s in os.getenv(
     "PT_FOREX_SYMBOLS",
     "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD,EURGBP,EURJPY,GBPJPY,EURAUD,AUDJPY,USDINR,XAUUSD,XAGUSD").split(",") if s.strip()]
 
-# World indices, energy and extra metals from the same feed, shown under "Global" (off until PT_GLOBAL_SYMBOLS is set).
-GLOBAL = [s.strip().upper() for s in os.getenv("PT_GLOBAL_SYMBOLS", "").split(",") if s.strip()]
+# World indices, energy and extra metals from the same feed, shown under "Global".
+GLOBAL = [s.strip().upper() for s in os.getenv(
+    "PT_GLOBAL_SYMBOLS", "US500,US30,USTEC,US2000,UK100,DE40,STOXX50,JP225,AUS200,XTIUSD,XBRUSD,XNGUSD,XPTUSD,XPDUSD").split(",")
+    if s.strip() and s.strip().lower() != "off"]   # PT_GLOBAL_SYMBOLS=off hides the Global section
 GLOBAL_INFO = {   # broker name -> (what the trainee sees, group)
     "US500": ("S&P 500", "US index"), "US30": ("Dow Jones 30", "US index"), "USTEC": ("Nasdaq 100", "US index"), "US2000": ("Russell 2000", "US index"),
     "UK100": ("UK 100", "World index"), "DE40": ("Germany 40", "World index"), "STOXX50": ("Euro Stoxx 50", "World index"),

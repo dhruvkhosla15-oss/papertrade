@@ -570,6 +570,7 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
     await _ensure_price(body.token)
     async with engine._lock:
+        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         try:
             o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
                                    body.limit_price, body.trigger_price, body.leverage,
@@ -598,6 +599,7 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None, leve
 @app.delete("/api/orders/{order_id}")
 async def cancel_order(order_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     async with engine._lock:
+        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         try:
             engine.cancel_order(db, user, order_id)
         except EngineError as e:
@@ -623,6 +625,7 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
     if not p or not p.qty:
         raise HTTPException(404, "position not found")
     async with engine._lock:
+        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         cancelled = engine.cancel_pending_for(db, user, p.token)
         try:
             o = engine.place_order(db, user, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
@@ -811,6 +814,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
         raise HTTPException(404)
     done, errors = 0, []
     async with engine._lock:
+        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
             try:
                 engine.cancel_pending_for(db, u, p.token)

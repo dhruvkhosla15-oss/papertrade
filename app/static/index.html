@@ -168,6 +168,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
 .pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
 .pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0}
+.bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
+.fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 </style>
 <script src="/static/lightweight-charts.js"></script>
 </head>
@@ -205,7 +207,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div></div>
+  <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
@@ -405,7 +407,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <div id="sheet" class="sheet hidden">
   <div class="box">
     <div class="row" style="justify-content:space-between">
-      <div><div class="sym" id="oSym"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
+      <button class="bk" data-back title="Back" aria-label="Back">‹</button><div style="flex:1;min-width:0"><div class="sym" id="oSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div><button class="ghost small" id="oWatch" style="padding:3px 8px;margin-top:4px">+ Watchlist</button></div>
     </div>
     <div id="oCcy" class="hidden" style="margin-top:8px;display:flex;justify-content:flex-end"></div>
@@ -460,7 +462,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 <div id="chartModal" class="sheet hidden" style="align-items:stretch">
   <div class="box chartbox" style="max-width:100%;border-radius:0;display:flex;flex-direction:column;padding:12px 14px">
     <div class="row" style="justify-content:space-between;align-items:center">
-      <div><div class="sym" id="cSym"></div><div class="small mut" id="cMeta"></div></div>
+      <button class="bk" data-back title="Back" aria-label="Back">‹</button><div style="flex:1;min-width:0"><div class="sym" id="cSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="cMeta"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="cLtp">—</div><div class="small num" id="cChg"></div></div>
       <button class="ghost" id="cClose" style="flex:0 0 auto;padding:8px 12px">✕</button>
     </div>
@@ -631,10 +633,12 @@ function feedDownText(f){const d=[];if(f.connected===false)d.push('NSE','BSE','M
 function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');const b=$('#banner');const dt=feedDownText(f);if(dt){b.innerHTML=dt;b.className='feedbar';}else b.className='feedbar hidden';
   if(m.dataset.h===html)return;m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;
   const w=m.querySelector('.mtrack').scrollWidth;if(w>m.clientWidth){m.querySelector('.mtrack').innerHTML=html+html;m.classList.add('run');}else m.classList.remove('run');}
+function fitFunds(){requestAnimationFrame(()=>[['fReal','fUnreal','fTot'],['fBal','fUsed','fAvail']].forEach(g=>{const els=g.map(id=>document.getElementById(id)).filter(e=>e&&e.clientWidth);if(!els.length)return;els.forEach(e=>e.style.fontSize='');let fs=parseFloat(getComputedStyle(els[0]).fontSize);while(fs>11&&els.some(e=>e.scrollWidth>e.clientWidth)){fs-=1;els.forEach(e=>e.style.fontSize=fs+'px');}}));}
+setInterval(()=>{if(state.tab==='positions')fitFunds();},1000);
 function hdrPnl(real,unreal){const t=real+unreal;$('#hPnl').innerHTML=`<span class="${pnlCls(t)}">${(t>=0?'+':'')+inr(t)}</span> <span class="mut">P&L today</span>`;$('#hPnl').title=`Realised ${inr(real)} · Unrealised ${inr(unreal)}`;}
 function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const u=f.unrealised,r=f.realised_today||0;hdrPnl(r,u);
-  $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);
+  $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);fitFunds();
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);
   const fm=$('#fMaint');if(fm){if(f.maintenance>0){const eq=f.equity,m=f.maintenance,warn=eq<m*1.5;fm.innerHTML=`Maintenance margin <b class="num ${warn?'dn':''}">${inr(m)}</b> · equity <b class="num ${warn?'dn':''}">${inr(eq)}</b>${warn?' · <b class="dn">close to liquidation</b>':' · positions are liquidated at market if equity falls below maintenance'}`;}else fm.textContent='';}}
@@ -1036,7 +1040,9 @@ boot();
       while(hd<n){history.pushState({lfx:hd+1},'');hd++;}
       if(hd>n){const d=hd-n;hd=n;history.go(-d);}
     }catch(e){/* Safari allows 100 history calls per 30s; just try again on the next tick */}}
-  setInterval(sync,200);
+  setInterval(()=>{sync();$('#hBack').classList.toggle('hidden',layers().length===0);},200);
+  const goBack=()=>{if(hd>0)history.back();else{const L=layers();if(L.length)L[L.length-1]();}};
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-back]');if(b){e.preventDefault();e.stopPropagation();goBack();}},true);
   window.addEventListener('popstate',e=>{
     hd=(e.state&&e.state.lfx)||0;
     for(let k=0;k<8;k++){const L=layers();if(L.length<=hd)break;try{L[L.length-1]();}catch(_){break;}}

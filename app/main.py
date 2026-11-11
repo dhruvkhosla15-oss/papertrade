@@ -827,6 +827,55 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
     return out
 
 
+# ---- scheduled maintenance notice --------------------------------------------------------------------
+class MaintIn(BaseModel):
+    at: str                 # "HH:MM" today (IST)
+    minutes: int = 10
+    message: str = ""
+
+
+def _maintenance(db) -> Optional[dict]:
+    at = get_setting(db, "maint_at", "")
+    if not at:
+        return None
+    try:
+        start = datetime.fromisoformat(at)
+    except ValueError:
+        return None
+    mins = int(get_setting(db, "maint_mins", "10") or 10)
+    now = datetime.utcnow() + timedelta(hours=5.5)
+    if now > start + timedelta(minutes=mins + 30):
+        return None                      # long over
+    return {"at": at, "at_ms": int((start - timedelta(hours=5.5) - datetime(1970, 1, 1)).total_seconds() * 1000),
+            "minutes": mins, "message": get_setting(db, "maint_msg", "") or ""}
+
+
+@app.get("/api/public/maintenance")
+def public_maintenance(db: Session = Depends(get_db)):
+    return {"maintenance": _maintenance(db)}
+
+
+@app.post("/api/admin/maintenance")
+def admin_set_maintenance(body: MaintIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    try:
+        hh, mm = [int(x) for x in body.at.strip().split(":")[:2]]
+    except ValueError:
+        raise HTTPException(400, "Time must look like 15:45")
+    now = datetime.utcnow() + timedelta(hours=5.5)
+    start = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if start < now - timedelta(minutes=5):
+        start += timedelta(days=1)       # a time already past means tomorrow
+    set_setting(db, "maint_at", start.isoformat()); set_setting(db, "maint_mins", str(max(1, min(body.minutes, 240))))
+    set_setting(db, "maint_msg", body.message.strip()[:200]); db.commit()
+    return {"maintenance": _maintenance(db)}
+
+
+@app.delete("/api/admin/maintenance")
+def admin_clear_maintenance(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    set_setting(db, "maint_at", ""); db.commit()
+    return {"ok": True}
+
+
 # ---- backups & audit trail ---------------------------------------------------------------------------
 def _db_file() -> Optional[Path]:
     return Path(config.DB_URL.replace("sqlite:///", "", 1)) if config.DB_URL.startswith("sqlite:///") else None

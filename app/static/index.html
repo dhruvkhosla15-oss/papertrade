@@ -170,6 +170,9 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
+.maintbar{display:flex;align-items:center;gap:9px;padding:8px 12px;font-size:12.5px;line-height:1.35;background:rgba(245,158,11,.14);border-bottom:1px solid rgba(245,158,11,.5);color:#fcd34d}.maintbar b{color:#fde68a}.maintbar.now{background:rgba(239,68,68,.16);border-bottom-color:rgba(239,68,68,.5);color:#fca5a5}.maintbar.now b{color:#fecaca}.maintbar.hidden{display:none}
+:root[data-theme="light"] .maintbar{color:#92400e}:root[data-theme="light"] .maintbar b{color:#78350f}:root[data-theme="light"] .maintbar.now{color:#991b1b}:root[data-theme="light"] .maintbar.now b{color:#7f1d1d}
+.mpop{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px}.mpop .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:360px;width:100%}
 </style>
 </head>
 <body>
@@ -211,6 +214,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
+<div id="maintBar" class="maintbar hidden"></div>
 <div id="banner" class="feedbar hidden"></div>
 <div id="mkts" class="mkts"></div>
 <div id="pwa" class="pwa hidden"><div class="ic"></div><div class="t"><b>Install limefx</b><span id="pwaMsg">Add it to your home screen — opens like an app, no link needed.</span></div><button class="go" id="pwaGo">Install</button><button class="x" id="pwaX" aria-label="Dismiss">✕</button></div>
@@ -1014,6 +1018,25 @@ $('#hFunds').onclick=()=>showTab('account');
 boot();
 
 
+
+/* ---- scheduled maintenance: advance notice, pop-up once, and a red bar while the server is away ---- */
+(function(){
+  const bar=$('#maintBar');let m=null,fails=0;try{m=JSON.parse(localStorage.getItem('lfx_maint')||'null');}catch(e){}
+  const tm=ms=>new Date(ms).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}).toLowerCase();
+  function render(){const now=Date.now();
+    if(m&&now>m.at_ms+(m.minutes+30)*60000)m=null;
+    const during=m&&now>=m.at_ms&&(now<m.at_ms+m.minutes*60000||fails>=2);
+    if(during){bar.className='maintbar now';bar.innerHTML=`<div><b>Under maintenance</b> — limefx will be back in a few minutes. Orders can't be placed right now; your positions and balance are safe.</div>`;}
+    else if(m&&now<m.at_ms){bar.className='maintbar';bar.innerHTML=`<div><b>Scheduled maintenance at ${tm(m.at_ms)}</b> — about ${m.minutes} min. The app will be briefly unavailable; pending orders are not watched during that time.${m.message?' '+m.message.replace(/</g,'&lt;'):''}</div>`;
+      let seen='';try{seen=localStorage.getItem('lfx_maint_seen')||'';}catch(e){}
+      if(seen!==m.at&&!document.querySelector('.mpop')){try{localStorage.setItem('lfx_maint_seen',m.at);}catch(e){}
+        const d=document.createElement('div');d.className='mpop';d.innerHTML=`<div class="box"><b style="font-size:16px">Scheduled maintenance</b><p class="small" style="margin:8px 0 14px;line-height:1.5">limefx will be briefly unavailable today at <b>${tm(m.at_ms)}</b> for about ${m.minutes} minutes. Your positions and balance are not affected. Pending limit and stop-loss orders are not watched during that time.${m.message?'<br><br>'+m.message.replace(/</g,'&lt;'):''}</p><button style="width:100%">OK</button></div>`;
+        d.querySelector('button').onclick=()=>d.remove();document.body.appendChild(d);}}
+    else if(fails>=3){bar.className='maintbar now';bar.innerHTML=`<div><b>Can't reach limefx</b> — retrying. Check your internet connection.</div>`;}
+    else bar.className='maintbar hidden';}
+  async function poll(){try{const r=await fetch('/api/public/maintenance',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();m=j.maintenance;fails=0;try{localStorage.setItem('lfx_maint',JSON.stringify(m));}catch(e){}}catch(e){fails++;}render();}
+  render();poll();setInterval(poll,20000);setInterval(render,5000);
+})();
 /* ---- phone/browser Back button: step back inside the app, one screen at a time ---- */
 (function(){
   const vis=id=>{const e=document.getElementById(id);return !!e&&!e.classList.contains('hidden')&&e.getClientRects().length>0;};

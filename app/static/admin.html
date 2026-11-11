@@ -256,6 +256,12 @@ a{color:var(--acc)}
     </div>
   </div>
   <div class="card">
+    <h2>Scheduled maintenance</h2>
+    <p class="small mut" style="margin-bottom:10px">Everyone using the app sees an amber notice and a one-time pop-up from now until the time you set, then a red "Under maintenance" bar while the server is away.</p>
+    <div class="bar" style="flex-wrap:wrap;gap:10px"><div><label class="small mut">Time today (IST)</label><input id="mtAt" type="time" style="width:130px"></div><div><label class="small mut">Minutes</label><input id="mtMin" type="number" value="10" min="1" style="width:80px"></div><div style="flex:1;min-width:180px"><label class="small mut">Extra note (optional)</label><input id="mtMsg" maxlength="200"></div><button id="mtSet" style="flex:0 0 auto">Announce</button><button class="ghost" id="mtClear" style="flex:0 0 auto">Clear</button></div>
+    <div class="small" id="mtInfo" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
     <h2>Backups &amp; activity</h2>
     <p class="small mut" style="margin-bottom:10px">A snapshot of all accounts, orders and ledgers is saved on the server every day and kept for 14 days. Download a copy to keep one off the server as well.</p>
     <div class="bar"><button id="bkDownload">⬇ Download backup now</button><span class="small mut" id="bkInfo"></span></div>
@@ -358,11 +364,14 @@ async function boot(){
   // idle for 30 minutes -> log out (the panel is too powerful to leave open on a shared screen)
   {let last=Date.now();['mousemove','keydown','click','touchstart','scroll'].forEach(ev=>addEventListener(ev,()=>last=Date.now(),{passive:true}));setInterval(async()=>{if(Date.now()-last>30*60*1000){try{await api('/logout',{method:'POST'});}catch(e){}location.reload();}},30000);}
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
-  await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);loadBackups();
+  await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);loadBackups();loadMaint();
   setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
 $('#bkDownload').onclick=()=>{location.href='/api/admin/backup';toast('Preparing backup…');};
 $('#auLoad').onclick=async()=>{try{const a=await api('/admin/audit');$('#auList').innerHTML=a.length?a.map(r=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(r.at).toLocaleString('en-IN')}</span> · <b>${r.admin}</b> · ${r.action.replace(/</g,'&lt;')}</div>`).join(''):'<span class="mut">Nothing recorded yet.</span>';}catch(e){toast(e.message,1);}};
+async function loadMaint(){try{const j=await fetch('/api/public/maintenance').then(r=>r.json());const m=j.maintenance;$('#mtInfo').innerHTML=m?`<b>Announced:</b> ${new Date(m.at_ms).toLocaleString('en-IN')} · about ${m.minutes} min${m.message?' · '+m.message.replace(/</g,'&lt;'):''}`:'<span class="mut">Nothing scheduled.</span>';}catch(e){}}
+$('#mtSet').onclick=async()=>{if(!$('#mtAt').value){toast('Pick a time',1);return;}try{await api('/admin/maintenance',{method:'POST',body:{at:$('#mtAt').value,minutes:+$('#mtMin').value||10,message:$('#mtMsg').value}});toast('Maintenance announced to all users');loadMaint();}catch(e){toast(e.message,1);}};
+$('#mtClear').onclick=async()=>{try{await api('/admin/maintenance',{method:'DELETE'});toast('Notice cleared');loadMaint();}catch(e){toast(e.message,1);}};
 async function loadBackups(){try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{

@@ -1006,6 +1006,32 @@ $('#hFunds').onclick=()=>showTab('account');
 
 boot();
 
+
+/* ---- phone/browser Back button: step back inside the app instead of leaving it ---- */
+(function(){
+  const vis=id=>{const e=document.getElementById(id);return !!e&&!e.classList.contains('hidden')&&e.getClientRects().length>0;};
+  const hide=id=>document.getElementById(id).classList.add('hidden');
+  function topLayer(){
+    if(vis('chartModal'))return ()=>$('#cClose').click();
+    if(vis('dlSheet'))return ()=>hide('dlSheet');
+    if(vis('sheet'))return ()=>hide('sheet');
+    if(state.guest&&vis('loginView')&&$('#loginClose'))return ()=>$('#loginClose').click();
+    if(state.tab==='market'){
+      if(vis('chainPanel'))return ()=>$('#backUnd').click();
+      if(vis('futPanel'))return ()=>$('#backUndF').click();
+      for(const id of ['undList','undListF']){if(vis(id)){const b=document.querySelector('#'+id+' .backCat');if(b)return ()=>b.click();}}
+    }
+    const home=state.tab==='watch'&&vis('pulseView');
+    if(state.tab&&!home&&vis('appView'))return ()=>{const b=document.querySelector('nav.tabs button[data-home=pulse]');if(b)b.click();};
+    return null;
+  }
+  let armed=!!(history.state&&history.state.lfx),ignore=false;   // a reload can land on our own entry
+  setInterval(()=>{const need=!!topLayer();
+    if(need&&!armed){history.pushState({lfx:1},'');armed=true;}
+    else if(!need&&armed){armed=false;ignore=true;history.back();}
+  },250);
+  window.addEventListener('popstate',()=>{if(ignore){ignore=false;return;}armed=false;const f=topLayer();if(f)f();});
+})();
 /* ---- installable app (PWA) ---- */
 (function(){
   if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}

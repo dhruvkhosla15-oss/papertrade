@@ -344,6 +344,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
+    <div class="card row hidden" id="masterRow" style="align-items:center"><div><b>Master test coins</b><div class="small mut">Your own balance for trying trades here. Not counted in any trainee total.</div></div><button class="btn" id="masterCoins" style="flex:0 0 auto">+ ₹10,00,000</button></div>
     <div class="card row" id="pwaRow" style="align-items:center"><div><b>Install app</b><div class="small mut" id="pwaRowMsg">Put limefx on your home screen — opens full screen, no link.</div></div><button class="btn" id="pwaRowGo" style="flex:0 0 auto">Install</button></div>
     <div class="card" id="tfaCard">
       <div class="row" style="align-items:center"><div style="flex:1"><b>Two-factor login</b><div class="small mut" id="tfaStatus">Adds a 6-digit code from Google Authenticator / Authy to your login.</div></div><span class="pill" id="tfaPill" style="flex:0 0 auto">off</span></div>
@@ -590,7 +591,7 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   if(!me){return bootGuest();}
   state.me=me;if(me.usdinr)state.usdinr=me.usdinr;setTimeout(()=>{if(window.lfxPwaAfterLogin)window.lfxPwaAfterLogin();},1500);
   if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
-  setGuest(false);$('#loginView').classList.add('hidden');if(state.me.user.is_admin){state.master=true;const hb=$('#hLogin');hb.classList.remove('hidden');hb.textContent='Master';hb.title='Back to the master panel';hb.onclick=()=>location.href='/admin';}
+  setGuest(false);$('#loginView').classList.add('hidden');if(state.me.user.is_admin){state.master=true;const hb=$('#hLogin');hb.classList.remove('hidden');hb.textContent='Master';hb.title='Back to the master panel';hb.onclick=()=>location.href='/admin';$('#masterRow').classList.remove('hidden');$('#masterCoins').onclick=async()=>{try{const j=await api('/admin/self/test-coins',{method:'POST'});renderFunds(j.funds);toast('₹10,00,000 test coins added');}catch(e){toast(e.message);}};}
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';$('#hAvatar').textContent=(state.me.user.display_name||state.me.user.username).split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
   state.marketOpen=state.me.market_open;state.marketStatus=state.me.market_status;renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');

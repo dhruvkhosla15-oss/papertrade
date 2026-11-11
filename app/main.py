@@ -565,8 +565,6 @@ def _feed_up(exchange: str) -> bool:
 
 @app.post("/api/orders")
 async def place_order(body: OrderIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.is_admin:
-        raise HTTPException(400, "Master login is view-only here — it has no coins. Use a trainee login to place orders.")
     ins = feed.instruments.get(body.token)
     if ins and not _feed_up(ins.exchange):
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
@@ -724,6 +722,15 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                                           .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
                     "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
+
+
+@app.post("/api/admin/self/test-coins")
+def admin_self_test_coins(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """The master's own test balance for trying trades in the trader view. Kept out of every trainee
+    total (all trainee lists and summaries filter on is_admin=False)."""
+    engine._ledger(db, admin, 1000000.0, "ADMIN_CREDIT", "master test coins")
+    db.commit()
+    return {"ok": True, "funds": engine.funds(db, admin)}
 
 
 @app.post("/api/admin/users")

@@ -170,6 +170,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0}
 .bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
+header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
 </style>
 <script src="/static/lightweight-charts.js"></script>
 </head>
@@ -207,7 +208,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 
 <div id="appView">
 <header>
-  <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div></div>
+  <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div style="min-width:0"><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div><a id="hMaster" class="hidden" href="/admin" style="display:none;font-size:12px;font-weight:600;color:var(--acc);text-decoration:none;margin-top:3px">‹ Master panel</a></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
@@ -593,7 +594,7 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   if(!me){return bootGuest();}
   state.me=me;if(me.usdinr)state.usdinr=me.usdinr;setTimeout(()=>{if(window.lfxPwaAfterLogin)window.lfxPwaAfterLogin();},1500);
   if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
-  setGuest(false);$('#loginView').classList.add('hidden');if(state.me.user.is_admin){state.master=true;const hb=$('#hLogin');hb.classList.remove('hidden');hb.textContent='Master';hb.title='Back to the master panel';hb.onclick=()=>location.href='/admin';$('#masterRow').classList.remove('hidden');$('#masterCoins').onclick=async()=>{try{const j=await api('/admin/self/test-coins',{method:'POST'});renderFunds(j.funds);toast('₹10,00,000 test coins added');}catch(e){toast(e.message);}};}
+  setGuest(false);$('#loginView').classList.add('hidden');if(state.me.user.is_admin){state.master=true;$('#hMaster').classList.remove('hidden');$('#hMaster').style.display='block';$('#masterRow').classList.remove('hidden');$('#masterCoins').onclick=async()=>{try{const j=await api('/admin/self/test-coins',{method:'POST'});renderFunds(j.funds);toast('₹10,00,000 test coins added');}catch(e){toast(e.message);}};}
   $('#accName').textContent=state.me.user.display_name+' ('+state.me.user.username+')';$('#hAvatar').textContent=(state.me.user.display_name||state.me.user.username).split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
   state.marketOpen=state.me.market_open;state.marketStatus=state.me.market_status;renderFunds(state.me.funds);renderFeed(state.me.feed);
   state.und=await api('/underlyings');
@@ -641,7 +642,7 @@ function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);fitFunds();
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);
-  const fm=$('#fMaint');if(fm){if(f.maintenance>0){const eq=f.equity,m=f.maintenance,warn=eq<m*1.5;fm.innerHTML=`Maintenance margin <b class="num ${warn?'dn':''}">${inr(m)}</b> · equity <b class="num ${warn?'dn':''}">${inr(eq)}</b>${warn?' · <b class="dn">close to liquidation</b>':' · positions are liquidated at market if equity falls below maintenance'}`;}else fm.textContent='';}}
+  const fm=$('#fMaint');if(fm){const warn=f.maintenance>0&&f.equity<f.maintenance*1.5;fm.innerHTML=warn?'<b class="dn">Close to a margin call — add coins or reduce positions</b>':'';fm.style.display=warn?'':'none';}}
 async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}

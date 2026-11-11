@@ -51,6 +51,10 @@ async def _security_headers(request: Request, call_next):
     h.setdefault("X-Frame-Options", "DENY")
     h.setdefault("Referrer-Policy", "same-origin")
     h.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    if request.url.path.startswith("/static/film/"):   # temporary brand-film preview page: videos live on the generator's CDN
+        h["Content-Security-Policy"] = ("default-src 'none'; style-src 'unsafe-inline'; "
+                                        "media-src https://d8j0ntlcm91z4.cloudfront.net; img-src https://d8j0ntlcm91z4.cloudfront.net; "
+                                        "frame-ancestors 'none'; base-uri 'none'")
     h.setdefault("Content-Security-Policy", _CSP)
     if request.url.path.startswith("/static/") and resp.status_code == 200:
         h.setdefault("Cache-Control", "public, max-age=86400")   # fonts, icons, chart library

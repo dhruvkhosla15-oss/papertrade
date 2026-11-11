@@ -1028,15 +1028,20 @@ boot();
     if(vis('dlSheet'))L.push(()=>hide('dlSheet'));
     if(vis('chartModal'))L.push(()=>$('#cClose').click());
     return L;}
-  let hd=(history.state&&history.state.lfx)||0,skip=0;       // hd = history entries we own (survives a reload)
-  setInterval(()=>{const n=layers().length;
-    while(hd<n){hd++;history.pushState({lfx:hd},'');}
-    if(hd>n){const d=hd-n;hd=n;skip++;history.go(-d);}
-  },200);
-  window.addEventListener('popstate',e=>{if(skip>0){skip--;return;}
+  // hd = history entries we own. Every popstate (a real Back press, an iOS edge-swipe, or our own
+  // history.go) just re-reads the depth from the entry we landed on and closes whatever is above it,
+  // so the two can never drift apart — no counters to get out of step.
+  let hd=(history.state&&history.state.lfx)||0;
+  function sync(){try{const n=layers().length;
+      while(hd<n){history.pushState({lfx:hd+1},'');hd++;}
+      if(hd>n){const d=hd-n;hd=n;history.go(-d);}
+    }catch(e){/* Safari allows 100 history calls per 30s; just try again on the next tick */}}
+  setInterval(sync,200);
+  window.addEventListener('popstate',e=>{
     hd=(e.state&&e.state.lfx)||0;
-    for(let k=0;k<6;k++){const L=layers();if(L.length<=hd)break;L[L.length-1]();}
+    for(let k=0;k<8;k++){const L=layers();if(L.length<=hd)break;try{L[L.length-1]();}catch(_){break;}}
   });
+  window.addEventListener('pageshow',e=>{if(e.persisted)hd=(history.state&&history.state.lfx)||0;});   // iOS back-forward cache
 })();
 /* ---- installable app (PWA) ---- */
 (function(){

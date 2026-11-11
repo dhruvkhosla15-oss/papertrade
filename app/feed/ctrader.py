@@ -375,6 +375,15 @@ class CTraderForex:
                     d["open"] = low + int(bar.get("deltaOpen", 0)) / PRICE_SCALE
                     d["high"] = low + int(bar.get("deltaHigh", 0)) / PRICE_SCALE
                     d["low"] = low
+            # Day high/low: the spot stream carries no session range, so keep it ourselves — seeded from
+            # today's daily candle (see candles()) and extended tick by tick. The forex day rolls at
+            # 22:00 UTC (5 pm New York).
+            fxday = int((time.time() + 2 * 3600) // 86400)
+            if d.get("_hlday") != fxday:
+                if d.get("_hlday") is not None or d.get("high") is None:
+                    d["high"] = d["low"] = d["ltp"]; d["open"] = d["ltp"]
+                d["_hlday"] = fxday
+            d["high"] = max(d.get("high") or d["ltp"], d["ltp"]); d["low"] = min(d.get("low") or d["ltp"], d["ltp"])
             if "bids" not in d:
                 # no depth yet: top of book with the broker's typical liquidity unknown -> 1 lot each side
                 _lot = self.items[tok].lot_size if tok in self.items else LOT_UNITS
@@ -467,6 +476,13 @@ class CTraderForex:
                         "high": low + int(b.get("deltaHigh", 0)) / PRICE_SCALE, "low": low,
                         "close": low + int(b.get("deltaClose", 0)) / PRICE_SCALE, "volume": int(b.get("volume", 0)), "oi": 0})
         out.sort(key=lambda x: x["time"])
+        if period == D1 and out and time.time() - out[-1]["time"] < 86400:
+            # today's (still forming) daily bar gives the true session range so far
+            cur = self.feed.prices.get(token)
+            if cur is not None:
+                t = out[-1]
+                cur["open"] = t["open"]; cur["high"] = max(t["high"], cur.get("ltp") or t["high"]); cur["low"] = min(t["low"], cur.get("ltp") or t["low"])
+                cur["_hlday"] = int((time.time() + 2 * 3600) // 86400)
         return out
 
     # ---- master controls --------------------------------------------------------------------------------

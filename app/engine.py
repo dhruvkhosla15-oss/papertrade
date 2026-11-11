@@ -866,7 +866,8 @@ class Engine:
                 "order_type": o.order_type, "lots": o.lots, "qty": o.qty, "limit_price": o.limit_price,
                 "validity": o.validity or "DAY", "product": o.product or "NRML",
                 "trigger_price": o.trigger_price, "status": o.status, "fill_price": o.fill_price,
-                "reason": o.reason, "created_at": o.created_at.isoformat() + "Z"}
+                "reason": o.reason, "created_at": o.created_at.isoformat() + "Z",
+                "updated_at": (o.updated_at or o.created_at).isoformat() + "Z"}
 
     def position_dict(self, p: Position) -> dict:
         ltp = self.feed.ltp(p.token)

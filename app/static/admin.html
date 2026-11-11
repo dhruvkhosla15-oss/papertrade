@@ -64,6 +64,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .kite .small{color:var(--mut)}.kite .bar button{padding:6px 12px;font-size:12px}
 .kite .bar{margin-left:auto}
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+#uTbl th,#uTbl td{text-align:center}#uTbl th:first-child,#uTbl td:first-child{text-align:left}
 .bookh{display:flex;align-items:baseline;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}.bookh b{font-size:15px}.stat.hl{box-shadow:inset 0 0 0 1px var(--line)}.stat.hl b{font-size:20px}.grid.g3{grid-template-columns:repeat(3,1fr)}
 .eq{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}.eq .stat{flex:1}.eq .opx{flex:0 0 18px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;font-size:16px}
 @media(max-width:760px){header>div:first-child{min-width:0;flex:1 1 100%}header .mkts{flex-wrap:wrap;gap:6px}header .bar{width:100%;justify-content:flex-end}}
@@ -149,21 +150,21 @@ a{color:var(--acc)}
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
   <div class="card">
-  <div class="bookh"><b>Our book</b><span class="small mut">the other side of every user trade — what users lose we gain, what they gain we lose, and commission is ours</span></div>
+  <div class="bookh"><b>Our Book</b></div>
   <div class="eq">
-    <div class="stat"><span class="mut small" title="Coins given to all users (credits minus debits)">Coins allocated</span><b id="sCredited" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
-    <div class="stat"><span class="mut small" title="Opposite of the users' realised P&L on closed trades, before commission">From closed trades</span><b id="hBooked" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Opposite of the users' unrealised P&L: what we would make or lose if every open position were closed now">From open positions</span><b id="hOpen" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Brokerage users paid on every buy and sell">Commission earned</span><b id="hComm" class="num">—</b></div><div class="opx">=</div>
-    <div class="stat hl"><span class="mut small" title="Coins allocated − Users' net balance">Our net P&L</span><b id="hNet" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
-    <div class="stat"><span class="mut small" title="Closed trades today, commission included (open positions not counted)">Our P&L today</span><b id="sToday" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Coins given to all users (credits minus debits)">Coins Allocated</span><b id="sCredited" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
+    <div class="stat"><span class="mut small" title="Opposite of the users' realised P&L on closed trades, before commission">Closed Trades</span><b id="hBooked" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Opposite of the users' unrealised P&L: what we would make or lose if every open position were closed now">Open Positions</span><b id="hOpen" class="num">—</b></div><div class="opx">+</div>
+    <div class="stat"><span class="mut small" title="Brokerage users paid on every buy and sell">Commission</span><b id="hComm" class="num">—</b></div><div class="opx">=</div>
+    <div class="stat hl"><span class="mut small" title="Coins allocated − Users' net balance">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
+    <div class="stat"><span class="mut small" title="Closed trades today, commission included (open positions not counted)">P&amp;L Today</span><b id="sToday" class="num">—</b></div>
   </div>
   <div class="grid g3" style="margin-top:10px">
-    <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin used</span><b id="sExposure" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin Used</span><b id="sExposure" class="num">—</b></div>
     <div class="stat"><span class="mut small">Users</span><b id="sUsers">—</b></div>
-    <div class="stat"><span class="mut small">Open positions</span><b id="sPos">—</b></div>
+    <div class="stat"><span class="mut small">Live Positions</span><b id="sPos">—</b></div>
   </div>
-  <div class="recon"><span>Our net P&L = what users are down in total, commission included</span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
+  <div class="recon"><span></span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
   </div>
 
   <div class="card">
@@ -179,12 +180,12 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search user…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th>Status</th><th class="sort" data-k="total_credited" title="Coins given to the user">Allocated</th><th class="sort" data-k="available" title="What they can still trade with">Available balance</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Margin used</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="pl_total" title="Unrealised + Realised, before commission">P&amp;L</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="pnl" title="P&L − Commission">Net P&amp;L</th><th class="sort" data-k="equity" title="Allocated + Net P&L">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th>Status</th><th class="sort" data-k="total_credited" title="Coins given to the user">Allocated</th><th class="sort" data-k="available" title="What they can still trade with">Available Balance</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Margin Used</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="pl_total" title="Unrealised + Realised, before commission">P&amp;L</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="pnl" title="P&L − Commission">Net P&amp;L</th><th class="sort" data-k="equity" title="Allocated + Net P&L">Net Balance</th><th class="sort" data-k="open_positions">Open Pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="card" style="padding:0;overflow:auto">
-    <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Live positions <span class="small mut" id="lpCount"></span></h2><span class="small mut" id="lpTot"></span></div>
-    <table id="lpTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th class="sort" data-k="symbol">Contract</th><th>Side</th><th class="sort" data-k="lots">Lots</th><th>Avg price</th><th>Now</th><th class="sort" data-k="unrealised" title="If closed right now at the live exit price">Unrealised</th><th class="sort" data-k="margin">Margin</th><th>Type</th><th class="sort" data-k="opened_at">Opened</th></tr></thead><tbody></tbody></table>
+    <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Live Positions <span class="small mut" id="lpCount"></span></h2><span class="small mut" id="lpTot"></span></div>
+    <table id="lpTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th class="sort" data-k="symbol">Contract</th><th>Side</th><th class="sort" data-k="lots">Lots</th><th>Avg Price</th><th>Now</th><th class="sort" data-k="unrealised" title="If closed right now at the live exit price">Unrealised</th><th class="sort" data-k="margin">Margin</th><th>Type</th><th class="sort" data-k="opened_at">Opened</th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -559,7 +560,7 @@ async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);const realised=f.balance-cred+comm;
   {const pl=(f.unrealised||0)+realised;const PN=new Set(['Unrealised','Realised','P&L','Net P&L']);
-  $('#dFunds').innerHTML=[['Allocated',cred],['Available balance',f.available],['Margin used',f.used_margin],['Unrealised',f.unrealised],['Realised',realised],['P&L',pl],['Commission',-comm],['Net P&L',f.equity-cred],['Net balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
+  $('#dFunds').innerHTML=[['Allocated',cred],['Available Balance',f.available],['Margin Used',f.used_margin],['Unrealised',f.unrealised],['Realised',realised],['P&L',pl],['Commission',-comm],['Net P&L',f.equity-cred],['Net Balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
   const T=$('#dTbl');
   const lotTxt=(qty,lot)=>{const l=lot?qty/lot:qty;const n=Math.abs(l);return `${l>0?'+':'−'}${n%1?n.toFixed(2):n} lot${n===1?'':'s'}<div class="small mut">${Math.abs(qty)} units</div>`;};
   if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Lots</th><th>Avg</th><th title="Price the user could exit at right now (bid for a long, ask for a short) — unrealised P&L is marked to this, same as the user screen">Exit px</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';

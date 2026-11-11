@@ -1441,7 +1441,10 @@ def my_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str
 
 def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str], only: Optional[str] = None) -> bytes:
     """only: None = everything; 'orderbook' | 'pnl' | 'ledger' = one standalone statement.
-    (Legacy comma lists like 'orders,trades' are mapped onto these.)"""
+    (Legacy comma lists like 'orders,trades' are mapped onto these.)
+
+    Every sheet uses the same words, in the same order, as the screens:
+    Allocated, Available Balance, Margin Used, Unrealised, Realised, P&L, Commission, Net P&L, Net Balance."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -1450,36 +1453,48 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         only = "orderbook" if "order" in o else "ledger" if "ledger" in o else "pnl"
     rep = build_report(db, users, from_, to)
     start, end, f, t = _range(from_, to)
-    period = "All history" if not from_ else (rep["from"] if rep["from"] == rep["to"] else f"{rep['from']} to {rep['to']}")
-    who = users[0].display_name if len(users) == 1 else f"All users ({len(users)})"
+    period = "All Time" if not from_ else (rep["from"] if rep["from"] == rep["to"] else f"{rep['from']} to {rep['to']}")
+    who = users[0].display_name if len(users) == 1 else f"All Users ({len(users)})"
     gen = (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M IST")
     wb = Workbook()
     hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="365314")
-    title_font = Font(bold=True, size=14, color="365314"); bold = Font(bold=True)
+    title_font = Font(bold=True, size=14, color="365314"); bold = Font(bold=True); grey = Font(color="6B7280")
     tot_fill = PatternFill("solid", fgColor="ECFCCB")
+    MONEY = '#,##0.00;[Red]-#,##0.00'
 
-    def sheet(title, headers, rows, money_cols=(), statement=None, totals=None):
+    def sheet(title, headers, rows, money_cols=(), statement=None, totals=None, summary=None, int_cols=()):
+        """One statement: title, who / period / generated, an optional one-line summary, then the table.
+        Text is left-aligned, numbers right-aligned, column widths follow the content."""
         ws = wb.active if wb.active.title == "Sheet" else wb.create_sheet(title)
         ws.title = title
-        top = 1
-        if statement:
-            ws.append([f"limeFX — {statement}"]); ws["A1"].font = title_font
-            ws.append([f"User: {who}", "", f"Period: {period}", "", f"Generated: {gen}"])
-            for c in ws[2]: c.font = Font(color="6B7280")
-            ws.append([]); top = 4
+        ws.append([f"limefx — {statement or title}"]); ws["A1"].font = title_font
+        ws.append([f"User: {who}   ·   Period: {period}   ·   Generated: {gen}"]); ws["A2"].font = grey
+        ws.append([summary or ""]); ws["A3"].font = bold
+        ws.append([])
+        top = 5
         ws.append(headers)
         for c in ws[top]:
-            c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center")
+            c.font = hdr_font; c.fill = hdr_fill; c.alignment = Alignment(horizontal="center", vertical="center")
         for r in rows:
             ws.append(r)
+        last_data = ws.max_row
         if totals:
             ws.append(totals)
             for c in ws[ws.max_row]: c.font = bold; c.fill = tot_fill
         for i, h in enumerate(headers, 1):
-            ws.column_dimensions[get_column_letter(i)].width = max(12, min(44, len(str(h)) + 6))
-            if i in money_cols:
-                for cell in ws.iter_rows(min_row=top + 1, min_col=i, max_col=i):
-                    cell[0].number_format = '#,##0.00'
+            L = get_column_letter(i)
+            numeric = i in money_cols or i in int_cols
+            width = len(str(h))
+            for (cell,) in ws.iter_rows(min_row=top + 1, max_row=ws.max_row, min_col=i, max_col=i):
+                v = cell.value
+                if v is None:
+                    continue
+                if i in money_cols and isinstance(v, (int, float)):
+                    cell.number_format = MONEY; width = max(width, len(f"{v:,.2f}") + 1)
+                else:
+                    width = max(width, len(str(v)))
+                cell.alignment = Alignment(horizontal="right" if (numeric and isinstance(v, (int, float))) else "left", vertical="top")
+            ws.column_dimensions[L].width = max(10, min(60, width + 3))
         ws.freeze_panes = f"A{top + 1}"
         return ws
 
@@ -1489,58 +1504,69 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
     tcol = ["User"] if many else []
     tval = (lambda uid: [uid2name.get(uid, "")]) if many else (lambda uid: [])
     sh = lambda n: n + (1 if many else 0)   # column shift when the User column is present
+    sg = lambda v: f"{v:+,.2f}" if round(v, 2) else "0.00"
 
-    # ---- Order book statement -------------------------------------------------------------
+    # ---- Order Book -----------------------------------------------------------------------------
     if only in (None, "orderbook"):
         orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
-        filled = sum(1 for o in orders if o.status == "FILLED"); rej = sum(1 for o in orders if o.status == "REJECTED")
-        sheet("Order Book", ["Date", "Time (IST)"] + tcol + ["Contract", "Side", "Type", "Lots", "Qty", "Limit price", "Trigger", "Status", "Fill price", "Note"],
+        cnt = lambda st: sum(1 for o in orders if o.status == st)
+        sheet("Order Book", ["Date", "Time (IST)"] + tcol + ["Contract", "Side", "Type", "Lots", "Qty", "Limit Price", "Trigger Price", "Fill Price", "Status", "Note"],
               [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S")] + tval(o.user_id) + [o.symbol, o.side, o.order_type,
-                o.lots, o.qty, o.limit_price, o.trigger_price, o.status, o.fill_price, o.reason] for o in orders],
-              money_cols=(sh(8), sh(9), sh(11)), statement="Order Book Statement",
-              totals=[f"{len(orders)} orders", f"{filled} filled, {rej} rejected"] + [""] * (sh(11) - 1))
-    # ---- P&L statement -----------------------------------------------------------------------
+                o.lots, o.qty, o.limit_price, o.trigger_price, o.fill_price, o.status, o.reason] for o in orders],
+              money_cols=(sh(8), sh(9), sh(10)), int_cols=(sh(6), sh(7)), statement="Order Book",
+              summary=f"Orders {len(orders)}   ·   Filled {cnt('FILLED')}   ·   Open {cnt('OPEN')}   ·   Rejected {cnt('REJECTED')}   ·   Cancelled {cnt('CANCELLED')}")
+    # ---- P&L Statement --------------------------------------------------------------------------
     if only in (None, "pnl"):
         trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
         cm = round(sum(x.commission or 0 for x in trades), 2)
-        net = round(sum(x.realised_pnl or 0 for x in trades) - cm, 2)
-        gp = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) > 0), 2)
-        gl = round(sum(x.realised_pnl for x in trades if (x.realised_pnl or 0) < 0), 2)
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Commission", "Realised P&L", "Net"],
+        real = round(sum(x.realised_pnl or 0 for x in trades), 2)
+        net = round(real - cm, 2)
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L"],
               [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
-                x.side, x.qty, x.price, round(x.price * x.qty, 2), -(x.commission or 0), x.realised_pnl, round((x.realised_pnl or 0) - (x.commission or 0), 2)] for x in trades],
-              money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), statement="Profit & Loss Statement",
-              totals=[f"{len(trades)} trades", f"Gross profit {gp:,.2f} / Gross loss {gl:,.2f}"] + [""] * (sh(6)) + [-cm, round(gp + gl, 2), net])
+                x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2)] for x in trades],
+              money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), int_cols=(sh(6),), statement="P&L Statement",
+              summary=f"Trades {len(trades)}   ·   Realised {sg(real)}   ·   Commission {sg(-cm)}   ·   Net P&L {sg(net)}   (closed trades in this period)",
+              totals=["TOTAL"] + [""] * (sh(8) - 1) + [real, -cm, net])
+        # the same figures per user, in the order the screens use, then how the account stands now
+        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L", "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
+                          "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (All Time)"],
+              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), -u["commission"], u["net_pnl"], u["trades"], u["closing_trades"],
+                u["wins"], u["losses"], u["win_rate"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"],
+                u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
+              money_cols=(3, 4, 5, 11, 12, 13, 14, 16, 17, 18), int_cols=(6, 7, 8, 9, 10, 15), statement="Summary",
+              summary="Realised, Commission, Net P&L and Trades are for the period. Allocated, Net Balance and Net P&L (All Time) are as of now.",
+              totals=(["TOTAL", "", real, -cm, net, len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
+                      round(sum(u["equity"] for u in rep["users"]), 2), round(sum(u["overall_pnl"] for u in rep["users"]), 2)]) if many else None)
         days = sorted({d for u in rep["users"] for d in u["daily"]})
         cum = 0; rows = []
         for d in days:
             v = rep["daily"].get(d, 0); cum = round(cum + v, 2)
             rows.append([d] + ([u["daily"].get(d, 0) for u in rep["users"]] if many else []) + [v, cum])
-        sheet("Daily P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative"], rows,
-              money_cols=tuple(range(2, (len(rep["users"]) if many else 0) + 4)), statement="Day-wise Profit & Loss")
-        sheet("Summary", ["User", "Username", "Trades", "Closing trades", "Wins", "Losses", "Win rate %", "Gross profit", "Gross loss",
-                          "Commission paid", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss", "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
-              [[u["display_name"], u["username"], u["trades"], u["closing_trades"], u["wins"], u["losses"], u["win_rate"], u["gross_profit"], u["gross_loss"],
-                -u["commission"], u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
-              money_cols=(8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19), statement="Performance Summary")
-    # ---- Ledger statement ------------------------------------------------------------------------
+        ncol = (len(rep["users"]) if many else 0) + 3
+        sheet("Daily Net P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative Net P&L"], rows,
+              money_cols=tuple(range(2, ncol + 1)), statement="Daily Net P&L",
+              summary="Net P&L per day = Realised − Commission on that day's closed trades.")
+    # ---- Ledger Statement -----------------------------------------------------------------------
     if only in (None, "ledger"):
-        kinds = {"ADMIN_CREDIT": "Coins added by master", "ADMIN_DEBIT": "Coins removed by master", "REALISED_PNL": "Realised P&L",
-                 "EXPIRY_SETTLEMENT": "Expiry settlement", "LOT_SIZE_CORRECTION": "Lot size correction", "COMMISSION": "Commission"}
+        kinds = {"ADMIN_CREDIT": "Coins Added", "ADMIN_DEBIT": "Coins Removed", "REALISED_PNL": "Realised",
+                 "EXPIRY_SETTLEMENT": "Expiry Settlement", "LOT_SIZE_CORRECTION": "Lot Size Correction", "COMMISSION": "Commission",
+                 "LIQUIDATION": "Margin Call"}
         led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
-        rows = []
+        rows = []; opening = None
         if not many:
             prev = db.query(Ledger).filter(Ledger.user_id == ids[0], Ledger.created_at < start).order_by(Ledger.created_at.desc()).first()
-            rows.append([rep["from"] if from_ else "", "", "Opening balance", "", prev.balance_after if prev else 0, ""])
+            opening = prev.balance_after if prev else 0
+            rows.append([rep["from"] if from_ else "", "", "Opening Balance", "", opening, ""])
         rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
         pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION")), 2)
         cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
-        closing = led[-1].balance_after if (led and not many) else (rows[0][4] if rows and not many else None)
-        sheet("Ledger", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance after", "Note"], rows, money_cols=(sh(4), sh(5)),
-              statement="Coin Ledger Statement",
-              totals=[f"{len(led)} entries", f"Added {cr:,.0f} / Removed {dr:,.0f} / P&L {pnl:,.2f} / Commission {cmm:,.2f}"] + [""] * (sh(1)) + ["Closing balance" if not many else "", closing if not many else "", ""])
+        closing = (led[-1].balance_after if led else opening) if not many else None
+        summ = f"Entries {len(led)}   ·   Coins Added {sg(cr)}   ·   Coins Removed {sg(dr)}   ·   Realised {sg(pnl)}   ·   Commission {sg(cmm)}   ·   Net P&L {sg(round(pnl + cmm, 2))}"
+        sheet("Ledger Statement", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance After", "Note"], rows, money_cols=(sh(4), sh(5)),
+              statement="Ledger Statement", summary=summ,
+              totals=(["", "", "Closing Balance", "", closing, ""] if not many else None))
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 
@@ -1575,60 +1601,93 @@ def _admin_rows(db):
 
 @app.get("/api/admin/summary.xlsx")
 def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """The Master panel as a sheet: the Dashboard row (our side) on top, the user table under it, the
+    same columns in the same order as the screen."""
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     rows = _admin_rows(db)
-    wb = Workbook(); ws = wb.active; ws.title = "Users"
-    hdr = ["User", "Username", "Status", "Allocated", "Exposure (margin blocked)", "Available", "Unrealised P&L",
-           "Realised P&L (before commission)", "Commission", "Net balance", "Net P&L", "Net P&L %", "Open positions", "Trades"]
-    ws.append(hdr)
-    for c in ws[1]:
-        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E1B2C"); c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[1].height = 32
-    for r in rows:
-        ws.append([r["name"], r["username"], r["status"], r["allocated"], r["exposure"], r["available"], r["unrealised"],
-                   r["realised"], -r["commission"], r["net_balance"], r["net_pnl"],
-                   (r["net_pnl"] / r["allocated"]) if r["allocated"] else 0, r["open_positions"], r["trades"]])
-    n = len(rows); tot = n + 2
-    ws.cell(tot, 1, "TOTAL").font = Font(bold=True)
-    for col in (4, 5, 6, 7, 8, 9, 10, 11, 13, 14):
-        L = get_column_letter(col); ws.cell(tot, col, f"=SUM({L}2:{L}{n + 1})").font = Font(bold=True)
-    ws.cell(tot, 12, f"=IF(D{tot}=0,0,K{tot}/D{tot})").font = Font(bold=True)
+    now = (datetime.utcnow() + timedelta(hours=5, minutes=30))
+    wb = Workbook(); ws = wb.active; ws.title = "Master Summary"
+    cols = ["User", "Username", "Status", "Allocated", "Available Balance", "Margin Used", "Unrealised", "Realised", "P&L",
+            "Commission", "Net P&L", "Net Balance", "Open Pos", "Trades"]
+    hfont = Font(bold=True, color="FFFFFF"); hfill = PatternFill("solid", fgColor="365314"); bold = Font(bold=True)
+    tfill = PatternFill("solid", fgColor="ECFCCB")
     money = '"₹"#,##0.00;[Red]-"₹"#,##0.00'
-    for row in ws.iter_rows(min_row=2, max_row=tot):
-        for c in row[3:11]:
-            c.number_format = money
-        row[11].number_format = "0.00%"
-    # reconciliation check column
-    ws.cell(1, 16, "Check: Allocated + Realised + Commission + Unrealised − Net balance (should be 0)").font = Font(bold=True)
-    for i in range(2, n + 2):
-        ws.cell(i, 16, f"=ROUND(D{i}+H{i}+I{i}+G{i}-J{i},2)").number_format = money
-    for i, w in enumerate([22, 14, 9, 15, 18, 15, 15, 20, 14, 15, 14, 11, 10, 8, 2, 30], 1):
+
+    def header(r):
+        for i, h in enumerate(cols, 1):
+            c = ws.cell(r, i, h); c.font = hfont; c.fill = hfill; c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[r].height = 22
+
+    ws["A1"] = "limefx — Master Summary"; ws["A1"].font = Font(bold=True, size=14, color="365314")
+    ws["A2"] = f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   All Time   ·   {len(rows)} Users"; ws["A2"].font = Font(color="6B7280")
+    DASH_H, DASH_V, USERS_T, USERS_H = 4, 5, 7, 8
+    first = USERS_H + 1; n = len(rows); last = first + n - 1; tot = last + 1
+    # ---- users (their side) ----
+    ws.cell(USERS_T, 1, "Users (Their Side)").font = bold
+    header(USERS_H)
+    for k, r in enumerate(rows):
+        i = first + k
+        for c, v in enumerate([r["name"], r["username"], r["status"], r["allocated"], r["available"], r["exposure"], r["unrealised"], r["realised"],
+                               f"=G{i}+H{i}", -r["commission"], f"=I{i}+J{i}", r["net_balance"], r["open_positions"], r["trades"]], 1):
+            ws.cell(i, c, v)
+    ws.cell(tot, 1, "TOTAL")
+    for col in range(4, 15):
+        L = get_column_letter(col)
+        ws.cell(tot, col, f"=SUM({L}{first}:{L}{last})" if n else 0)
+    for c in ws[tot]:
+        c.font = bold; c.fill = tfill
+    # ---- dashboard (our side): the totals with the P&L signs turned round ----
+    ws.cell(DASH_H - 1, 1, "Dashboard (Our Side)").font = bold
+    header(DASH_H)
+    for i in (1, 2, 3):
+        ws.cell(DASH_H, i, "").fill = hfill
+    ws.cell(DASH_V, 1, "Dashboard").font = bold
+    for col in range(4, 15):
+        L = get_column_letter(col)
+        flip = col in (7, 8, 9, 10, 11)          # Unrealised, Realised, P&L, Commission, Net P&L are the opposite for us
+        ws.cell(DASH_V, col, f"={'-' if flip else ''}{L}{tot}").font = bold
+    for c in ws[DASH_V]:
+        c.fill = tfill
+    # ---- check column ----
+    ws.cell(USERS_H, 16, "Check (Should Be 0)").font = bold
+    for i in range(first, last + 1):
+        ws.cell(i, 16, f"=ROUND(D{i}+K{i}-L{i},2)").number_format = money
+    # ---- formats and alignment ----
+    for r in [DASH_V] + list(range(first, tot + 1)):
+        for col in range(4, 13):
+            c = ws.cell(r, col); c.number_format = money; c.alignment = Alignment(horizontal="right")
+        for col in (13, 14):
+            ws.cell(r, col).alignment = Alignment(horizontal="right")
+        for col in (1, 2, 3):
+            ws.cell(r, col).alignment = Alignment(horizontal="left")
+    for i, w in enumerate([24, 14, 10, 17, 19, 17, 16, 16, 16, 15, 16, 18, 10, 9, 2, 20], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = "B2"
-    # how to read it
-    w2 = wb.create_sheet("How it adds up")
-    lines = [["limeFX — master summary", ""], ["Generated (IST)", (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%d %b %Y, %I:%M %p")], ["", ""],
-             ["Allocated", "Coins the master has credited to the user (credits minus debits)."],
-             ["Exposure", "Margin blocked right now by open positions and pending orders."],
-             ["Available", "Allocated ± realised − commission − exposure − any unrealised loss: what the user can still trade with."],
-             ["Unrealised P&L", "Open positions marked to the price they could exit at now (bid for longs, ask for shorts)."],
-             ["Realised P&L", "Profit or loss booked on closed trades, before commission."],
-             ["Commission", "Brokerage deducted on every buy and sell (shown negative)."],
-             ["Net balance", "What the account is worth now = Allocated + Realised + Commission + Unrealised."],
-             ["Net P&L", "Net balance − Allocated (after commission)."], ["", ""],
-             ["Identities", "Net balance = Allocated + Realised + Commission + Unrealised"],
-             ["", "Net balance = Exposure + Available (+ unrealised profit, if positive — a loss is already inside Available)"],
-             ["", "Allocated = Net balance − Net P&L"]]
+    ws.freeze_panes = f"B{USERS_H + 1}"
+    # ---- how to read it ----
+    w2 = wb.create_sheet("How It Adds Up")
+    lines = [["limefx — How It Adds Up", ""], ["", ""],
+             ["Allocated", "Coins given to the user (added minus removed)."],
+             ["Available Balance", "What the user can still trade with."],
+             ["Margin Used", "Margin blocked by open positions and pending orders."],
+             ["Unrealised", "Open positions valued at the price they could exit at right now."],
+             ["Realised", "Profit or loss booked on closed trades, before commission."],
+             ["P&L", "Unrealised + Realised."],
+             ["Commission", "Charged on every buy and sell. Negative for the user, positive for us."],
+             ["Net P&L", "P&L + Commission (commission is negative for the user)."],
+             ["Net Balance", "Allocated + Net P&L. What the account is worth now."],
+             ["", ""],
+             ["Dashboard (Our Side)", "The TOTAL row with Unrealised, Realised, P&L, Commission and Net P&L turned round: what users lose, we gain."],
+             ["Check (Should Be 0)", "Allocated + Net P&L − Net Balance for each user."]]
     for l in lines:
         w2.append(l)
     w2["A1"].font = Font(bold=True, size=13)
-    for i in range(4, 12):
+    for i in range(3, 15):
         w2.cell(i, 1).font = Font(bold=True)
-    w2.column_dimensions["A"].width = 18; w2.column_dimensions["B"].width = 110
+    w2.column_dimensions["A"].width = 24; w2.column_dimensions["B"].width = 110
     buf = io.BytesIO(); wb.save(buf)
-    return _xlsx_response(buf.getvalue(), f"limefx_master_summary_{(datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime('%Y-%m-%d')}.xlsx")
+    return _xlsx_response(buf.getvalue(), f"limefx_master_summary_{now.strftime('%Y-%m-%d')}.xlsx")
 
 
 @app.get("/api/admin/export.xlsx")

@@ -233,7 +233,9 @@ a{color:var(--acc)}
     <div class="row" style="margin-top:8px"><div><label class="small mut">Short MCX options: fraction of the futures rate (SPAN charges a little less for OTM delta)</label><input id="mOptF" type="number" step="0.01" min="0.3" max="1"></div></div>
     <h2 style="margin-top:18px">Commission</h2>
     <div class="row">
-      <div><label class="small mut">% of traded value, charged on every buy and sell (0 = free)</label><input id="commPct" type="number" step="0.005" min="0"></div>
+      <div><label class="small mut">Futures: % of traded value, on every buy and sell (0 = free)</label><input id="commPct" type="number" step="0.005" min="0"></div>
+      <div><label class="small mut">Options (NSE, BSE, MCX, Currency): % of premium, on every buy and sell</label><input id="commPctOpt" type="number" step="0.01" min="0"></div>
+      <div><label class="small mut">Flat fee per order (NSE, BSE, MCX, Currency), in coins (0 = none)</label><input id="commFlat" type="number" step="1" min="0"></div>
       <div><label class="small mut">Forex % (IC Markets Raw ≈ 0.0035)</label><input id="commPctFx" type="number" step="0.0005" min="0"></div>
       <div class="small mut" style="flex:2;align-self:center">Realistic brokerage + charges so only a true edge shows up as profit. Debited from coins at fill time and shown in the user's ledger and P&L statements.</div>
     </div>
@@ -256,6 +258,13 @@ a{color:var(--acc)}
       <div><label class="small mut">Password (min 6)</label><input id="aPass" type="password"></div>
       <button id="aBtn" style="flex:0 0 auto">Add master</button>
     </div>
+  </div>
+  <div class="card">
+    <h2>Notice To Users</h2>
+    <p class="small mut" style="margin-bottom:10px">Every user sees this once as a pop-up the next time they open the app. Posting a new notice shows it to everyone again.</p>
+    <input id="ntTitle" maxlength="60" placeholder="Title" style="margin-bottom:8px">
+    <textarea id="ntText" maxlength="800" rows="5" placeholder="Message" style="width:100%;margin-bottom:8px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;resize:vertical"></textarea>
+    <div class="bar"><button id="ntPost">Post notice</button><button class="ghost" id="ntClear">Remove notice</button><span class="small mut" id="ntInfo"></span></div>
   </div>
   <div class="card">
     <h2>Scheduled maintenance</h2>
@@ -399,10 +408,13 @@ function renderProbe(d){const l=d.last;try{const [h,m]=d.runs_at.split(':').map(
 async function loadProbe(){try{renderProbe(await api('/admin/probe'));}catch(e){}}
 $('#pbRun').onclick=async()=>{const b=$('#pbRun');b.disabled=true;$('#pbInfo').textContent='Running — about a minute…';try{await api('/admin/probe/run',{method:'POST'});toast('Safety check finished');}catch(e){toast(e.message||'Could not run',1);}b.disabled=false;loadProbe();};
 async function loadOffsite(){try{const o=await api('/admin/backup/offsite');const b=$('#osSend');b.disabled=!o.configured;$('#osInfo').textContent=!o.configured?'Off-server copy: not set up (missing '+o.missing.join(', ')+' in Railway variables)':(o.error?'Off-server copy: last attempt failed — '+o.error:(o.last_sent?'Off-server copy: encrypted file sent to Telegram every day · last sent '+o.last_sent:'Off-server copy: set up · first file goes out within the hour'));$('#osInfo').style.color=o.error?'var(--red,#ef4444)':'';}catch(e){}}
-async function loadBackups(){loadOffsite();loadProbe();try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
+async function loadNotice(){try{const n=(await api('/admin/notice')).notice;$('#ntInfo').textContent=n?'Live now: “'+n.title+'”':'No notice is showing';if(n&&!$('#ntText').value){$('#ntTitle').value=n.title;$('#ntText').value=n.text;}}catch(e){}}
+$('#ntPost').onclick=async()=>{try{await api('/admin/notice',{method:'POST',body:{title:$('#ntTitle').value,text:$('#ntText').value}});toast('Notice posted');loadNotice();}catch(e){toast(e.message,1)}};
+$('#ntClear').onclick=async()=>{try{await api('/admin/notice',{method:'DELETE'});toast('Notice removed');$('#ntText').value='';$('#ntTitle').value='';loadNotice();}catch(e){toast(e.message,1)}};
+async function loadBackups(){loadOffsite();loadProbe();loadNotice();try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
-  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;
+  $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctOpt').value=s.commission_pct_options;$('#commFlat').value=s.commission_flat;$('#commPctFx').value=s.commission_pct_forex;
   $('#lqOn').value=String(s.liquidity_check);$('#lqSpread').value=s.max_spread_pct;$('#lqStale').value=s.stale_minutes;}
   $('#setInfo').textContent=`${s.feed.instruments} contracts loaded · ${s.feed.subscribed} live · market hours ${s.enforce_market_hours?'enforced':'NOT enforced (test mode)'} · ${s.underlyings.filter(u=>u!=='STOCKS').join(', ')}${s.stock_fno?' + all F&O stocks':''} + all MCX`;
   const f=s.feed;$('#mkts').innerHTML=marketChips(f,s.market_status||{});{const fb=$('#feedbar');const dt=feedDownText(f);if(dt){fb.innerHTML=dt+'<a href="#feeds" class="small" style="margin-left:auto;color:#fecaca;white-space:nowrap">Reconnect ›</a>';fb.className='feedbar';}else fb.className='feedbar hidden';}
@@ -445,7 +457,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o?'opens '+o:'closed'}</small></span>`;}).join('');}
-$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
+$('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_options:+$('#commPctOpt').value,commission_flat:+$('#commFlat').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 async function loadToday(){}

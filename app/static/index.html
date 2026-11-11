@@ -853,7 +853,7 @@ const toUsd=v=>(state.sel?.exchange==='CRYPTO'&&v)?+(v/cRate()).toFixed(6):v;   
 let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!state.sel)return;const lots=+$('#oLots').value||0;if(!lots)return;
   const price=state.otype==='LIMIT'?toUsd(+$('#oLimit').value):undefined;
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
-    const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
+    const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%${j.commission_flat?' + ₹'+j.commission_flat:''})`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype,validity:state.otype==='MARKET'?'DAY':(state.validity||'DAY'),product:state.product||'NRML'};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
@@ -1070,7 +1070,10 @@ boot();
         d.querySelector('button').onclick=()=>d.remove();document.body.appendChild(d);}}
     else if(fails>=3){bar.className='maintbar now';bar.innerHTML=`<div><b>Can't reach limefx</b> — retrying. Check your internet connection.</div>`;}
     else bar.className='maintbar hidden';}
-  async function poll(){try{const r=await fetch('/api/public/maintenance',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();m=j.maintenance;fails=0;try{localStorage.setItem('lfx_maint',JSON.stringify(m));}catch(e){}}catch(e){fails++;}render();}
+  function notice(n){if(!n||!n.id||state.guest||!state.me)return;let seen='';try{seen=localStorage.getItem('lfx_notice_seen')||'';}catch(e){}if(seen===n.id||document.querySelector('.mpop'))return;
+    const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';d.innerHTML=`<div class="box"><b style="font-size:16px">${esc(n.title)}</b><p class="small" style="margin:8px 0 14px;line-height:1.55;white-space:pre-line">${esc(n.text)}</p><button style="width:100%">OK</button></div>`;
+    d.querySelector('button').onclick=()=>{try{localStorage.setItem('lfx_notice_seen',n.id);}catch(e){}d.remove();};document.body.appendChild(d);}
+  async function poll(){try{const r=await fetch('/api/public/maintenance',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();m=j.maintenance;fails=0;notice(j.notice);try{localStorage.setItem('lfx_maint',JSON.stringify(m));}catch(e){}}catch(e){fails++;}render();}
   render();poll();setInterval(poll,20000);setInterval(render,5000);
 })();
 /* ---- phone/browser Back button: step back inside the app, one screen at a time ---- */

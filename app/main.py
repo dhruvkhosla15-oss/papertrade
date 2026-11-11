@@ -743,7 +743,8 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None, leve
         leverage = None
     return {"margin": engine._opening_margin(db, user, ins, side.upper(), qty, p, leverage), "qty": qty,
             "full_margin": engine.required_margin(db, ins, side.upper(), qty, p, leverage),
-            "commission": round(p * qty * engine.vf(ins) * engine.commission_pct(db, ins.exchange) / 100.0, 2), "commission_pct": engine.commission_pct(db, ins.exchange),
+            "commission": engine.commission(db, ins, p, qty) if qty else 0.0, "commission_pct": engine.commission_terms(db, ins)[0],
+            "commission_flat": engine.commission_terms(db, ins)[1],
             "value_factor": engine.vf(ins), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
 
@@ -991,9 +992,43 @@ def _maintenance(db) -> Optional[dict]:
             "minutes": mins, "message": get_setting(db, "maint_msg", "") or ""}
 
 
+def _notice(db) -> Optional[dict]:
+    """A message from the master that every user sees once, as a pop-up."""
+    text = (get_setting(db, "notice_text", "") or "").strip()
+    if not text:
+        return None
+    return {"id": get_setting(db, "notice_id", "") or "", "title": get_setting(db, "notice_title", "") or "Notice", "text": text}
+
+
+class NoticeIn(BaseModel):
+    title: str = ""
+    text: str
+
+
 @app.get("/api/public/maintenance")
 def public_maintenance(db: Session = Depends(get_db)):
-    return {"maintenance": _maintenance(db)}
+    return {"maintenance": _maintenance(db), "notice": _notice(db)}
+
+
+@app.get("/api/admin/notice")
+def admin_get_notice(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return {"notice": _notice(db)}
+
+
+@app.post("/api/admin/notice")
+def admin_set_notice(body: NoticeIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    text = body.text.strip()[:800]
+    if not text:
+        raise HTTPException(400, "Write the notice first")
+    set_setting(db, "notice_text", text); set_setting(db, "notice_title", (body.title.strip() or "Notice")[:60])
+    set_setting(db, "notice_id", (datetime.utcnow() + timedelta(hours=5.5)).strftime("%Y%m%d%H%M%S")); db.commit()
+    return {"notice": _notice(db)}
+
+
+@app.delete("/api/admin/notice")
+def admin_clear_notice(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    set_setting(db, "notice_text", ""); db.commit()
+    return {"notice": None}
 
 
 @app.post("/api/admin/maintenance")
@@ -1323,6 +1358,8 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
         v = get_setting(db, f"margin_pct_{g}"); mp[g] = float(v) if v else config.DEFAULT_MARGIN_PCT[g]
     return {"margin_pct": mp, "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db), "market_status": _market_status(),
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
+            "commission_pct_options": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_options")),
+            "commission_flat": float(get_setting(db, "commission_flat") or 0),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
@@ -1332,6 +1369,8 @@ class SettingsIn(BaseModel):
     margin_pct: dict
     commission_pct: Optional[float] = None
     commission_pct_forex: Optional[float] = None
+    commission_pct_options: Optional[float] = None
+    commission_flat: Optional[float] = None
     mcx_option_factor: Optional[float] = None
     liquidity_check: Optional[bool] = None
     max_spread_pct: Optional[float] = None
@@ -1348,6 +1387,10 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, "commission_pct", str(max(0.0, float(body.commission_pct))))
     if body.commission_pct_forex is not None:
         set_setting(db, "commission_pct_FOREX", str(max(0.0, float(body.commission_pct_forex))))
+    if body.commission_pct_options is not None:
+        set_setting(db, "commission_pct_options", str(max(0.0, min(5.0, float(body.commission_pct_options)))))
+    if body.commission_flat is not None:
+        set_setting(db, "commission_flat", str(max(0.0, min(1000.0, float(body.commission_flat)))))
     if body.liquidity_check is not None:
         set_setting(db, "liquidity_check", "true" if body.liquidity_check else "false")
     if body.max_spread_pct is not None:

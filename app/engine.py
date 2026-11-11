@@ -75,6 +75,38 @@ class Engine:
         v = get_setting(db, "commission_pct")
         return float(v) if v not in (None, "") else DEFAULT_COMMISSION_PCT
 
+    def commission_terms(self, db: Session, ins) -> tuple:
+        """(% of traded value, flat coins per executed order) for this contract.
+        Forex / Global and crypto keep their plain percentage. On NSE, BSE, MCX and Currency the master
+        can add a flat fee per order and a separate percentage for options (charged on premium), so the
+        cost of trading looks like a real broker's contract note. Unset = the plain percentage, as before."""
+        ex = ins.exchange
+        if ex == "FOREX":
+            return self.commission_pct(db, "FOREX"), 0.0
+        pct = self.commission_pct(db)
+        flat = 0.0
+        if ex in ("NFO", "BFO", "MCX", "CDS"):
+            try:
+                flat = max(0.0, float(get_setting(db, "commission_flat") or 0))
+            except ValueError:
+                flat = 0.0
+            if ins.instrument_type in ("CE", "PE"):
+                v = get_setting(db, "commission_pct_options")
+                if v not in (None, ""):
+                    try:
+                        pct = max(0.0, float(v))
+                    except ValueError:
+                        pass
+        return pct, flat
+
+    def commission(self, db: Session, ins, price: float, qty: int) -> float:
+        pct, flat = self.commission_terms(db, ins)
+        return round(price * qty * self.vf(ins) * pct / 100.0 + flat, 2)
+
+    def commission_label(self, db: Session, ins) -> str:
+        pct, flat = self.commission_terms(db, ins)
+        return f"{pct:g}%" + (f" + ₹{flat:g} per order" if flat else "")
+
     def margin_pct(self, db: Session, exchange: str, name: str = "") -> float:
         from .feed.base import kind_of
         from .config import MCX_GROUPS
@@ -525,7 +557,7 @@ class Engine:
             opening_qty = abs(new) if (new != 0 and (new > 0) != (cur > 0)) else 0
         need = self.required_margin(db, ins, order.side, opening_qty, price, order.leverage) if opening_qty else 0.0
         vf = self.vf(ins)
-        comm = round(price * qty * vf * self.commission_pct(db, ins.exchange) / 100.0, 2)
+        comm = self.commission(db, ins, price, qty)
         db.flush()
         f = self.funds(db, user)  # reservation already zeroed above, so not double counted
         avail = f["available"]
@@ -581,7 +613,7 @@ class Engine:
 
         if comm > 0:
             self._ledger(db, user, -comm, "COMMISSION",
-                         f"{self.commission_pct(db, ins.exchange):g}% on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
+                         f"{self.commission_label(db, ins)} on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
         order.status = "FILLED"; order.fill_price = price
         db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
                      exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),

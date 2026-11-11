@@ -53,7 +53,7 @@ async def _security_headers(request: Request, call_next):
     h.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     if request.url.path.startswith("/static/film/"):   # temporary brand-film preview page: videos live on the generator's CDN
         h["Content-Security-Policy"] = ("default-src 'none'; style-src 'unsafe-inline'; "
-                                        "media-src https://d8j0ntlcm91z4.cloudfront.net; img-src https://d8j0ntlcm91z4.cloudfront.net; "
+                                        "media-src https://d8j0ntlcm91z4.cloudfront.net https://d2ol7oe51mr4n9.cloudfront.net; img-src https://d8j0ntlcm91z4.cloudfront.net; "
                                         "frame-ancestors 'none'; base-uri 'none'")
     h.setdefault("Content-Security-Policy", _CSP)
     if request.url.path.startswith("/static/") and resp.status_code == 200:

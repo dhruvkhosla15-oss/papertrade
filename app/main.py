@@ -242,6 +242,7 @@ async def startup():
     asyncio.create_task(engine.liquidation_loop())
     asyncio.create_task(backup_loop())
     asyncio.create_task(_probe.loop(app, engine, feed))
+    asyncio.create_task(daystart_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -891,6 +892,48 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                                           .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
                     "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
+
+
+def _book_totals(db) -> tuple:
+    """(coins allocated, users' net balance) across all real users, right now."""
+    alloc = equity = 0.0
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all():
+        alloc += sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id).filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
+        equity += engine.funds(db, u)["equity"]
+    return round(alloc, 2), round(equity, 2)
+
+
+async def daystart_loop():
+    """At the start of every IST day remember where the book stood, so 'P&L Today' can be the same
+    formula as Net P&L (closed trades + open positions + commission) for today only. A snapshot taken
+    late (server was down at midnight) is marked not exact and the panel falls back to closed trades."""
+    while True:
+        try:
+            now = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            day = now.date().isoformat()
+            db = SessionLocal()
+            try:
+                try:
+                    snap = json.loads(get_setting(db, "daystart") or "{}")
+                except Exception:
+                    snap = {}
+                if snap.get("day") != day:
+                    alloc, equity = _book_totals(db)
+                    set_setting(db, "daystart", json.dumps({"day": day, "alloc": alloc, "equity": equity,
+                                                            "exact": now.hour == 0 and now.minute < 10, "at": now.strftime("%H:%M")}))
+            finally:
+                db.close()
+        except Exception:
+            log.exception("day-start snapshot failed")
+        await asyncio.sleep(45)
+
+
+@app.get("/api/admin/daystart")
+def admin_daystart(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    try:
+        return json.loads(get_setting(db, "daystart") or "{}")
+    except Exception:
+        return {}
 
 
 @app.get("/api/admin/positions")

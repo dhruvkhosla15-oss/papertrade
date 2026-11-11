@@ -1282,19 +1282,29 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
 
 
 @app.get("/api/admin/users/{uid}/detail")
-def admin_user_detail(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def admin_user_detail(uid: int, from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+                      admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """One user's funds, open positions, and their orders / trades / ledger — the last few hundred by
+    default, or everything inside ?from=&to= (IST dates) when a period is chosen in the panel."""
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404)
+    oq = _dated(db.query(Order).filter_by(user_id=uid).order_by(Order.id.desc()), Order.created_at, from_, to, 100)
+    tq = _dated(db.query(Trade).filter_by(user_id=uid).order_by(Trade.id.desc()), Trade.created_at, from_, to, 200)
+    lq = _dated(db.query(Ledger).filter_by(user_id=uid).order_by(Ledger.id.desc()), Ledger.created_at, from_, to, 200)
+    led_all = db.query(Ledger).filter_by(user_id=uid)
     return {"user": _user_dict(u), "funds": engine.funds(db, u),
+            # totals over the whole ledger, so the tiles never depend on how many rows are listed below
+            "allocated": round(sum(l.amount for l in led_all.filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))), 2),
+            "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=uid, kind="COMMISSION")), 2),
             "positions": [engine.position_dict(p) for p in db.query(Position).filter_by(user_id=uid, is_closed=False)],
-            "orders": [engine.order_dict(o) for o in db.query(Order).filter_by(user_id=uid).order_by(Order.id.desc()).limit(100)],
+            "orders": [engine.order_dict(o) for o in oq],
             "trades": [{"id": t.id, "symbol": t.symbol, "side": t.side, "qty": t.qty, "price": t.price,
                         "realised_pnl": t.realised_pnl, "commission": t.commission or 0.0, "created_at": t.created_at.isoformat() + "Z"}
-                       for t in db.query(Trade).filter_by(user_id=uid).order_by(Trade.id.desc()).limit(200)],
+                       for t in tq],
             "ledger": [{"amount": l.amount, "balance_after": l.balance_after, "kind": l.kind, "note": l.note,
                         "created_at": l.created_at.isoformat() + "Z"}
-                       for l in db.query(Ledger).filter_by(user_id=uid).order_by(Ledger.id.desc()).limit(200)]}
+                       for l in lq]}
 
 
 @app.post("/api/admin/users/{uid}/squareoff")

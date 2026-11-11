@@ -758,9 +758,21 @@ async def cancel_order(order_id: int, user: User = Depends(current_user), db: Se
     return {"ok": True}
 
 
+def _dated(q, col, from_, to, default_limit):
+    """Optional IST date range (?from=YYYY-MM-DD&to=YYYY-MM-DD) for the user's own lists."""
+    if from_ or to:
+        try:
+            start, end, _f, _t = _range(from_, to)
+        except ValueError:
+            raise HTTPException(400, "Dates must look like 2026-11-30")
+        return q.filter(col >= start, col < end).limit(2000)
+    return q.limit(default_limit)
+
+
 @app.get("/api/orders")
-def list_orders(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    rows = db.query(Order).filter_by(user_id=user.id).order_by(Order.id.desc()).limit(200).all()
+def list_orders(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = _dated(db.query(Order).filter_by(user_id=user.id).order_by(Order.id.desc()), Order.created_at, from_, to, 200).all()
     return [engine.order_dict(o) for o in rows]
 
 
@@ -805,16 +817,18 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
 
 
 @app.get("/api/trades")
-def list_trades(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    rows = db.query(Trade).filter_by(user_id=user.id).order_by(Trade.id.desc()).limit(300).all()
+def list_trades(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = _dated(db.query(Trade).filter_by(user_id=user.id).order_by(Trade.id.desc()), Trade.created_at, from_, to, 300).all()
     return [{"id": t.id, "symbol": t.symbol, "exchange": t.exchange, "side": t.side, "qty": t.qty,
              "price": t.price, "realised_pnl": t.realised_pnl, "commission": t.commission or 0.0,
              "created_at": t.created_at.isoformat() + "Z"} for t in rows]
 
 
 @app.get("/api/ledger")
-def list_ledger(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    rows = db.query(Ledger).filter_by(user_id=user.id).order_by(Ledger.id.desc()).limit(300).all()
+def list_ledger(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = _dated(db.query(Ledger).filter_by(user_id=user.id).order_by(Ledger.id.desc()), Ledger.created_at, from_, to, 300).all()
     return [{"id": l.id, "amount": l.amount, "balance_after": l.balance_after, "kind": l.kind, "note": l.note,
              "created_at": l.created_at.isoformat() + "Z"} for l in rows]
 

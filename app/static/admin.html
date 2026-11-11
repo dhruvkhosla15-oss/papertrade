@@ -153,10 +153,10 @@ a{color:var(--acc)}
   <div class="card">
   <div class="bookh"><b>Dashboard</b><span class="small mut" id="sUsersTxt"></span></div>
   <div class="grid g6">
-    <div class="stat"><span class="mut small" title="Coins given to all users">Allocated</span><b id="sCredited" class="num">—</b></div><div class="stat"><span class="mut small" title="What users can still trade with">Available Balance</span><b id="sAvail" class="num">—</b></div><div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin Used</span><b id="sExposure" class="num">—</b></div><div class="stat"><span class="mut small" title="What all user accounts are worth now">Net Balance</span><b id="sEquity" class="num">—</b></div><div class="stat"><span class="mut small">Open Pos</span><b id="sPos">—</b></div><div class="stat"><span class="mut small">Trades</span><b id="sTrades">—</b></div>
+    <div class="stat"><span class="mut small">Allocated</span><b id="sCredited" class="num">—</b></div><div class="stat"><span class="mut small">Available Balance</span><b id="sAvail" class="num">—</b></div><div class="stat"><span class="mut small">Margin Used</span><b id="sExposure" class="num">—</b></div><div class="stat"><span class="mut small" title="The opposite of the users’ unrealised">Unrealised</span><b id="hOpen" class="num">—</b></div><div class="stat"><span class="mut small" title="The opposite of the users’ realised">Realised</span><b id="hBooked" class="num">—</b></div><div class="stat"><span class="mut small" title="Unrealised + Realised">P&amp;L</span><b id="hGross" class="num">—</b></div>
   </div>
   <div class="grid g6" style="margin-top:8px">
-    <div class="stat"><span class="mut small" title="Our side of open positions: the opposite of what users show">Unrealised</span><b id="hOpen" class="num">—</b></div><div class="stat"><span class="mut small" title="Our side of closed trades: the opposite of what users show">Realised</span><b id="hBooked" class="num">—</b></div><div class="stat"><span class="mut small" title="Unrealised + Realised">P&amp;L</span><b id="hGross" class="num">—</b></div><div class="stat"><span class="mut small" title="Commission users paid us">Commission</span><b id="hComm" class="num">—</b></div><div class="stat"><span class="mut small" title="P&amp;L + Commission">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="stat"><span class="mut small" id="sTodayLbl">P&amp;L Today</span><b id="sToday" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Commission users paid us">Commission</span><b id="hComm" class="num">—</b></div><div class="stat"><span class="mut small" title="P&amp;L + Commission">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="stat"><span class="mut small">Net Balance</span><b id="sEquity" class="num">—</b></div><div class="stat"><span class="mut small">Open Pos</span><b id="sPos">—</b></div><div class="stat"><span class="mut small">Trades</span><b id="sTrades">—</b></div>
   </div>
   <div class="recon"><span></span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
   </div>
@@ -445,11 +445,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
 $('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
-let daySnap=null;
-function todayExact(){return daySnap&&daySnap.exact&&daySnap.day===istToday();}
-async function loadToday(){try{daySnap=await api('/admin/daystart');}catch(e){}
-  if(todayExact()){$('#sTodayLbl').title='Closed trades + open positions + commission since midnight (same formula as Net P&L)';return;}
-  try{const r=await api(`/admin/report?from=${istToday()}&to=${istToday()}`);const v=-(r.daily[istToday()]||0);$('#sToday').textContent=sgn(v);$('#sToday').className='num '+cls(v);$('#sTodayLbl').title='Closed trades today + commission (open positions are included from the next midnight)';}catch(e){}}
+async function loadToday(){}
 
 // ----- master accounts & 2FA -----
 let meAdmin=null;
@@ -483,7 +479,7 @@ async function loadLive(){try{livePos=await api('/admin/positions');renderLive()
 async function loadUsers(){loadLive();users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
   $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(users.reduce((a,u)=>a+(u.available||0),0));$('#sTrades').textContent=users.reduce((a,u)=>a+(u.trades||0),0);$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(tx);
-  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hGross',-tr-tu);set('#hComm',tcm);set('#hNet',tc-te);if(todayExact())set('#sToday',(tc-te)-(daySnap.alloc-daySnap.equity));}$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hGross',-tr-tu);set('#hComm',tcm);set('#hNet',tc-te);}$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All users</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();
 }

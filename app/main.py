@@ -515,7 +515,7 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
     return {"interval": interval, "candles": data}
 
 
-# Showcase: what the public home page, the scrolling ticker and a new trainee's watchlist show.
+# Showcase: what the public home page, the scrolling ticker and a new user's watchlist show.
 # Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
 _SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
                      "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
@@ -565,7 +565,7 @@ def _public_tokens():
     return _public_tokens._cache[1]
 _public_tokens._cache = (-1, set())
 
-GUEST_SUB_CEILING = 2400   # leave headroom under Zerodha's 3000-instrument socket limit for trainees
+GUEST_SUB_CEILING = 2400   # leave headroom under Zerodha's 3000-instrument socket limit for users
 
 
 def _ticker():
@@ -590,7 +590,7 @@ def public_home():
 def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
     has_global = any(getattr(i, "segment", "") == "GLOBAL-SPOT" for i in feed.instruments.values())
     if not db.query(Watch).filter_by(user_id=user.id).first() and feed.instruments:
-        # empty watchlist (new trainee, or everything removed) -> start from the showcase list
+        # empty watchlist (new user, or everything removed) -> start from the showcase list
         for n, ins in enumerate(_default_watch_instruments()):
             db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
         set_setting(db, f"watch_seeded_{user.id}", "1"); set_setting(db, f"watch_showcase_{user.id}", "1"); set_setting(db, f"watch_showcase2_{user.id}", "1"); set_setting(db, f"watch_showcase3_{user.id}", "1")
@@ -779,7 +779,7 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
         # exit first; resting stops/targets are cancelled only once the exit has gone through — if the
         # market is closed the position stays, and so must its stop-loss
         # A position bigger than the exchange freeze quantity is exited in freeze-sized slices, like a
-        # broker does, instead of telling the trainee to split it by hand.
+        # broker does, instead of telling the user to split it by hand.
         from .config import FREEZE_QTY
         ins_ = feed.instruments.get(p.token)
         fz = FREEZE_QTY.get(ins_.name) if ins_ and ins_.exchange in ("NFO", "BFO") else None
@@ -845,7 +845,7 @@ async def ws_endpoint(ws: WebSocket):
                     toks = [t for t in toks if t in allowed]
                 new = set(toks) - c.tokens
                 if guest and len(feed._refcount) + len(new) > GUEST_SUB_CEILING:
-                    # visitors never squeeze trainees out of the Zerodha socket
+                    # visitors never squeeze users out of the Zerodha socket
                     new = {t for t in new if t in feed._refcount}
                 feed.subscribe(list(new))
                 c.tokens |= new
@@ -895,7 +895,7 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
 
 @app.get("/api/admin/positions")
 def admin_positions(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    """Every open position across all trainees, marked at the live exit price."""
+    """Every open position across all users, marked at the live exit price."""
     users = {u.id: u for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()}
     out = []
     for p in db.query(Position).filter_by(is_closed=False).all():
@@ -1150,8 +1150,8 @@ def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_
 
 @app.post("/api/admin/self/test-coins")
 def admin_self_test_coins(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    """The master's own test balance for trying trades in the trader view. Kept out of every trainee
-    total (all trainee lists and summaries filter on is_admin=False)."""
+    """The master's own test balance for trying trades in the trader view. Kept out of every user
+    total (all user lists and summaries filter on is_admin=False)."""
     engine._ledger(db, admin, 1000000.0, "ADMIN_CREDIT", "master test coins")
     db.commit()
     return {"ok": True, "funds": engine.funds(db, admin)}
@@ -1394,7 +1394,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
     rep = build_report(db, users, from_, to)
     start, end, f, t = _range(from_, to)
     period = "All history" if not from_ else (rep["from"] if rep["from"] == rep["to"] else f"{rep['from']} to {rep['to']}")
-    who = users[0].display_name if len(users) == 1 else f"All trainees ({len(users)})"
+    who = users[0].display_name if len(users) == 1 else f"All users ({len(users)})"
     gen = (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M IST")
     wb = Workbook()
     hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="365314")
@@ -1407,7 +1407,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         top = 1
         if statement:
             ws.append([f"limeFX — {statement}"]); ws["A1"].font = title_font
-            ws.append([f"Trainee: {who}", "", f"Period: {period}", "", f"Generated: {gen}"])
+            ws.append([f"User: {who}", "", f"Period: {period}", "", f"Generated: {gen}"])
             for c in ws[2]: c.font = Font(color="6B7280")
             ws.append([]); top = 4
         ws.append(headers)
@@ -1429,9 +1429,9 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
     uid2name = {u.id: u.display_name for u in users}
     ids = [u.id for u in users]
     many = len(users) != 1
-    tcol = ["Trainee"] if many else []
+    tcol = ["User"] if many else []
     tval = (lambda uid: [uid2name.get(uid, "")]) if many else (lambda uid: [])
-    sh = lambda n: n + (1 if many else 0)   # column shift when the Trainee column is present
+    sh = lambda n: n + (1 if many else 0)   # column shift when the User column is present
 
     # ---- Order book statement -------------------------------------------------------------
     if only in (None, "orderbook"):
@@ -1461,7 +1461,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
             rows.append([d] + ([u["daily"].get(d, 0) for u in rep["users"]] if many else []) + [v, cum])
         sheet("Daily P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative"], rows,
               money_cols=tuple(range(2, (len(rep["users"]) if many else 0) + 4)), statement="Day-wise Profit & Loss")
-        sheet("Summary", ["Trainee", "Username", "Trades", "Closing trades", "Wins", "Losses", "Win rate %", "Gross profit", "Gross loss",
+        sheet("Summary", ["User", "Username", "Trades", "Closing trades", "Wins", "Losses", "Win rate %", "Gross profit", "Gross loss",
                           "Commission paid", "Net P&L (period)", "Best trade", "Worst trade", "Avg win", "Avg loss", "Profit factor", "Coins allocated", "Equity now", "Overall P&L"],
               [[u["display_name"], u["username"], u["trades"], u["closing_trades"], u["wins"], u["losses"], u["win_rate"], u["gross_profit"], u["gross_loss"],
                 -u["commission"], u["net_pnl"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"], u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
@@ -1500,7 +1500,7 @@ def _xlsx_response(data: bytes, name: str):
 
 
 def _admin_rows(db):
-    """One row per trainee with the reconciliation columns the master table shows."""
+    """One row per user with the reconciliation columns the master table shows."""
     rows = []
     for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
         f = engine.funds(db, u)
@@ -1522,8 +1522,8 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
     rows = _admin_rows(db)
-    wb = Workbook(); ws = wb.active; ws.title = "Trainees"
-    hdr = ["Trainee", "Username", "Status", "Allocated", "Exposure (margin blocked)", "Available", "Unrealised P&L",
+    wb = Workbook(); ws = wb.active; ws.title = "Users"
+    hdr = ["User", "Username", "Status", "Allocated", "Exposure (margin blocked)", "Available", "Unrealised P&L",
            "Realised P&L (before commission)", "Commission", "Net balance", "Net P&L", "Net P&L %", "Open positions", "Trades"]
     ws.append(hdr)
     for c in ws[1]:
@@ -1553,9 +1553,9 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     # how to read it
     w2 = wb.create_sheet("How it adds up")
     lines = [["limeFX — master summary", ""], ["Generated (IST)", (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%d %b %Y, %I:%M %p")], ["", ""],
-             ["Allocated", "Coins the master has credited to the trainee (credits minus debits)."],
+             ["Allocated", "Coins the master has credited to the user (credits minus debits)."],
              ["Exposure", "Margin blocked right now by open positions and pending orders."],
-             ["Available", "Allocated ± realised − commission − exposure − any unrealised loss: what the trainee can still trade with."],
+             ["Available", "Allocated ± realised − commission − exposure − any unrealised loss: what the user can still trade with."],
              ["Unrealised P&L", "Open positions marked to the price they could exit at now (bid for longs, ask for shorts)."],
              ["Realised P&L", "Profit or loss booked on closed trades, before commission."],
              ["Commission", "Brokerage deducted on every buy and sell (shown negative)."],

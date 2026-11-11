@@ -351,7 +351,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
       </div>
     <div id="pfAcct" class="hidden">
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
-    <div class="card row hidden" id="masterRow" style="align-items:center"><div><b>Master test coins</b><div class="small mut">Your own balance for trying trades here. Not counted in any trainee total.</div></div><button class="btn" id="masterCoins" style="flex:0 0 auto">+ ₹10,00,000</button></div>
+    <div class="card row hidden" id="masterRow" style="align-items:center"><div><b>Master test coins</b><div class="small mut">Your own balance for trying trades here. Not counted in any user total.</div></div><button class="btn" id="masterCoins" style="flex:0 0 auto">+ ₹10,00,000</button></div>
     <div class="card row" id="pwaRow" style="align-items:center"><div><b>Install app</b><div class="small mut" id="pwaRowMsg">Put limefx on your home screen — opens full screen, no link.</div></div><button class="btn" id="pwaRowGo" style="flex:0 0 auto">Install</button></div>
     <div class="card" id="tfaCard">
       <div class="row" style="align-items:center"><div style="flex:1"><b>Two-factor login</b><div class="small mut" id="tfaStatus">Adds a 6-digit code from Google Authenticator / Authy to your login.</div></div><span class="pill" id="tfaPill" style="flex:0 0 auto">off</span></div>
@@ -497,7 +497,7 @@ function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.
   onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
 function bindCcyToggles(){$$('.ccyseg button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));}
 const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
-// rupee amount shown in $ when the trainee is viewing a crypto contract in the $ mode
+// rupee amount shown in $ when the user is viewing a crypto contract in the $ mode
 const usdOn=ex=>ex==='CRYPTO'&&CCCY==='USD'&&!!state.usdinr;
 const money=(ex,v,dec)=>v==null?'—':(usdOn(ex)?'$'+Number(v/state.usdinr).toLocaleString('en-IN',{minimumFractionDigits:dec??2,maximumFractionDigits:dec??2}):(dec===0?inr(v):'₹'+fmt2(v)));
 // currency contracts tick in 0.0025, so show 4 decimals when a price actually carries them (84.8725) and 2 otherwise
@@ -516,7 +516,7 @@ async function api(path,opts={}){
 function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?4000:2200);}
 
 // ---------- auth ----------
-function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
+function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a user to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
 let preTok='';
 $('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';
   try{const j=await api('/login',{method:'POST',body:{username:$('#lu').value,password:$('#lp').value}});
@@ -544,7 +544,7 @@ $('#fpLogout').onclick=async()=>{await api('/logout',{method:'POST'});location.r
 $('#pwBtn').onclick=async()=>{try{await api('/password',{method:'POST',body:{old_password:$('#pwOld').value,new_password:$('#pwNew').value}});toast('Password updated');$('#pwOld').value=$('#pwNew').value='';}catch(e){toast(e.message,1)}};
 
 // ---------- boot ----------
-function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a trainee to trade.');return;}$('#loginView').classList.remove('hidden');setTimeout(()=>$('#lu').focus(),50);}
+function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a user to trade.');return;}$('#loginView').classList.remove('hidden');setTimeout(()=>$('#lu').focus(),50);}
 $('#loginClose').onclick=()=>$('#loginView').classList.add('hidden');
 $('#hLogin').onclick=showLogin;
 function setGuest(g){state.guest=g;$('#hLogin').classList.toggle('hidden',!g);$('#hFunds').classList.toggle('hidden',g);$('#wsearch').parentElement.classList.toggle('hidden',g);
@@ -808,7 +808,7 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
   onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
 function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_options||[];if(!opts.length){w.classList.add('hidden');state.lev=null;return;}
   w.classList.remove('hidden');
-  state.lev=opts[0];     // every ticket opens at 1x; the trainee opts into more each time
+  state.lev=opts[0];     // every ticket opens at 1x; the user opts into more each time
   $('#levSeg').innerHTML=opts.map(x=>`<button data-lev="${x}" class="${x===state.lev?'active':''}">${x}×</button>`).join('')+`<label class="levcustom"><span class="mut">Custom</span><input id="levCustom" type="number" inputmode="numeric" min="1" max="${opts[opts.length-1]}" step="1" placeholder="1–${opts[opts.length-1]}"><span class="mut">×</span></label>`;
   const applyCustom=(fix)=>{const el=$('#levCustom'),mx=opts[opts.length-1];let v=Math.round(+el.value);if(!v){return;}const c=Math.min(mx,Math.max(1,v));if(c!==v||fix){el.value=c;}state.lev=c;$$('#levSeg button').forEach(x=>x.classList.toggle('active',+x.dataset.lev===c));lv();updateMargin();};
   $('#levCustom').oninput=()=>applyCustom(false);$('#levCustom').onchange=()=>applyCustom(true);

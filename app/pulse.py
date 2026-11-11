@@ -5,7 +5,7 @@ Universe = one row per underlying: index spot, stock spot (NSE cash quote) or MC
 - Today's % change comes straight from the live tick (vs previous close).
 - Week/month % change uses daily candles (previous closes), refreshed once per IST day in the background.
 - "Most traded" = futures turnover (volume x price) of the near-month future, which is what F&O
-  trainees actually trade; MCX volume is already in units.
+  users actually trade; MCX volume is already in units.
 """
 import asyncio
 import logging

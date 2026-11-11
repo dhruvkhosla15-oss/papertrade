@@ -165,7 +165,7 @@ def init_db():
             con.execute(text("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0"))
         if "must_change_password" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
-            # trainees created earlier who have never placed an order still get the first-login prompt
+            # users created earlier who have never placed an order still get the first-login prompt
             con.execute(text("UPDATE users SET must_change_password = 1 WHERE is_admin = 0 "
                              "AND id NOT IN (SELECT DISTINCT user_id FROM orders)"))
     ocols = {c["name"] for c in inspect(engine).get_columns("orders")}

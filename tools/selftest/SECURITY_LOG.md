@@ -11,7 +11,7 @@ thinking of new attacks so the same idea is not tried twice.
 ## Ideas already covered by the daily check
 - Nonsense numbers: zero / negative / fractional / NaN / Infinity lots, prices, triggers, leverage; junk side and order type
 - Leverage outside the contract's range; intraday product on 24-hour markets; stop-loss on the wrong side
-- Order with no login; trainee calling Master endpoints; cancelling / closing another account's order or position
+- Order with no login; user calling Master endpoints; cancelling / closing another account's order or position
 - Market order larger than the account can carry; tiny-limit-price "cheap margin" order; 12 orders at the same instant
 - 3 instant round trips (must not gain; trades must equal balance change; ledger must equal balance)
 - Limit far above / below the market must fill at the market price

@@ -1,7 +1,7 @@
 """Daily safety check: the site attacks itself.
 
-Two hidden test accounts (never shown in any trainee list or total) go through the real API — the same
-doors a trainee's phone uses — and try to cheat: nonsense numbers, cheap-margin orders, many orders at
+Two hidden test accounts (never shown in any user list or total) go through the real API — the same
+doors a user's phone uses — and try to cheat: nonsense numbers, cheap-margin orders, many orders at
 the same instant, instant round trips for free money, touching each other's orders, trading a closed
 market. Every attempt must be refused or must not make money. Then every real account's books are
 checked. The result is stored for the Master panel and sent to Telegram.
@@ -222,7 +222,7 @@ class Probe:
             r = await anon.post("/api/orders", json={"token": T, "side": "BUY", "lots": 1})
             self.ok("order without login refused", r.status_code in (401, 403))
             r1 = await ca.get("/api/admin/backup/offsite"); r2 = await ca.post("/api/admin/probe/run")
-            self.ok("trainee cannot open Master functions", r1.status_code in (401, 403) and r2.status_code in (401, 403))
+            self.ok("user cannot open Master functions", r1.status_code in (401, 403) and r2.status_code in (401, 403))
 
             m = (await ca.get("/api/margin", params={"token": T, "side": "BUY", "lots": 1})).json()
             m1 = float(m.get("full_margin") or 0); comm1 = float(m.get("commission") or 0)

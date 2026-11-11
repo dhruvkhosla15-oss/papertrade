@@ -256,7 +256,7 @@ class DeltaCrypto:
                 log.warning("delta: refresh failed: %s", e)
 
     def disconnect(self):
-        """Master control: stop crypto prices (trainees see OFFLINE on crypto, orders rejected)."""
+        """Master control: stop crypto prices (users see OFFLINE on crypto, orders rejected)."""
         self.paused = True
         if self._ws and self._loop:
             asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)

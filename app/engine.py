@@ -201,7 +201,7 @@ class Engine:
             for lvl in levels:
                 take = min(remaining, lvl[1]); cost += take * lvl[0]; remaining -= take
                 if remaining <= 0: break
-        # record what this fill consumed so the next order (any trainee) can't take the same quantity again
+        # record what this fill consumed so the next order (any user) can't take the same quantity again
         remaining = filled
         taken = []
         for price, avail in levels:
@@ -490,7 +490,7 @@ class Engine:
 
     def _release_take(self):
         """Give back depth consumed by a book_fill whose order was rejected afterwards (e.g. no margin),
-        so a trainee with no coins can't block a thin contract for everyone else."""
+        so a user with no coins can't block a thin contract for everyone else."""
         lt = getattr(self, "_last_take", None)
         self._last_take = None
         if not lt:

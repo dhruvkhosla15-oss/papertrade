@@ -131,6 +131,17 @@ class Watch(Base):
     created_at = Column(DateTime, default=now)
 
 
+class AdminLog(Base):
+    """What a master did and when (never request bodies — those can hold passwords)."""
+    __tablename__ = "admin_log"
+    id = Column(Integer, primary_key=True)
+    admin_id = Column(Integer, index=True)
+    admin_name = Column(String(64), default="")
+    action = Column(String(160), nullable=False)
+    ip = Column(String(64), default="")
+    created_at = Column(DateTime, default=now)
+
+
 class Setting(Base):
     __tablename__ = "settings"
     key = Column(String(64), primary_key=True)

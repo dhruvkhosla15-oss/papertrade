@@ -13,7 +13,6 @@
 <meta name="apple-mobile-web-app-title" content="limefx">
 <link rel="apple-touch-icon" href="/static/pwa/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#182540;--itm:#14203a;--seg:#0b1220}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
@@ -172,7 +171,6 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
 </style>
-<script src="/static/lightweight-charts.js"></script>
 </head>
 <body>
 
@@ -848,7 +846,11 @@ $('#oSubmit').onclick=async()=>{
 // ---------- chart ----------
 const IST=19800;let chart=null,cSeries=null,vSeries=null,cData=[],cTf='5m',cStep=300,cTok=null;
 const stepOf=tf=>({'1m':60,'5m':300,'15m':900,'1h':3600,'1d':86400})[tf];
-function openChart(ins){cTok=ins.token;$('#cSym').textContent=dsym(ins.exchange,ins.symbol);$('#cMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
+function loadLWC(){return window.LightweightCharts?Promise.resolve():(window._lwc||(window._lwc=new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='/static/lightweight-charts.js';sc.onload=res;sc.onerror=()=>{window._lwc=null;rej(new Error('Chart could not load — check your connection'));};document.head.appendChild(sc);})));}
+setTimeout(()=>loadLWC().catch(()=>{}),6000);   // fetched after the app is up, so the first chart still opens instantly
+async function openChart(ins){try{await loadLWC();}catch(e){toast(e.message);return;}
+  _openChart(ins);}
+function _openChart(ins){cTok=ins.token;$('#cSym').textContent=dsym(ins.exchange,ins.symbol);$('#cMeta').textContent=`${ins.exchange} · lot ${ins.lot_size} · exp ${ins.expiry}`;
   const pr=state.prices[ins.token];$('#cLtp').textContent=pr?fmt(pr.ltp):'—';$('#cChg').textContent=pr&&pr.change!=null?((pr.change>0?'+':'')+pr.change+'%'):'';$('#cChg').className='small num '+pnlCls(pr?.change);
   $('#chartModal').classList.remove('hidden');sub([ins.token]);
   if(!chart){chart=LightweightCharts.createChart($('#chartBox'),{layout:{background:{color:'#121c2e'},textColor:'#8da2c0'},grid:{vertLines:{color:'#1e2a44'},horzLines:{color:'#1e2a44'}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#1e2a44'},rightPriceScale:{borderColor:'#1e2a44'},crosshair:{mode:0}});
@@ -1052,7 +1054,9 @@ boot();
 })();
 /* ---- installable app (PWA) ---- */
 (function(){
-  if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
+  if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+    // the app opens from its saved copy at once; when a newer version has been fetched, switch to it quietly
+    const t0=Date.now();navigator.serviceWorker.addEventListener('message',e=>{if(e.data!=='lfx-update')return;const busy=['sheet','chartModal','dlSheet','loginView'].some(i=>{const x=document.getElementById(i);return x&&!x.classList.contains('hidden');});if(!busy&&Date.now()-t0<15000)location.reload();else toast('Update ready — it loads next time you open the app');});}
   const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream;
   const bar=$('#pwa'),row=$('#pwaRow');let deferred=null;

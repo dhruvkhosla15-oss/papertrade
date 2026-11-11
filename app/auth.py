@@ -1,3 +1,4 @@
+import os
 import time
 import jwt
 from fastapi import Request, HTTPException, Depends
@@ -70,7 +71,13 @@ def optional_user(request: Request, db: Session = Depends(get_db)) -> User | Non
         return None
 
 
-def current_admin(user: User = Depends(current_user)) -> User:
+ADMIN_NO_2FA_ALLOWED = {"/api/admin/2fa/setup", "/api/admin/2fa/confirm"}
+
+
+def current_admin(request: Request, user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(403, "Admin only")
+    # the master panel controls every trainee's coins: a password alone is not enough
+    if not user.totp_enabled and request.url.path not in ADMIN_NO_2FA_ALLOWED and os.getenv("PT_FEED", "mock") != "mock":   # local simulator is exempt
+        raise HTTPException(403, "2FA_REQUIRED")
     return user

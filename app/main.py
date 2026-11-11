@@ -26,6 +26,99 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("app")
 
 app = FastAPI(title="LimeFX")
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=800)   # the app page is ~130 KB of text: ~75% smaller on the wire
+
+_CSP = ("default-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; "
+        "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+
+
+def _is_https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
+
+
+def _client_ip(request: Request) -> str:
+    return (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else ""))
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    h = resp.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "same-origin")
+    h.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    h.setdefault("Content-Security-Policy", _CSP)
+    if request.url.path.startswith("/static/") and resp.status_code == 200:
+        h.setdefault("Cache-Control", "public, max-age=86400")   # fonts, icons, chart library
+    if _is_https(request):
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+
+@app.middleware("http")
+async def _admin_audit(request: Request, call_next):
+    """Record every change a master makes (path only — never bodies)."""
+    resp = await call_next(request)
+    try:
+        path = request.url.path
+        if request.method != "GET" and path.startswith("/api/admin/") and resp.status_code < 400:
+            from .auth import decode_token as _dt
+            from .db import AdminLog
+            data = _dt(request.cookies.get(COOKIE) or request.headers.get("authorization", "").replace("Bearer ", "") or "")
+            if data:
+                db = SessionLocal()
+                try:
+                    u = db.get(User, data["uid"])
+                    db.add(AdminLog(admin_id=data["uid"], admin_name=u.username if u else "", ip=_client_ip(request),
+                                    action=f"{request.method} {path}"[:160]))
+                    db.commit()
+                finally:
+                    db.close()
+    except Exception:
+        log.exception("audit log failed")
+    return resp
+
+
+# ---- login throttling --------------------------------------------------------------------------------
+_fails: dict = {}          # key -> [count, first_ts, locked_until]
+LOCK_AFTER, LOCK_SECS, WINDOW = 5, 300, 900
+
+
+def _throttle_check(*keys):
+    now = time.time()
+    for k in keys:
+        f = _fails.get(k)
+        if f and f[2] > now:
+            raise HTTPException(429, f"Too many wrong attempts — try again in {int((f[2] - now) // 60) + 1} min")
+
+
+def _throttle_fail(*keys):
+    now = time.time()
+    for k in keys:
+        f = _fails.get(k)
+        if not f or now - f[1] > WINDOW:
+            f = [0, now, 0.0]
+        f[0] += 1
+        limit = LOCK_AFTER if not k.startswith("ip:") else LOCK_AFTER * 4    # an office shares one address
+        if f[0] >= limit:
+            f[2] = now + LOCK_SECS; f[0] = 0; f[1] = now
+        _fails[k] = f
+    if len(_fails) > 5000:
+        for k in [k for k, v in _fails.items() if now - v[1] > WINDOW and v[2] < now]:
+            _fails.pop(k, None)
+
+
+def _throttle_ok(*keys):
+    for k in keys:
+        _fails.pop(k, None)
+
+
+def _set_login_cookie(request: Request, response: Response, tok: str):
+    response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", secure=_is_https(request), max_age=30 * 86400)
 
 CANONICAL_HOST = os.environ.get("PT_CANONICAL_HOST", "")  # e.g. www.limefx.in — bare/other hosts redirect here
 
@@ -123,6 +216,7 @@ async def startup():
     asyncio.create_task(broadcaster())
     asyncio.create_task(engine.expiry_loop())
     asyncio.create_task(engine.liquidation_loop())
+    asyncio.create_task(backup_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -156,16 +250,21 @@ class LoginIn(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
-    u = db.query(User).filter_by(username=body.username.strip().lower()).first()
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    uname = body.username.strip().lower()
+    keys = ("user:" + uname, "ip:" + _client_ip(request))
+    _throttle_check(*keys)
+    u = db.query(User).filter_by(username=uname).first()
     if not u or not verify_password(body.password, u.password_hash):
+        _throttle_fail(*keys)
         raise HTTPException(401, "Wrong username or password")
+    _throttle_ok(keys[0])
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
     if u.totp_enabled:
         return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": u.is_admin}
     tok = make_token(u)
-    response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
+    _set_login_cookie(request, response, tok)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
 
 
@@ -180,18 +279,22 @@ def _totp_ok(secret: str, code: str) -> bool:
 
 
 @app.post("/api/login/2fa")
-def login_2fa(body: TwoFaIn, response: Response, db: Session = Depends(get_db)):
+def login_2fa(body: TwoFaIn, request: Request, response: Response, db: Session = Depends(get_db)):
     from .auth import decode_token
     data = decode_token(body.pre_token)
     if not data or not data.get("pre2fa"):
         raise HTTPException(401, "Login expired — enter your password again")
     u = db.get(User, data["uid"])
+    key = f"2fa:{data['uid']}"
+    _throttle_check(key)
     if not u or not _totp_ok(u.totp_secret, body.code):
+        _throttle_fail(key)
         raise HTTPException(401, "Wrong authenticator code")
+    _throttle_ok(key)
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
     tok = make_token(u)
-    response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", max_age=30 * 86400)
+    _set_login_cookie(request, response, tok)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
 
 
@@ -722,6 +825,75 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                                           .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
                     "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
+
+
+# ---- backups & audit trail ---------------------------------------------------------------------------
+def _db_file() -> Optional[Path]:
+    return Path(config.DB_URL.replace("sqlite:///", "", 1)) if config.DB_URL.startswith("sqlite:///") else None
+
+
+def _backup_to(dest: Path):
+    """Consistent copy of the live database (SQLite online backup — safe while trading continues)."""
+    import sqlite3
+    src = sqlite3.connect(str(_db_file()), timeout=30)
+    try:
+        dst = sqlite3.connect(str(dest))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+
+async def backup_loop():
+    """One snapshot per day kept beside the database for 14 days — protects against a bad deploy or a
+    corrupted file. (Off-server copies: use the Download backup button on the master panel.)"""
+    while True:
+        try:
+            f = _db_file()
+            if f and f.exists():
+                d = config.DATA_DIR / "backups"; d.mkdir(exist_ok=True)
+                today = d / f"limefx-{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d}.db"
+                if not today.exists():
+                    await asyncio.get_event_loop().run_in_executor(None, _backup_to, today)
+                    log.info("daily backup written: %s", today.name)
+                for old in sorted(d.glob("limefx-*.db"))[:-14]:
+                    old.unlink(missing_ok=True)
+        except Exception:
+            log.exception("daily backup failed")
+        await asyncio.sleep(3600)
+
+
+@app.get("/api/admin/backup")
+def admin_backup(admin: User = Depends(current_admin)):
+    f = _db_file()
+    if not f or not f.exists():
+        raise HTTPException(400, "Backups are only available for the built-in database")
+    import tempfile
+    name = f"limefx-backup-{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d-%H%M}.db"
+    tmp = Path(tempfile.gettempdir()) / name
+    _backup_to(tmp)
+    return FileResponse(tmp, filename=name, media_type="application/octet-stream", headers=_NOCACHE)
+
+
+@app.get("/api/admin/backups")
+def admin_backups(admin: User = Depends(current_admin)):
+    d = config.DATA_DIR / "backups"
+    return [{"name": x.name, "kb": round(x.stat().st_size / 1024)} for x in sorted(d.glob("limefx-*.db"), reverse=True)] if d.exists() else []
+
+
+@app.get("/api/admin/audit")
+def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    from .db import AdminLog
+    names = {u.id: u.username for u in db.query(User).all()}
+
+    def nice(a: str) -> str:
+        import re as _re
+        m = _re.search(r"/users/(\d+)", a)
+        return a + (f"  ({names.get(int(m.group(1)), '?')})" if m else "")
+    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action), "ip": r.ip}
+            for r in db.query(AdminLog).order_by(AdminLog.id.desc()).limit(200)]
 
 
 @app.post("/api/admin/self/test-coins")

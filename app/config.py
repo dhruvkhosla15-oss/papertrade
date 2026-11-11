@@ -6,7 +6,30 @@ DATA_DIR = Path(os.getenv("PT_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_URL = os.getenv("PT_DB_URL", f"sqlite:///{DATA_DIR / 'papertrade.db'}")
-SECRET_KEY = os.getenv("PT_SECRET_KEY", "change-me-in-production-please")
+def _secret_key() -> str:
+    """Signing key for login tokens. PT_SECRET_KEY wins; otherwise a random key is generated once and
+    kept beside the database, so a deployment can never run on a guessable built-in default."""
+    env = os.getenv("PT_SECRET_KEY", "").strip()
+    if env and env != "change-me-in-production-please":
+        return env
+    f = DATA_DIR / "secret.key"
+    try:
+        if f.exists() and len(f.read_text().strip()) >= 32:
+            return f.read_text().strip()
+        import secrets
+        k = secrets.token_urlsafe(48)
+        f.write_text(k)
+        try:
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+        return k
+    except OSError:
+        import secrets
+        return secrets.token_urlsafe(48)   # read-only disk: still never the default (sessions reset on restart)
+
+
+SECRET_KEY = _secret_key()
 
 # "mock" for simulated prices, "kite" for live Zerodha prices
 FEED = os.getenv("PT_FEED", "mock")

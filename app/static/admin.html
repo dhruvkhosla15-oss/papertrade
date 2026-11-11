@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX — Master</title>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;800&display=swap" rel="stylesheet">
-<script src="/static/lightweight-charts.js"></script>
+<script defer src="/static/lightweight-charts.js"></script>
 <style>
 :root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--hover:#182540}
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--hover:#f0fdf4}
@@ -92,6 +91,25 @@ a{color:var(--acc)}
   <p id="loginErr" class="dn small" style="margin-top:10px"></p>
 </div>
 
+<div id="tfaGate" class="hidden" style="position:fixed;inset:0;z-index:60;background:var(--bg);overflow:auto;padding:24px 16px">
+  <div class="card" style="max-width:520px;margin:0 auto">
+    <h2>Set up two-factor login</h2>
+    <p class="small mut" style="margin:6px 0 14px">The master panel controls every trainee's coins, so it now needs a 6-digit code from an authenticator app as well as your password. This takes about a minute and is done once.</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div id="gQr" style="background:#fff;border-radius:10px;padding:6px;line-height:0;min-width:120px;min-height:120px"></div>
+      <div style="flex:1;min-width:220px" class="small">
+        <b>1.</b> Open <b>Google Authenticator</b> (or Authy / 1Password) → <b>+</b> → <b>Scan a QR code</b>.<br>
+        <b>2.</b> On this phone? <a id="gOpen" href="#">Tap here to add it directly</a>.<br>
+        <b>3.</b> Or enter this key by hand: <code id="gSecret" style="user-select:all;word-break:break-all"></code><br>
+        <b>4.</b> Type the 6-digit code the app shows:
+        <div class="bar" style="margin-top:10px"><input id="gCode" inputmode="numeric" placeholder="123 456" style="width:140px;font-size:18px;letter-spacing:.15em;text-align:center"><button id="gConfirm">Confirm</button></div>
+        <div class="small dn" id="gErr" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <p class="small mut" style="margin-top:14px">Keep the key somewhere safe. If you lose the phone, another master can reset two-factor for you.</p>
+    <div class="bar" style="margin-top:10px"><button class="ghost" id="gLogout">Log out</button></div>
+  </div>
+</div>
 <div id="appView" class="hidden">
 <header>
   <div><div class="brand"><span class="lm">lime</span><span class="fx">fx</span> <span class="mut" style="font-weight:500;font-size:15px">Master</span></div><div id="mkts" class="mkts" style="margin-top:8px;padding:0;background:none;border:0"></div><div class="small mut hidden" style="margin-top:4px"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
@@ -238,6 +256,13 @@ a{color:var(--acc)}
     </div>
   </div>
   <div class="card">
+    <h2>Backups &amp; activity</h2>
+    <p class="small mut" style="margin-bottom:10px">A snapshot of all accounts, orders and ledgers is saved on the server every day and kept for 14 days. Download a copy to keep one off the server as well.</p>
+    <div class="bar"><button id="bkDownload">⬇ Download backup now</button><span class="small mut" id="bkInfo"></span></div>
+    <div style="margin-top:14px"><b class="small">Master activity</b> <button class="ghost small" id="auLoad" style="padding:3px 8px;margin-left:6px">Show last 200</button></div>
+    <div id="auList" class="small" style="margin-top:8px;max-height:260px;overflow:auto"></div>
+  </div>
+  <div class="card">
     <h2>Two-factor login (this account)</h2>
     <div id="tfaOff">
       <p class="small mut" style="margin-bottom:10px">Adds a 6-digit code from Google Authenticator / Authy / 1Password to your master login. Strongly recommended — the master panel controls every trainee's coins.</p>
@@ -324,11 +349,21 @@ $$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classLi
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
   if(!me.user.is_admin){await api('/logout',{method:'POST'});$('#loginView').classList.remove('hidden');$('#loginErr').textContent='This login is for the master only. Trainees use the main site.';return;}
-  $('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');
+  $('#loginView').classList.add('hidden');
+  if(!me.user.twofa){$('#tfaGate').classList.remove('hidden');$('#gLogout').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
+    try{const j=await api('/admin/2fa/setup',{method:'POST'});$('#gQr').innerHTML=`<img src="${j.qr_png}" alt="QR" style="width:200px;height:200px;display:block">`;$('#gSecret').textContent=j.secret;$('#gOpen').href=j.uri;}catch(e){$('#gErr').textContent=e.message;}
+    const go=async()=>{try{await api('/admin/2fa/confirm',{method:'POST',body:{code:$('#gCode').value}});location.reload();}catch(e){$('#gErr').textContent=e.message;}};
+    $('#gConfirm').onclick=go;$('#gCode').addEventListener('keydown',e=>{if(e.key==='Enter')go();});return;}
+  $('#appView').classList.remove('hidden');
+  // idle for 30 minutes -> log out (the panel is too powerful to leave open on a shared screen)
+  {let last=Date.now();['mousemove','keydown','click','touchstart','scroll'].forEach(ev=>addEventListener(ev,()=>last=Date.now(),{passive:true}));setInterval(async()=>{if(Date.now()-last>30*60*1000){try{await api('/logout',{method:'POST'});}catch(e){}location.reload();}},30000);}
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
-  await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);
+  await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);loadBackups();
   setInterval(loadUsers,5000);setInterval(loadSettings,15000);setInterval(loadToday,30000);
 }
+$('#bkDownload').onclick=()=>{location.href='/api/admin/backup';toast('Preparing backup…');};
+$('#auLoad').onclick=async()=>{try{const a=await api('/admin/audit');$('#auList').innerHTML=a.length?a.map(r=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(r.at).toLocaleString('en-IN')}</span> · <b>${r.admin}</b> · ${r.action.replace(/</g,'&lt;')}</div>`).join(''):'<span class="mut">Nothing recorded yet.</span>';}catch(e){toast(e.message,1);}};
+async function loadBackups(){try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;

@@ -84,7 +84,7 @@ class Probe:
 
     def _client(self, user=None):
         cookies = {COOKIE: make_token(user)} if user else None
-        return httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="https://selfcheck.local",
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://localhost",
                                  cookies=cookies, timeout=30)
 
     # ---- small helpers over the real API ---------------------------------------------------
@@ -534,6 +534,21 @@ class Probe:
             db.expunge_all()
         finally:
             db.close()
+        # preflight: the attacker must actually be reaching the API as its test account, otherwise
+        # every "refused" below would be meaningless
+        c = self._client(ua)
+        try:
+            r = await c.get("/api/me")
+            reach = r.status_code == 200 and r.json().get("user", {}).get("username") == ua.username
+        except Exception:
+            reach = False
+        finally:
+            await c.aclose()
+        if not reach:
+            self.area = "Self-check"
+            self.ok("the check could reach the site as its test account", False, f"got HTTP {getattr(r, 'status_code', '?')} — nothing was tested, this is a fault in the check, not a loophole")
+            await self._wipe(balances=(0.0, 0.0))
+            return {"at": f"{_ist():%Y-%m-%d %H:%M}", "secs": round(time.time() - t0, 1), "passed": 0, "failed": 1, "ok": False, "rows": self.rows}
         try:
             for label, ins in self._targets():
                 if not ins:

@@ -141,8 +141,27 @@ def _throttle_ok(*keys):
         _fails.pop(k, None)
 
 
-def _set_login_cookie(request: Request, response: Response, tok: str):
+KNOWN = "pt_known"         # marks a browser / phone that has logged in to this account before
+
+
+def _known_device(request: Request, uname: str) -> bool:
+    d = decode_token(request.cookies.get(KNOWN) or "")
+    return bool(d and d.get("kd") == uname)
+
+
+def _user_key(request: Request, uname: str) -> str:
+    """Wrong-password counter for an account. Devices that have logged in to it before are counted
+    apart, so a stranger guessing at someone's username (five tries lock it for five minutes) cannot
+    keep the real owner — a trainee or the master — out of their own account."""
+    return "user:" + uname + (":known" if _known_device(request, uname) else "")
+
+
+def _set_login_cookie(request: Request, response: Response, tok: str, uname: str = ""):
     response.set_cookie(COOKIE, tok, httponly=True, samesite="lax", secure=_is_https(request), max_age=30 * 86400)
+    if uname:
+        import jwt as _jwt
+        response.set_cookie(KNOWN, _jwt.encode({"kd": uname, "exp": int(time.time()) + 400 * 86400}, config.SECRET_KEY, algorithm="HS256"),
+                            httponly=True, samesite="lax", secure=_is_https(request), max_age=400 * 86400)
 
 CANONICAL_HOST = os.environ.get("PT_CANONICAL_HOST", "")  # e.g. www.limefx.in — bare/other hosts redirect here
 
@@ -279,7 +298,8 @@ class LoginIn(BaseModel):
 @app.post("/api/login")
 def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
-    keys = ("user:" + uname, "ip:" + _client_ip(request))
+    # a device that has logged in to this account before answers only for its own wrong tries
+    keys = (_user_key(request, uname),) if _known_device(request, uname) else (_user_key(request, uname), "ip:" + _client_ip(request))
     _throttle_check(*keys)
     u = db.query(User).filter_by(username=uname).first()
     if not u or not verify_password(body.password, u.password_hash):
@@ -291,7 +311,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     if u.totp_enabled:
         return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": u.is_admin}
     tok = make_token(u)
-    _set_login_cookie(request, response, tok)
+    _set_login_cookie(request, response, tok, u.username)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
 
 
@@ -321,7 +341,7 @@ def login_2fa(body: TwoFaIn, request: Request, response: Response, db: Session =
     if not u.is_active and not u.is_admin:
         raise HTTPException(403, "Account frozen — contact your trainer")
     tok = make_token(u)
-    _set_login_cookie(request, response, tok)
+    _set_login_cookie(request, response, tok, u.username)
     return {"ok": True, "token": tok, "user": _user_dict(u), "is_admin": u.is_admin}
 
 
@@ -568,6 +588,8 @@ def _public_tokens():
 _public_tokens._cache = (-1, set())
 
 GUEST_SUB_CEILING = 2400   # leave headroom under Zerodha's 3000-instrument socket limit for users
+USER_SUB_LIMIT = 1200      # contracts one account may stream at once across all its tabs (a watchlist plus the biggest option chain is a few hundred)
+USER_SUB_CEILING = 2900    # users' screens never push the socket past its limit; orders and open positions keep the last 100
 
 
 def _ticker():
@@ -840,6 +862,15 @@ def list_ledger(from_: Optional[str] = Query(None, alias="from"), to: Optional[s
 async def ws_endpoint(ws: WebSocket):
     tok = ws.cookies.get(COOKIE) or ws.query_params.get("token")
     data = decode_token(tok) if tok else None
+    if data:
+        # password typed but 2FA code not yet given, or the account is gone / frozen: a visitor, nothing more
+        _db = SessionLocal()
+        try:
+            _u = None if data.get("pre2fa") else _db.get(User, data.get("uid"))
+        finally:
+            _db.close()
+        if not _u or not (_u.is_active or _u.is_admin):
+            data = None
     guest = not data
     await ws.accept()
     c = Client(ws, data["uid"] if data else 0)
@@ -864,6 +895,17 @@ async def ws_endpoint(ws: WebSocket):
                 if guest and len(feed._refcount) + len(new) > GUEST_SUB_CEILING:
                     # visitors never squeeze users out of the Zerodha socket
                     new = {t for t in new if t in feed._refcount}
+                if not guest:
+                    # one account cannot fill the socket either (it would leave no room for everyone else's contracts)
+                    mine = set().union(*[x.tokens for x in clients if x.user_id == c.user_id])
+                    room = USER_SUB_LIMIT - len(mine)
+                    keep = set()
+                    for t in toks:
+                        if t in new and t not in keep and (t in mine or room > 0):
+                            keep.add(t); room -= t not in mine
+                    new = keep
+                    if len(feed._refcount) + sum(1 for t in new if t not in feed._refcount) > USER_SUB_CEILING:
+                        new = {t for t in new if t in feed._refcount}
                 feed.subscribe(list(new))
                 c.tokens |= new
                 # immediate snapshot of what we already have

@@ -66,7 +66,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
 #uTbl th,#uTbl td{text-align:center}#uTbl th:first-child,#uTbl td:first-child{text-align:left}
 .fchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:8px;scrollbar-width:none}.fchips::-webkit-scrollbar{display:none}.fchip{flex:0 0 auto;background:var(--bg);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}.fchip small{font-weight:500;opacity:.8;margin-left:4px}.fchip.active{color:var(--acc);border-color:var(--acc);background:rgba(154,209,60,.14)}.frow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.frow select{flex:1 1 90px;width:auto;min-width:0;padding:8px}.frow input{flex:2 1 150px;min-width:0;padding:8px 10px}
-.bookh{display:flex;align-items:baseline;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}.bookh b{font-size:15px}.stat.hl{box-shadow:inset 0 0 0 1px var(--line)}.stat.hl b{font-size:20px}.grid.g3{grid-template-columns:repeat(3,1fr)}
+.bookh{display:flex;align-items:baseline;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}.bookh b{font-size:15px}.stat.hl{box-shadow:inset 0 0 0 1px var(--line)}.stat.hl b{font-size:20px}.grid.g6{grid-template-columns:repeat(6,1fr)}@media(max-width:900px){.grid.g6{grid-template-columns:repeat(3,1fr)}}@media(max-width:520px){.grid.g6{grid-template-columns:repeat(2,1fr)}}
 .eq{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}.eq .stat{flex:1}.eq .opx{flex:0 0 18px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-weight:700;font-size:16px}
 @media(max-width:760px){header>div:first-child{min-width:0;flex:1 1 100%}header .mkts{flex-wrap:wrap;gap:6px}header .bar{width:100%;justify-content:flex-end}}
 @media(max-width:760px){.eq{flex-direction:column;gap:2px}.eq .stat{flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 12px}.eq .stat b{margin:0;font-size:17px}.eq .stat .small{white-space:normal;padding-right:10px}.eq .opx{flex:none;height:16px;justify-content:flex-start;padding-left:14px;font-size:14px}.eq .opx[style]{display:none}.stat .small{white-space:normal}}
@@ -151,19 +151,12 @@ a{color:var(--acc)}
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
   <div class="card">
-  <div class="bookh"><b>Our Book</b></div>
-  <div class="eq">
-    <div class="stat"><span class="mut small" title="Coins given to all users (credits minus debits)">Coins Allocated</span><b id="sCredited" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
-    <div class="stat"><span class="mut small" title="Opposite of the users' realised P&L on closed trades, before commission">Closed Trades</span><b id="hBooked" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Opposite of the users' unrealised P&L: what we would make or lose if every open position were closed now">Open Positions</span><b id="hOpen" class="num">—</b></div><div class="opx">+</div>
-    <div class="stat"><span class="mut small" title="Brokerage users paid on every buy and sell">Commission</span><b id="hComm" class="num">—</b></div><div class="opx">=</div>
-    <div class="stat hl"><span class="mut small" title="Coins allocated − Users' net balance">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="opx" style="color:transparent">·</div>
-    <div class="stat"><span class="mut small" id="sTodayLbl">P&amp;L Today</span><b id="sToday" class="num">—</b></div>
+  <div class="bookh"><b>Dashboard</b><span class="small mut" id="sUsersTxt"></span></div>
+  <div class="grid g6">
+    <div class="stat"><span class="mut small" title="Coins given to all users">Allocated</span><b id="sCredited" class="num">—</b></div><div class="stat"><span class="mut small" title="What users can still trade with">Available Balance</span><b id="sAvail" class="num">—</b></div><div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin Used</span><b id="sExposure" class="num">—</b></div><div class="stat"><span class="mut small" title="What all user accounts are worth now">Net Balance</span><b id="sEquity" class="num">—</b></div><div class="stat"><span class="mut small">Open Pos</span><b id="sPos">—</b></div><div class="stat"><span class="mut small">Trades</span><b id="sTrades">—</b></div>
   </div>
-  <div class="grid g3" style="margin-top:10px">
-    <div class="stat"><span class="mut small" title="Margin blocked by open positions and pending orders">Margin Used</span><b id="sExposure" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Users</span><b id="sUsers">—</b></div>
-    <div class="stat"><span class="mut small">Live Positions</span><b id="sPos">—</b></div>
+  <div class="grid g6" style="margin-top:8px">
+    <div class="stat"><span class="mut small" title="Our side of open positions: the opposite of what users show">Unrealised</span><b id="hOpen" class="num">—</b></div><div class="stat"><span class="mut small" title="Our side of closed trades: the opposite of what users show">Realised</span><b id="hBooked" class="num">—</b></div><div class="stat"><span class="mut small" title="Unrealised + Realised">P&amp;L</span><b id="hGross" class="num">—</b></div><div class="stat"><span class="mut small" title="Commission users paid us">Commission</span><b id="hComm" class="num">—</b></div><div class="stat"><span class="mut small" title="P&amp;L + Commission">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="stat"><span class="mut small" id="sTodayLbl">P&amp;L Today</span><b id="sToday" class="num">—</b></div>
   </div>
   <div class="recon"><span></span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
   </div>
@@ -489,8 +482,8 @@ function renderLive(){const l=[...livePos];l.sort((a,b)=>{const x=a[lpK],y=b[lpK
 async function loadLive(){try{livePos=await api('/admin/positions');renderLive();}catch(e){}}
 async function loadUsers(){loadLive();users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
-  $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(tx);
-  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hComm',tcm);set('#hNet',tc-te);if(todayExact())set('#sToday',(tc-te)-(daySnap.alloc-daySnap.equity));}$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
+  $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(users.reduce((a,u)=>a+(u.available||0),0));$('#sTrades').textContent=users.reduce((a,u)=>a+(u.trades||0),0);$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(tx);
+  const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);{const tu=users.reduce((a,u)=>a+(u.unrealised||0),0),tr=users.reduce((a,u)=>a+(u.balance-u.total_credited+(u.commission_total||0)),0);const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-tr);set('#hOpen',-tu);set('#hGross',-tr-tu);set('#hComm',tcm);set('#hNet',tc-te);if(todayExact())set('#sToday',(tc-te)-(daySnap.alloc-daySnap.equity));}$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All users</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
   renderUsers();if(detail)refreshDetail();
 }

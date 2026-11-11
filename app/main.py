@@ -12,7 +12,13 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request, Response, Query
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel as _PydBase, ConfigDict
+
+
+class BaseModel(_PydBase):
+    """Every request body: NaN / Infinity are never valid numbers (they slip past <, > checks)."""
+    model_config = ConfigDict(allow_inf_nan=False)
+
 from sqlalchemy.orm import Session
 
 from . import config
@@ -27,6 +33,21 @@ log = logging.getLogger("app")
 logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print full request URLs
 
 app = FastAPI(title="LimeFX")
+
+
+from fastapi.exceptions import RequestValidationError as _RVE
+from fastapi.responses import JSONResponse as _JR
+
+
+@app.exception_handler(_RVE)
+async def _bad_input(request, exc):
+    """Plain-text reason for a malformed request (the default handler echoes the input back and
+    crashes on NaN)."""
+    try:
+        msg = "; ".join(f"{'.'.join(str(x) for x in (e.get('loc') or [])[1:])}: {e.get('msg')}" for e in exc.errors()[:5])
+    except Exception:
+        msg = ""
+    return _JR({"detail": msg or "Invalid input"}, status_code=422)
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=800)   # the app page is ~130 KB of text: ~75% smaller on the wire
 
@@ -706,6 +727,12 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None, leve
     ins = feed.instruments.get(token)
     if not ins:
         raise HTTPException(404, "unknown instrument")
+    import math
+    if price is not None and not (math.isfinite(price) and price > 0):
+        price = None
+    if leverage is not None and not math.isfinite(leverage):
+        leverage = None
+    lots = max(0, min(int(lots), 100000))
     p = price or feed.ltp(token) or 0
     qty = lots * ins.lot_size
     if leverage is not None and (not ins.leverage_options or not (1 <= leverage <= max(ins.leverage_options))):
@@ -746,11 +773,13 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
         raise HTTPException(404, "position not found")
     async with engine._lock:
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
-        cancelled = engine.cancel_pending_for(db, user, p.token)
+        # exit first; resting stops/targets are cancelled only once the exit has gone through — if the
+        # market is closed the position stays, and so must its stop-loss
         try:
             o = engine.place_order(db, user, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
         except EngineError as e:
             raise HTTPException(400, str(e))
+        cancelled = engine.cancel_pending_for(db, user, p.token)
     return {"order": engine.order_dict(o), "cancelled_orders": cancelled}
 
 

@@ -105,6 +105,20 @@ class Engine:
         from .market_calendar import is_open
         return is_open(exchange)
 
+    def tradable_now(self, ins) -> bool:
+        """Exchange calendar plus the contract's own timetable (Global contracts have daily breaks and
+        holidays inside the 24x5 week). Nothing may fill — resting orders, stops, square-offs, margin
+        calls — while the contract itself is shut: its last quote is stale, not a price."""
+        if not ins or not self.market_open(ins.exchange):
+            return False
+        fx = getattr(self.feed, "forex", None)
+        if fx and ins.token in getattr(fx, "items", {}):
+            try:
+                return bool(fx.market_open(ins.token)[0])
+            except Exception:
+                return True
+        return True
+
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
@@ -260,8 +274,8 @@ class Engine:
         db.add(Ledger(user_id=user.id, amount=round(amount, 2), balance_after=user.balance, kind=kind, note=note))
 
     def funds(self, db: Session, user: User) -> dict:
-        used = sum(p.margin_blocked for p in db.query(Position).filter_by(user_id=user.id, is_closed=False))
-        used += sum(o.margin_blocked for o in db.query(Order).filter_by(user_id=user.id, status="OPEN"))
+        used = sum((p.margin_blocked or 0.0) for p in db.query(Position).filter_by(user_id=user.id, is_closed=False))
+        used += sum((o.margin_blocked or 0.0) for o in db.query(Order).filter_by(user_id=user.id, status="OPEN"))
         unreal = 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             mk = self.mark_price(p.token, p.qty)
@@ -310,6 +324,10 @@ class Engine:
             raise EngineError("Unknown or non-tradable instrument")
         if not user.is_active:
             raise EngineError("Account is frozen")
+        import math
+        for _v in (limit_price, trigger_price, leverage):
+            if _v is not None and not math.isfinite(_v):
+                raise EngineError("Price and leverage must be ordinary numbers")
         side = side.upper(); order_type = order_type.upper()
         if side not in ("BUY", "SELL"):
             raise EngineError("side must be BUY or SELL")
@@ -593,7 +611,11 @@ class Engine:
                 on, _, _ = self.liquidity_settings(db)
                 bid, ask = tick.get("bid"), tick.get("ask")
                 for o in orders:
-                    if not self.market_open(ins.exchange):
+                    if not self.tradable_now(ins):
+                        continue
+                    if (o.order_type == "LIMIT" and not o.limit_price) or (o.order_type == "SL" and not o.trigger_price):
+                        o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — order had no valid price"
+                        db.commit()
                         continue
                     fill_at = None; note = ""
                     if o.order_type == "LIMIT":
@@ -657,13 +679,22 @@ class Engine:
                 if ins and ins.lot_size != p.lot_size:
                     mk = self.mark_price(p.token, p.qty) or self.feed.ltp(p.token) or p.avg_price
                     user = db.get(User, p.user_id)
-                    realised = (mk - p.avg_price) * p.qty
+                    realised = (mk - p.avg_price) * p.qty * (self.vf(ins) or 1.0)
                     p.realised_pnl = round(p.realised_pnl + realised, 2)
                     db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
                                  side="SELL" if p.qty > 0 else "BUY", qty=abs(p.qty), price=mk, realised_pnl=round(realised, 2)))
                     self._ledger(db, user, realised, "LOT_SIZE_CORRECTION", f"{p.symbol} settled @ {mk} (lot size corrected {p.lot_size}->{ins.lot_size})")
                     p.qty = 0; p.margin_blocked = 0.0; p.is_closed = True
                     log.warning("settled legacy position %s for user %s due to lot size change", p.symbol, user.username)
+            from sqlalchemy import text as _sql
+            for col in ("limit_price", "trigger_price", "leverage", "margin_blocked"):
+                # an infinite number saved by an old bad request makes the whole order list unreadable
+                db.execute(_sql(f"UPDATE orders SET {col}=NULL WHERE {col} > 1e300 OR {col} < -1e300"))
+            db.commit()
+            for o in db.query(Order).filter_by(status="OPEN").all():
+                if o.margin_blocked is None or (o.order_type == "LIMIT" and not o.limit_price) or (o.order_type == "SL" and not o.trigger_price):
+                    o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — order had no valid price"
+                    log.warning("cancelled price-less resting order #%s", o.id)
             db.commit()
             toks = {o.token for o in db.query(Order).filter_by(status="OPEN")}
             toks |= {p.token for p in db.query(Position).filter_by(is_closed=False)}
@@ -698,16 +729,21 @@ class Engine:
                     user = db.get(User, uid)
                     if not user:
                         continue
-                    f = self.funds(db, user)
-                    if f["maintenance"] > 0 and f["equity"] < f["maintenance"]:
-                        self._liquidate(db, user, f)
+                    try:
+                        f = self.funds(db, user)
+                        if f["maintenance"] > 0 and f["equity"] < f["maintenance"]:
+                            self._liquidate(db, user, f)
+                    except Exception:
+                        # one broken account must never stop margin calls for everyone else
+                        log.exception("liquidation check failed for user %s", uid)
+                        db.rollback()
             finally:
                 db.close()
 
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
         ins = self.feed.instruments.get(p.token)
-        if not ins or not self.market_open(ins.exchange):
+        if not ins or not self.tradable_now(ins):
             return False
         side = "SELL" if p.qty > 0 else "BUY"
         try:
@@ -781,7 +817,7 @@ class Engine:
         closed = 0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not self.market_open(ins.exchange):
+            if not ins or not self.tradable_now(ins):
                 continue
             side = "SELL" if p.qty > 0 else "BUY"
             try:

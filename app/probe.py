@@ -1,0 +1,650 @@
+"""Daily safety check: the site attacks itself.
+
+Two hidden test accounts (never shown in any trainee list or total) go through the real API — the same
+doors a trainee's phone uses — and try to cheat: nonsense numbers, cheap-margin orders, many orders at
+the same instant, instant round trips for free money, touching each other's orders, trading a closed
+market. Every attempt must be refused or must not make money. Then every real account's books are
+checked. The result is stored for the Master panel and sent to Telegram.
+
+Nothing here can touch a real account: the attacker only ever holds the two test accounts' sessions.
+"""
+import asyncio
+import json
+import logging
+import math
+import os
+import secrets
+import time
+from datetime import datetime, timedelta
+
+import httpx
+
+from .auth import COOKIE, make_token
+from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting, set_setting
+
+log = logging.getLogger("probe")
+PREFIX = "zz-probe-"
+RUN_AT = os.getenv("PT_PROBE_AT", "10:05")          # IST, every day
+_running = asyncio.Lock()
+
+
+def is_probe(username: str) -> bool:
+    return (username or "").startswith(PREFIX)
+
+
+def _ist() -> datetime:
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+
+
+class Probe:
+    def __init__(self, app, engine, feed):
+        self.app, self.engine, self.feed = app, engine, feed
+        self.rows = []          # {"area", "check", "ok", "info"}
+        self.area = ""
+
+    # ---- bookkeeping ---------------------------------------------------------------------
+    def ok(self, check: str, passed: bool, info=""):
+        self.rows.append({"area": self.area, "check": check, "ok": bool(passed), "info": str(info)[:220]})
+
+    def note(self, check: str, info=""):
+        self.rows.append({"area": self.area, "check": check, "ok": None, "info": str(info)[:220]})
+
+    def _users(self, db):
+        out = []
+        for n in ("a", "b"):
+            u = db.query(User).filter_by(username=PREFIX + n).first()
+            if not u:
+                # a password hash nothing can match: these accounts cannot be logged into from outside
+                u = User(username=PREFIX + n, display_name="Safety check " + n.upper(), is_admin=False, is_active=True,
+                         password_hash="!" + secrets.token_hex(24), balance=0.0)
+                db.add(u); db.commit()
+            out.append(u)
+        return out
+
+    async def _wipe(self, balances=(1_000_000.0, 1_000_000.0)):
+        """Start (and finish) from a clean slate: no orders, positions, trades or ledger on the test accounts."""
+        async with self.engine._lock:
+            db = SessionLocal()
+            try:
+                for u, bal in zip(self._users(db), balances):
+                    for M in (Trade, Ledger, Order, Position):
+                        db.query(M).filter_by(user_id=u.id).delete()
+                    u.balance = bal; u.is_active = True; u.must_change_password = False
+                db.commit()
+            finally:
+                db.close()
+
+    async def _set_balance(self, uid: int, bal: float):
+        async with self.engine._lock:
+            db = SessionLocal()
+            try:
+                db.get(User, uid).balance = round(bal, 2); db.commit()
+            finally:
+                db.close()
+
+    def _client(self, user=None):
+        cookies = {COOKIE: make_token(user)} if user else None
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="https://selfcheck.local",
+                                 cookies=cookies, timeout=30)
+
+    # ---- small helpers over the real API ---------------------------------------------------
+    async def _order(self, c, **body):
+        r = await c.post("/api/orders", json=body)
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        return r.status_code, (j.get("order") or {}), str(j.get("detail", ""))[:140]
+
+    async def _raw(self, c, body: str):
+        r = await c.post("/api/orders", content=body, headers={"content-type": "application/json"})
+        return r.status_code
+
+    async def _funds(self, c):
+        r = await c.get("/api/me")
+        return r.json()["funds"] if r.status_code == 200 else None
+
+    async def _orders(self, c):
+        r = await c.get("/api/orders")
+        return r.json() if r.status_code == 200 else None
+
+    async def _positions(self, c):
+        r = await c.get("/api/positions")
+        return [p for p in r.json() if p["qty"]] if r.status_code == 200 else None
+
+    async def _flatten(self, c):
+        for o in (await self._orders(c)) or []:
+            if o["status"] == "OPEN":
+                await c.delete(f"/api/orders/{o['id']}")
+        for p in (await self._positions(c)) or []:
+            await c.post(f"/api/positions/{p['id']}/close")
+
+    async def _wait_order(self, c, oid, secs=7.0):
+        t0 = time.time()
+        while time.time() - t0 < secs:
+            o = next((x for x in (await self._orders(c)) or [] if x["id"] == oid), None)
+            if o and o["status"] != "OPEN":
+                return o
+            await asyncio.sleep(0.5)
+        return next((x for x in (await self._orders(c)) or [] if x["id"] == oid), None)
+
+    def _quote(self, token):
+        t = self.feed.prices.get(token) or {}
+        return t.get("bid"), t.get("ask"), t.get("ltp")
+
+    # ---- which contracts to attack ---------------------------------------------------------
+    def _targets(self):
+        ins_all = list(self.feed.instruments.values())
+        today = _ist().date().isoformat()
+
+        def nearest(exchange, names):
+            for nm in names:
+                c = [i for i in ins_all if i.exchange == exchange and i.instrument_type == "FUT" and i.name == nm
+                     and (not i.expiry or i.expiry >= today)]
+                if c:
+                    return sorted(c, key=lambda i: i.expiry or "")[0]
+            return None
+
+        def sym(exchange, symbol):
+            return next((i for i in ins_all if i.exchange == exchange and i.symbol == symbol), None)
+
+        cry = next((i for i in ins_all if i.exchange == "CRYPTO" and i.instrument_type == "FUT" and i.symbol.startswith("BTC")), None)
+        return [("NSE", nearest("NFO", ["NIFTY", "BANKNIFTY"])), ("MCX", nearest("MCX", ["CRUDEOILM", "GOLDM", "SILVERM", "NATGASMINI"])),
+                ("Crypto", cry), ("Forex", sym("FOREX", "EURUSD")), ("Global", sym("FOREX", "US500"))]
+
+    def _feed_up(self, ins) -> bool:
+        if ins.exchange == "CRYPTO":
+            c = getattr(self.feed, "crypto", None); return bool(c and c.connected)
+        if ins.exchange == "FOREX":
+            f = getattr(self.feed, "forex", None); return bool(f and f.connected)
+        return bool(self.feed.connected)
+
+    # ---- the attacks -----------------------------------------------------------------------
+    async def _attack(self, label, ins, ua, ub):
+        self.area = label
+        T = ins.token
+        ca, cb, anon = self._client(ua), self._client(ub), self._client()
+        try:
+            if not self._feed_up(ins):
+                self.note("skipped", "price feed for this market is not connected"); return
+            if not self.engine.tradable_now(ins):
+                st, _, d = await self._order(ca, token=T, side="BUY", lots=1)
+                self.ok("market is closed: order refused", st == 400, d)
+                st, _, d = await self._order(ca, token=T, side="BUY", lots=1, order_type="LIMIT", limit_price=1)
+                self.ok("market is closed: limit order refused", st == 400, d)
+                return
+            # make sure there is a live price
+            self.feed.pin([T])
+            for _ in range(40):
+                bid, ask, ltp = self._quote(T)
+                if bid and ask and ltp:
+                    break
+                await asyncio.sleep(0.25)
+            if not (bid and ask and ltp):
+                self.note("skipped", f"no live two-sided price for {ins.symbol}"); return
+            self.note("contract", f"{ins.symbol} bid {bid} ask {ask}")
+            age = self.feed.tick_age(T) or 0
+            self.ok("price is fresh (last update under 5 minutes old)", age < 300, f"{int(age)} s old")
+            self.ok("price is sane: bid below ask, last price near them", 0 < bid <= ask and bid * 0.97 <= ltp <= ask * 1.03, f"bid {bid} ask {ask} last {ltp}")
+            await self._set_balance(ua.id, 1_000_000.0)
+
+            # 1. nonsense numbers ------------------------------------------------------------
+            before = len((await self._orders(ca)) or [])
+            bad = 0
+            for lots in (0, -1, 10 ** 9):
+                st, _, _ = await self._order(ca, token=T, side="BUY", lots=lots); bad += st not in (400, 422)
+            for body in ('{"token":%d,"side":"BUY","lots":1.5}', '{"token":%d,"side":"BUY","lots":NaN}',
+                         '{"token":%d,"side":"BUY","lots":1,"order_type":"LIMIT","limit_price":NaN}',
+                         '{"token":%d,"side":"BUY","lots":1,"order_type":"LIMIT","limit_price":Infinity}',
+                         '{"token":%d,"side":"BUY","lots":1,"order_type":"LIMIT","limit_price":-5}',
+                         '{"token":%d,"side":"SELL","lots":1,"order_type":"SL","trigger_price":NaN}',
+                         '{"token":%d,"side":"BUY","lots":1,"leverage":NaN}',
+                         '{"token":%d,"side":"HOLD","lots":1}', '{"token":%d,"side":"BUY","lots":1,"order_type":"FOK"}'):
+                st = await self._raw(ca, body % T); bad += st not in (400, 422)
+            f = await self._funds(ca)
+            after = [o for o in (await self._orders(ca)) or [] if o["status"] in ("OPEN", "FILLED")]
+            self.ok("12 nonsense orders (zero, negative, fraction, not-a-number, infinite) all refused", bad == 0 and f is not None and len(after) <= before,
+                    f"{bad} got through" if bad else "")
+            if ins.leverage_options:
+                mx = max(ins.leverage_options); n = 0
+                for lv in (0, -5, 0.5, mx * 2 + 1, 1e9):
+                    st, _, _ = await self._order(ca, token=T, side="BUY", lots=1, leverage=lv); n += st != 400
+                self.ok(f"leverage outside 1–{mx:g}x refused", n == 0)
+            if ins.exchange in ("CRYPTO", "FOREX"):
+                st, _, _ = await self._order(ca, token=T, side="BUY", lots=1, product="MIS")
+                self.ok("intraday product on a 24-hour market refused", st == 400)
+            st, _, _ = await self._order(ca, token=T, side="SELL", lots=1, order_type="SL", trigger_price=round(ask * 1.02, 6))
+            st2, _, _ = await self._order(ca, token=T, side="BUY", lots=1, order_type="SL", trigger_price=round(bid * 0.98, 6))
+            self.ok("stop-loss on the wrong side of the market refused", st == 400 and st2 == 400)
+            await self._flatten(ca)
+
+            # 2. doors that must be shut -----------------------------------------------------
+            r = await anon.post("/api/orders", json={"token": T, "side": "BUY", "lots": 1})
+            self.ok("order without login refused", r.status_code in (401, 403))
+            r1 = await ca.get("/api/admin/backup/offsite"); r2 = await ca.post("/api/admin/probe/run")
+            self.ok("trainee cannot open Master functions", r1.status_code in (401, 403) and r2.status_code in (401, 403))
+
+            m = (await ca.get("/api/margin", params={"token": T, "side": "BUY", "lots": 1})).json()
+            m1 = float(m.get("full_margin") or 0); comm1 = float(m.get("commission") or 0)
+            if m1 <= 0 or not math.isfinite(m1):
+                self.ok("margin for one lot is a real number", False, m1); return
+            if m1 + comm1 > 900_000:
+                self.note("skipped trading attacks", f"one lot needs ₹{m1:,.0f}, more than the test account holds"); return
+
+            # 3. free money? instant round trips ---------------------------------------------
+            f0 = await self._funds(ca); fills = 0
+            db = SessionLocal()
+            try:
+                tmax = max([t.id for t in db.query(Trade).filter_by(user_id=ua.id).all()] or [0])
+            finally:
+                db.close()
+            for _ in range(3):
+                s1, o1, _ = await self._order(ca, token=T, side="BUY", lots=1)
+                s2, o2, _ = await self._order(ca, token=T, side="SELL", lots=1)
+                fills += (s1 == 200 and o1.get("status") == "FILLED") + (s2 == 200 and o2.get("status") == "FILLED")
+            await self._flatten(ca)
+            f1 = await self._funds(ca)
+            if fills:
+                gain = f1["balance"] - f0["balance"]
+                notional = ltp * ins.lot_size * (self.engine.vf(ins) or 1.0)
+                self.ok("3 instant round trips do not make money", gain <= notional * 0.0015, f"result ₹{gain:,.2f}")
+                db = SessionLocal()
+                try:
+                    tr = db.query(Trade).filter(Trade.user_id == ua.id, Trade.id > tmax).all()
+                    books = sum((t.realised_pnl or 0) - (t.commission or 0) for t in tr)
+                    led = db.query(Ledger).filter_by(user_id=ua.id).order_by(Ledger.id.desc()).first()
+                    self.ok("trades (P&L − commission) equal the balance change", abs(books - gain) < 0.5,
+                            f"trades ₹{books:,.2f} vs balance ₹{gain:,.2f}")
+                    self.ok("last ledger line equals the balance", (led is None) or abs(led.balance_after - f1["balance"]) < 0.011)
+                finally:
+                    db.close()
+            else:
+                self.note("round trips skipped", "no fill (book empty right now)")
+
+            # 4. price tricks -----------------------------------------------------------------
+            band = float(ins.price_band_pct or 0)
+            hi = ask * (3 if not band else 1 + band / 100 * 0.9)
+            st, o, d = await self._order(ca, token=T, side="BUY", lots=1, order_type="LIMIT", limit_price=round(hi, 6))
+            if st == 200:
+                o = await self._wait_order(ca, o["id"])
+                if o and o["status"] == "FILLED":
+                    self.ok("buy limit far above the market fills at the market, not at my price", o["fill_price"] <= ask * 1.004, f"asked {hi:g}, filled {o['fill_price']}")
+                    lo = bid * (0.01 if not band else 1 - band / 100 * 0.9)
+                    st, o, d = await self._order(ca, token=T, side="SELL", lots=1, order_type="LIMIT", limit_price=round(lo, 6))
+                    if st == 200:
+                        o = await self._wait_order(ca, o["id"])
+                        if o and o["status"] == "FILLED":
+                            self.ok("sell limit far below the market fills at the market bid", o["fill_price"] >= bid * 0.996, f"asked {lo:g}, filled {o['fill_price']}")
+                else:
+                    self.note("limit-price trick inconclusive", "no price tick arrived within 7 s")
+            await self._flatten(ca)
+
+            # 5. cheap margin: tiny limit price, position far bigger than the account ----------
+            max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
+            if ins.pos_limit:
+                max_lots = min(max_lots, ins.pos_limit // max(ins.lot_size, 1))
+            lots = max(2, min(max_lots, 4))
+            await self._set_balance(ub.id, round(m1 * 1.2 + comm1 * 2, 2))          # can afford one lot, never `lots`
+            st, o, d = await self._order(cb, token=T, side="SELL", lots=lots)
+            self.ok("market order bigger than the account can carry refused", st == 400, d)
+            lo = bid * (0.01 if not band else 1 - band / 100 * 0.9)
+            st, o, d = await self._order(cb, token=T, side="SELL", lots=lots, order_type="LIMIT", limit_price=round(lo, 6))
+            if st == 200:
+                o = await self._wait_order(cb, o["id"])
+            pos = await self._positions(cb)
+            self.ok("cheap-margin trick (tiny limit price, oversized position) opens nothing", not pos, (o or {}).get("reason") or d)
+            await self._flatten(cb)
+
+            # 6. many orders at the same instant ----------------------------------------------
+            await self._set_balance(ub.id, round((m1 + comm1) * 3.5, 2))            # room for 3 lots
+            clients = [self._client(ub) for _ in range(12)]
+            try:
+                res = await asyncio.gather(*[c.post("/api/orders", json={"token": T, "side": "BUY", "lots": 1}) for c in clients], return_exceptions=True)
+            finally:
+                for c in clients:
+                    await c.aclose()
+            filled = sum(1 for r in res if not isinstance(r, Exception) and r.status_code == 200 and r.json()["order"]["status"] == "FILLED")
+            pos = await self._positions(cb); held = sum(abs(p["qty"]) // max(p["lot_size"], 1) for p in pos or [])
+            fb = await self._funds(cb)
+            self.ok("12 orders at the same instant: never more than the account can carry", held <= 3 and filled <= 3 and fb["used_margin"] <= fb["balance"] + m1 * 0.05,
+                    f"{filled} filled, {12 - filled} refused")
+            # 7. other people's things --------------------------------------------------------
+            if pos:
+                r = await ca.post(f"/api/positions/{pos[0]['id']}/close")
+                self.ok("another account cannot close my position", r.status_code == 404)
+            # 8. duplicates: the same tap sent many times ----------------------------------------
+            if pos:
+                clients = [self._client(ub) for _ in range(6)]
+                try:
+                    res = await asyncio.gather(*[c.post(f"/api/positions/{pos[0]['id']}/close") for c in clients], return_exceptions=True)
+                finally:
+                    for c in clients:
+                        await c.aclose()
+                okc = sum(1 for r in res if not isinstance(r, Exception) and r.status_code == 200)
+                after = await self._positions(cb)
+                was_long = pos[0]["qty"] > 0
+                flipped = [p for p in after or [] if (p["qty"] > 0) != was_long]
+                self.ok("Exit tapped 6 times at once closes the position once — never flips it the other way", okc <= 1 and not flipped,
+                        f"{okc} exit went through" + (f", now holding {flipped[0]['qty']}" if flipped else ""))
+            far = bid * (0.5 if not band else 1 - band / 100 * 0.6)
+            await self._set_balance(ub.id, 1_000_000.0)
+            st, o, d = await self._order(cb, token=T, side="BUY", lots=1, order_type="LIMIT", limit_price=round(far, 6))
+            if st == 200 and o.get("status") == "OPEN":
+                r = await ca.delete(f"/api/orders/{o['id']}")
+                self.ok("another account cannot cancel my order", r.status_code == 400)
+                clients = [self._client(ub) for _ in range(5)]
+                try:
+                    res = await asyncio.gather(*[c.delete(f"/api/orders/{o['id']}") for c in clients], return_exceptions=True)
+                finally:
+                    for c in clients:
+                        await c.aclose()
+                okc = sum(1 for r in res if not isinstance(r, Exception) and r.status_code == 200)
+                fb = await self._funds(cb)
+                self.ok("Cancel sent 5 times at once cancels once and frees the margin once", okc == 1 and abs(fb["used_margin"]) < 0.01 and abs(fb["balance"] - 1_000_000.0) < 0.01,
+                        f"{okc} cancels accepted, margin held ₹{fb['used_margin']:,.2f}")
+            await self._flatten(cb); await self._flatten(ca)
+            left = ((await self._positions(ca)) or []) + ((await self._positions(cb)) or [])
+            if left:
+                self.note("test position could not be closed (no depth)", ", ".join(p["symbol"] for p in left))
+        finally:
+            for c in (ca, cb, anon):
+                await c.aclose()
+
+    # ---- thin (illiquid) contracts ---------------------------------------------------------------
+    async def _illiquid(self, label, exchange, names, ua):
+        """Buy more than the whole visible book of a thin far-out option, try to take the same sellers
+        twice, then dump it. Must never fill beyond what is really offered, and must lose money."""
+        self.area = label + " thin contract"
+        today = _ist().date().isoformat()
+        name, opts = names[0], []
+        for nm in names:
+            opts = [i for i in self.feed.instruments.values() if i.exchange == exchange and i.name == nm
+                    and i.instrument_type in ("CE", "PE") and i.expiry and i.expiry >= today]
+            if opts:
+                name = nm; break
+        ut = self.feed.index_token_for(name)
+        if ut and opts and self.feed.ltp(ut) is None:
+            self.feed.pin([ut])
+            for _ in range(12):
+                if self.feed.ltp(ut) is not None:
+                    break
+                await asyncio.sleep(0.25)
+        spot = self.feed.ltp(ut) if ut else None
+        if not opts or not spot:
+            self.note("skipped", "no options or no underlying price"); return
+        if not self.engine.tradable_now(opts[0]) or not self._feed_up(opts[0]):
+            self.note("skipped", "market closed or feed off"); return
+        exp = min(i.expiry for i in opts)
+        cand = sorted([i for i in opts if i.expiry == exp and ((i.instrument_type == "CE" and i.strike >= spot * 1.025) or
+                                                               (i.instrument_type == "PE" and i.strike <= spot * 0.975))],
+                      key=lambda i: -abs(i.strike - spot))[:10]          # farthest first = thinnest
+        watched = [i.token for i in cand]
+        self.feed.subscribe(watched)
+        await asyncio.sleep(4)
+        pick = None
+        for i in cand:
+            t = self.feed.prices.get(i.token) or {}
+            asks, bids = t.get("asks") or [], t.get("bids") or []
+            if asks and bids and 0 < sum(a[0] * a[1] for a in asks) * (self.engine.vf(i) or 1) < 350_000:
+                pick = (i, asks, bids); break
+        ca = self._client(ua)
+        try:
+            nobid = next((i for i in cand if (self.feed.prices.get(i.token) or {}).get("ltp") and not ((self.feed.prices.get(i.token) or {}).get("bids"))), None)
+            if nobid:
+                st, o, d = await self._order(ca, token=nobid.token, side="SELL", lots=1)
+                self.ok("selling into a contract with no buyers is refused", st == 400, d)
+            if not pick:
+                self.note("skipped depth attack", "no thin option with a two-sided book that the test account can buy out"); return
+            ins, asks, bids = pick
+            await self._set_balance(ua.id, 1_000_000.0)
+            depth = sum(a[1] for a in asks); depth_lots = int(depth // ins.lot_size)
+            from .config import FREEZE_QTY
+            cap = 500
+            fz = FREEZE_QTY.get(ins.name) if ins.exchange in ("NFO", "BFO") else None
+            if fz:
+                cap = min(cap, fz // ins.lot_size)
+            want = max(1, min(depth_lots + 3, cap))
+            self.note("contract", f"{ins.symbol}: {depth_lots} lots offered, best ask {asks[0][0]}, best bid {bids[0][0]}; trying to buy {want}")
+            f0 = await self._funds(ca)
+            st, o1, d = await self._order(ca, token=ins.token, side="BUY", lots=want)
+            q1 = o1.get("qty", 0) if (st == 200 and o1.get("status") == "FILLED") else 0
+            if q1:
+                self.ok("never fills more than the sellers really offered", q1 <= depth + 1e-6, f"filled {q1 // ins.lot_size} of {depth_lots} lots offered")
+                self.ok("fills at the sellers' prices (not at the last traded price)", asks[0][0] - 1e-6 <= o1["fill_price"] <= max(a[0] for a in asks) + 1e-6,
+                        f"filled {o1['fill_price']}, asks {asks[0][0]}–{max(a[0] for a in asks)}")
+            asks2 = (self.feed.prices.get(ins.token) or {}).get("asks") or []
+            st, o2, d2 = await self._order(ca, token=ins.token, side="BUY", lots=want)
+            q2 = o2.get("qty", 0) if (st == 200 and o2.get("status") == "FILLED") else 0
+            if want > depth_lots and q1 and [tuple(a[:2]) for a in asks2] == [tuple(a[:2]) for a in asks]:
+                self.ok("the same sellers cannot be taken twice (repeat order gets nothing)", q2 == 0, f"second order filled {q2 // ins.lot_size} lots" if q2 else d2)
+            elif q1:
+                self.ok("two back-to-back orders together stay within what was offered", q1 + q2 <= depth + sum(a[1] for a in asks2) + 1e-6,
+                        f"{(q1 + q2) // ins.lot_size} lots filled")
+            for _ in range(3):
+                await self._flatten(ca)
+                if not [p for p in (await self._positions(ca)) or [] if p["token"] == ins.token]:
+                    break
+                await asyncio.sleep(1.5)
+            left = [p for p in (await self._positions(ca)) or [] if p["token"] == ins.token]
+            f1 = await self._funds(ca)
+            if q1 and not left:
+                self.ok("buying out a thin book and dumping it loses money", f1["balance"] <= f0["balance"] + 0.01, f"result ₹{f1['balance'] - f0['balance']:,.2f}")
+            elif q1:
+                self.ok("bought-out position is not valued above what buyers would pay", f1["equity"] <= f0["equity"] + 0.01,
+                        f"stuck with {left[0]['qty']} (no buyers); equity change ₹{f1['equity'] - f0['equity']:,.2f}")
+            else:
+                self.note("depth attack inconclusive", d or "no fill")
+        finally:
+            await ca.aclose()
+            try:
+                self.feed.unsubscribe(watched)
+            except Exception:
+                pass
+            await self._wipe()          # a position stuck without buyers must not colour the next test
+
+    def _price_sanity(self):
+        self.area = "Prices"
+        bad, crossed, far, n = [], [], [], 0
+        for tok, t in list(self.feed.prices.items()):
+            ins = self.feed.instruments.get(tok)
+            if not ins or not isinstance(t, dict) or t.get("ltp") is None:
+                continue
+            n += 1
+            vals = [t.get(k) for k in ("ltp", "bid", "ask") if t.get(k) is not None]
+            if ins.segment != "INDICES" and any((not isinstance(v, (int, float))) or (not math.isfinite(v)) or v <= 0 for v in vals):
+                bad.append(ins.symbol); continue
+            b, a = t.get("bid"), t.get("ask")
+            if b and a and b > a * 1.0000001:
+                crossed.append(f"{ins.symbol} {b}>{a}")
+            if b and a and ins.instrument_type == "FUT" and not (b * 0.9 <= t["ltp"] <= a * 1.1):
+                far.append(f"{ins.symbol} last {t['ltp']} vs {b}/{a}")
+        self.ok(f"no zero, negative or broken price among {n} live contracts", not bad, ", ".join(bad[:8]))
+        self.ok("no contract shows a bid above its ask", not crossed, "; ".join(crossed[:6]))
+        self.ok("no future's last price is more than 10% away from its bid/ask", not far, "; ".join(far[:6]))
+        # every open position of a real account must have a usable exit price
+        db = SessionLocal()
+        try:
+            nomark = []
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                ins = self.feed.instruments.get(p.token)
+                if not p.qty or not ins or not self.engine.tradable_now(ins) or not self._feed_up(ins):
+                    continue
+                mk = self.engine.mark_price(p.token, p.qty)
+                if mk is None or not math.isfinite(mk) or mk <= 0:
+                    nomark.append(p.symbol)
+            self.ok("every open position in an open market has a live price to value it", not nomark, ", ".join(sorted(set(nomark))[:8]))
+        finally:
+            db.close()
+
+    # ---- the books of every real account -------------------------------------------------------
+    def _books(self):
+        self.area = "All accounts"
+        db = SessionLocal()
+        try:
+            users = [u for u in db.query(User).all() if not is_probe(u.username)]
+            bad_led, bad_funds = [], []
+            for u in users:
+                led = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.id.desc()).first()
+                if led and abs((led.balance_after or 0) - (u.balance or 0)) > 0.011:
+                    bad_led.append(f"{u.username} ₹{(u.balance or 0) - (led.balance_after or 0):+,.2f}")
+                try:
+                    f = self.engine.funds(db, u)
+                    if not all(math.isfinite(float(v)) for v in f.values()):
+                        bad_funds.append(u.username)
+                except Exception as e:
+                    bad_funds.append(f"{u.username} ({type(e).__name__})")
+            self.ok(f"balance equals the last ledger line on all {len(users)} accounts", not bad_led, "; ".join(bad_led[:6]))
+            self.ok("every account's funds can be computed", not bad_funds, "; ".join(bad_funds[:6]))
+            o_bad = [o.id for o in db.query(Order).filter_by(status="OPEN").all()
+                     if o.margin_blocked is None or o.margin_blocked < 0 or (o.order_type == "LIMIT" and not (o.limit_price and o.limit_price > 0))
+                     or (o.order_type == "SL" and not (o.trigger_price and o.trigger_price > 0)) or o.qty <= 0]
+            self.ok("no resting order without a valid price, size or margin", not o_bad, f"orders {o_bad[:8]}")
+            p_bad = [p.id for p in db.query(Position).filter_by(is_closed=False).all()
+                     if p.margin_blocked is None or p.margin_blocked < -0.01 or not math.isfinite(p.avg_price or 0) or (p.qty and (p.avg_price or 0) <= 0)]
+            self.ok("no open position with a broken price or margin", not p_bad, f"positions {p_bad[:8]}")
+            neg = [u.username for u in users if (u.balance or 0) < -0.01]
+            if neg:
+                self.note("accounts with a negative balance", ", ".join(neg[:8]))
+        finally:
+            db.close()
+        self.area = "Prices"
+        fx = getattr(self.feed, "forex", None); cry = getattr(self.feed, "crypto", None)
+        try:
+            if fx and fx.connected:
+                r = fx.quote_to_inr("USD")
+                self.ok("dollar–rupee rate is sensible", bool(r) and 60 < r < 150, r)
+                for q, (a, b) in {"EUR": (70, 170), "GBP": (80, 200), "JPY": (0.3, 1.2), "AUD": (35, 110)}.items():
+                    v = fx.quote_to_inr(q)
+                    if v:
+                        self.ok(f"{q}–rupee rate is sensible", a < v < b, round(v, 4))
+                cu = getattr(self.feed, "usdinr", lambda: None)()
+                if r and cu:
+                    self.ok("the two dollar–rupee sources agree within 10%", abs(cu / r - 1) < 0.10, f"{cu} vs {round(r, 3)}")
+        except Exception as e:
+            self.ok("conversion rates readable", False, type(e).__name__)
+        self.note("feeds", f"NSE/MCX {'on' if self.feed.connected else 'OFF'} · crypto {'on' if cry and cry.connected else 'OFF'} · forex/global {'on' if fx and fx.connected else 'OFF'}")
+
+    # ---- run -----------------------------------------------------------------------------------
+    async def run(self) -> dict:
+        t0 = time.time()
+        await self._wipe()
+        db = SessionLocal()
+        try:
+            ua, ub = self._users(db)
+            db.expunge_all()
+        finally:
+            db.close()
+        try:
+            for label, ins in self._targets():
+                if not ins:
+                    self.area = label; self.note("skipped", "no contract listed"); continue
+                try:
+                    await self._attack(label, ins, ua, ub)
+                except Exception as e:
+                    log.exception("probe attack on %s crashed", label)
+                    self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
+                    for u in (ua, ub):
+                        c = self._client(u)
+                        try:
+                            await self._flatten(c)
+                        except Exception:
+                            pass
+                        await c.aclose()
+            for label, exchange, names in (("NSE", "NFO", ["NIFTY", "BANKNIFTY"]), ("MCX", "MCX", ["CRUDEOILM", "CRUDEOIL", "NATURALGAS", "NATGASMINI", "GOLDM", "GOLD", "SILVERM"]),
+                                          ("Crypto", "CRYPTO", ["BTC", "ETH"])):
+                try:
+                    await self._illiquid(label, exchange, names, ua)
+                except Exception as e:
+                    log.exception("probe thin-contract attack on %s crashed", label)
+                    self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._price_sanity()
+            except Exception as e:
+                log.exception("probe price check crashed")
+                self.ok("the price check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._books()
+            except Exception as e:
+                log.exception("probe books check crashed")
+                self.ok("the books check ran to the end", False, f"{type(e).__name__}: {e}")
+        finally:
+            await self._wipe(balances=(0.0, 0.0))
+        failed = [r for r in self.rows if r["ok"] is False]
+        passed = [r for r in self.rows if r["ok"] is True]
+        return {"at": f"{_ist():%Y-%m-%d %H:%M}", "secs": round(time.time() - t0, 1), "passed": len(passed), "failed": len(failed),
+                "ok": not failed, "rows": self.rows}
+
+
+def _telegram(text: str) -> str:
+    """Plain message on the same private Telegram chat as the backups. Never raises, never logs the token."""
+    token, chat = os.getenv("PT_TG_BOT_TOKEN", "").strip(), os.getenv("PT_TG_CHAT_ID", "").strip()
+    if not (token and chat):
+        return "Telegram is not set up"
+    try:
+        r = httpx.post(f"{os.getenv('PT_TG_API', 'https://api.telegram.org')}/bot{token}/sendMessage", timeout=30,
+                       data={"chat_id": chat, "text": text[:3900]})
+        return "" if (r.status_code == 200 and r.json().get("ok")) else f"Telegram refused it ({r.status_code})"
+    except Exception as e:
+        return f"could not send ({type(e).__name__})"
+
+
+def _message(res: dict) -> str:
+    head = f"limefx daily safety check · {res['at']}\n"
+    if res["ok"]:
+        body = f"✅ All {res['passed']} checks passed. No way found to cheat the system today."
+    else:
+        bad = [r for r in res["rows"] if r["ok"] is False]
+        body = f"⚠️ {res['failed']} of {res['passed'] + res['failed']} checks FAILED:\n" + "\n".join(
+            f"• {r['area']}: {r['check']}" + (f" — {r['info']}" if r["info"] else "") for r in bad[:12])
+        body += "\n\nSend this to Claude to get it closed."
+    skipped = sorted({r["area"] for r in res["rows"] if r["ok"] is None and r["check"].startswith("skipped")})
+    closed = sorted({r["area"] for r in res["rows"] if r["check"].startswith("market is closed")})
+    tail = ""
+    if closed:
+        tail += f"\nClosed right now (only the closed-market check ran): {', '.join(closed)}."
+    if skipped:
+        tail += f"\nNot attacked (no live feed/contract): {', '.join(skipped)}."
+    return head + body + tail
+
+
+async def run_and_report(app, engine, feed, scheduled: bool = False) -> dict:
+    if _running.locked():
+        return {"busy": True}
+    async with _running:
+        res = await Probe(app, engine, feed).run()
+        err = await asyncio.get_event_loop().run_in_executor(None, _telegram, _message(res))
+        res["telegram"] = err or "sent"
+        db = SessionLocal()
+        try:
+            set_setting(db, "probe_last", json.dumps(res))
+            try:
+                hist = json.loads(get_setting(db, "probe_hist") or "[]")
+            except Exception:
+                hist = []
+            hist = ([{"at": res["at"], "passed": res["passed"], "failed": res["failed"], "ok": res["ok"]}] + hist)[:30]
+            set_setting(db, "probe_hist", json.dumps(hist))
+            if scheduled:
+                set_setting(db, "probe_day", _ist().date().isoformat())
+        finally:
+            db.close()
+        log.warning("daily safety check: %d passed, %d failed (%ss)", res["passed"], res["failed"], res["secs"])
+        return res
+
+
+async def loop(app, engine, feed):
+    """Once a day at RUN_AT (IST). If the server was down at that minute, it runs when it is back."""
+    await asyncio.sleep(150)          # let the price feeds connect after a restart
+    while True:
+        try:
+            now = _ist()
+            if now.strftime("%H:%M") >= RUN_AT:
+                db = SessionLocal()
+                try:
+                    done = get_setting(db, "probe_day")
+                finally:
+                    db.close()
+                if done != now.date().isoformat():
+                    await run_and_report(app, engine, feed, scheduled=True)
+        except Exception:
+            log.exception("daily safety check failed to run")
+        await asyncio.sleep(60)

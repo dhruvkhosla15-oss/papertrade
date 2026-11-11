@@ -33,6 +33,8 @@ log = logging.getLogger("app")
 logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print full request URLs
 
 app = FastAPI(title="LimeFX")
+from . import probe as _probe
+_PROBE = _probe.PREFIX
 
 
 from fastapi.exceptions import RequestValidationError as _RVE
@@ -239,6 +241,7 @@ async def startup():
     asyncio.create_task(engine.expiry_loop())
     asyncio.create_task(engine.liquidation_loop())
     asyncio.create_task(backup_loop())
+    asyncio.create_task(_probe.loop(app, engine, feed))
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -775,11 +778,28 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         # exit first; resting stops/targets are cancelled only once the exit has gone through — if the
         # market is closed the position stays, and so must its stop-loss
-        try:
-            o = engine.place_order(db, user, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
-        except EngineError as e:
-            raise HTTPException(400, str(e))
-        cancelled = engine.cancel_pending_for(db, user, p.token)
+        # A position bigger than the exchange freeze quantity is exited in freeze-sized slices, like a
+        # broker does, instead of telling the trainee to split it by hand.
+        from .config import FREEZE_QTY
+        ins_ = feed.instruments.get(p.token)
+        fz = FREEZE_QTY.get(ins_.name) if ins_ and ins_.exchange in ("NFO", "BFO") else None
+        chunk = max(1, fz // p.lot_size) if fz else 10 ** 9
+        side_ = "SELL" if p.qty > 0 else "BUY"
+        left = abs(p.qty) // p.lot_size
+        o = None
+        while left > 0:
+            n = min(left, chunk)
+            try:
+                o2 = engine.place_order(db, user, p.token, side_, n)
+            except EngineError as e:
+                if o is None:
+                    raise HTTPException(400, str(e))
+                break
+            o = o2
+            if o.status != "FILLED" or (o.qty // p.lot_size) < n:
+                break          # book ran out of depth: stop here, the rest stays open
+            left -= n
+        cancelled = engine.cancel_pending_for(db, user, p.token) if left == 0 else 0
     return {"order": engine.order_dict(o), "cancelled_orders": cancelled}
 
 
@@ -862,7 +882,7 @@ class UserIn(BaseModel):
 @app.get("/api/admin/users")
 def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     out = []
-    for u in db.query(User).filter_by(is_admin=False).order_by(User.id).all():
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
         f = engine.funds(db, u)
         out.append({**_user_dict(u), **f,
                     "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
@@ -1026,6 +1046,28 @@ def _tg_send(snapshot: Path, daily: bool = True) -> dict:
     except Exception:
         pass
     return st
+
+
+@app.get("/api/admin/probe")
+def admin_probe(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Last daily safety check (the site attacking itself) and the recent history."""
+    try:
+        last = json.loads(get_setting(db, "probe_last") or "null")
+    except Exception:
+        last = None
+    try:
+        hist = json.loads(get_setting(db, "probe_hist") or "[]")
+    except Exception:
+        hist = []
+    return {"last": last, "history": hist, "runs_at": _probe.RUN_AT, "telegram": _tg_ready()}
+
+
+@app.post("/api/admin/probe/run")
+async def admin_probe_run(admin: User = Depends(current_admin)):
+    res = await _probe.run_and_report(app, engine, feed)
+    if res.get("busy"):
+        raise HTTPException(409, "A safety check is already running")
+    return res
 
 
 @app.get("/api/admin/backup/offsite")
@@ -1243,7 +1285,7 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
 @app.get("/api/admin/leaderboard")
 def leaderboard(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     rows = []
-    for u in db.query(User).filter_by(is_admin=False).all():
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all():
         f = engine.funds(db, u)
         credited = sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                        .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
@@ -1310,7 +1352,7 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
 @app.get("/api/admin/report")
 def admin_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
                  admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    q = db.query(User).filter_by(is_admin=False)
+    q = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE))
     if user_id:
         q = q.filter_by(id=user_id)
     return build_report(db, q.order_by(User.id).all(), from_, to)
@@ -1442,7 +1484,7 @@ def _xlsx_response(data: bytes, name: str):
 def _admin_rows(db):
     """One row per trainee with the reconciliation columns the master table shows."""
     rows = []
-    for u in db.query(User).filter_by(is_admin=False).order_by(User.id).all():
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
         f = engine.funds(db, u)
         led = db.query(Ledger).filter_by(user_id=u.id).all()
         alloc = sum(l.amount for l in led if l.kind in ("ADMIN_CREDIT", "ADMIN_DEBIT"))
@@ -1517,7 +1559,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
 @app.get("/api/admin/export.xlsx")
 def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
                  sheets: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    q = db.query(User).filter_by(is_admin=False)
+    q = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE))
     if user_id:
         q = q.filter_by(id=user_id)
     users = q.order_by(User.id).all()

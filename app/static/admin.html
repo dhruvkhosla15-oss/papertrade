@@ -262,6 +262,13 @@ a{color:var(--acc)}
     <div class="small" id="mtInfo" style="margin-top:8px"></div>
   </div>
   <div class="card">
+    <h2>Daily safety check</h2>
+    <p class="small mut" style="margin-bottom:10px">Every day at <span id="pbAt">10:05 am</span> the site attacks itself with two hidden test accounts — nonsense numbers, cheap-margin orders, many orders at once, instant round trips, touching other accounts, trading closed markets — then checks every real account's books. The result also goes to Telegram.</p>
+    <div class="bar"><button class="ghost" id="pbRun">Run it now</button><span class="small" id="pbInfo"></span></div>
+    <div id="pbRows" class="small" style="margin-top:10px;max-height:320px;overflow:auto"></div>
+    <div id="pbHist" class="small mut" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
     <h2>Backups &amp; activity</h2>
     <p class="small mut" style="margin-bottom:10px">A snapshot of all accounts, orders and ledgers is saved on the server every day and kept for 14 days. Download a copy to keep one off the server as well.</p>
     <div class="bar"><button id="bkDownload">⬇ Download backup now</button><span class="small mut" id="bkInfo"></span></div>
@@ -374,8 +381,19 @@ $('#auLoad').onclick=async()=>{try{const a=await api('/admin/audit');$('#auList'
 async function loadMaint(){try{const j=await fetch('/api/public/maintenance').then(r=>r.json());const m=j.maintenance;$('#mtInfo').innerHTML=m?`<b>Announced:</b> ${new Date(m.at_ms).toLocaleString('en-IN')} · about ${m.minutes} min${m.message?' · '+m.message.replace(/</g,'&lt;'):''}`:'<span class="mut">Nothing scheduled.</span>';}catch(e){}}
 $('#mtSet').onclick=async()=>{if(!$('#mtAt').value){toast('Pick a time',1);return;}try{await api('/admin/maintenance',{method:'POST',body:{at:$('#mtAt').value,minutes:+$('#mtMin').value||10,message:$('#mtMsg').value}});toast('Maintenance announced to all users');loadMaint();}catch(e){toast(e.message,1);}};
 $('#mtClear').onclick=async()=>{try{await api('/admin/maintenance',{method:'DELETE'});toast('Notice cleared');loadMaint();}catch(e){toast(e.message,1);}};
+function pbEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function renderProbe(d){const l=d.last;try{const [h,m]=d.runs_at.split(':').map(Number);$('#pbAt').textContent=((h%12)||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm');}catch(e){}
+  if(!l){$('#pbInfo').textContent='Not run yet — first run is at the next scheduled time, or press the button.';$('#pbRows').innerHTML='';return;}
+  $('#pbInfo').innerHTML=(l.ok?'<b style="color:#22c55e">All '+l.passed+' checks passed</b>':'<b style="color:#ef4444">'+l.failed+' of '+(l.passed+l.failed)+' checks FAILED</b>')+' · '+pbEsc(l.at)+' · took '+l.secs+'s · Telegram: '+pbEsc(l.telegram||'');
+  let area='',h='';for(const r of l.rows){if(r.area!==area){area=r.area;h+='<div style="margin-top:8px"><b>'+pbEsc(area)+'</b></div>';}
+    const ic=r.ok===true?'<span style="color:#22c55e">✔</span>':r.ok===false?'<span style="color:#ef4444">✘</span>':'<span class="mut">·</span>';
+    h+='<div style="padding:2px 0'+(r.ok===false?';color:#ef4444':'')+'">'+ic+' '+pbEsc(r.check)+(r.info?' <span class="mut">— '+pbEsc(r.info)+'</span>':'')+'</div>';}
+  $('#pbRows').innerHTML=h;
+  $('#pbHist').textContent=(d.history||[]).length>1?'Earlier: '+d.history.slice(1,11).map(x=>x.at.slice(5,10)+(x.ok?' ✔':' ✘'+x.failed)).join(' · '):'';}
+async function loadProbe(){try{renderProbe(await api('/admin/probe'));}catch(e){}}
+$('#pbRun').onclick=async()=>{const b=$('#pbRun');b.disabled=true;$('#pbInfo').textContent='Running — about a minute…';try{await api('/admin/probe/run',{method:'POST'});toast('Safety check finished');}catch(e){toast(e.message||'Could not run',1);}b.disabled=false;loadProbe();};
 async function loadOffsite(){try{const o=await api('/admin/backup/offsite');const b=$('#osSend');b.disabled=!o.configured;$('#osInfo').textContent=!o.configured?'Off-server copy: not set up (missing '+o.missing.join(', ')+' in Railway variables)':(o.error?'Off-server copy: last attempt failed — '+o.error:(o.last_sent?'Off-server copy: encrypted file sent to Telegram every day · last sent '+o.last_sent:'Off-server copy: set up · first file goes out within the hour'));$('#osInfo').style.color=o.error?'var(--red,#ef4444)':'';}catch(e){}}
-async function loadBackups(){loadOffsite();try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
+async function loadBackups(){loadOffsite();loadProbe();try{const b=await api('/admin/backups');$('#bkInfo').textContent=b.length?`${b.length} daily snapshot${b.length>1?'s':''} on the server · latest ${b[0].name.replace('limefx-','').replace('.db','')}`:'first daily snapshot is written within the hour';}catch(e){}}
 async function loadSettings(){const s=await api('/admin/settings');
   if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#nav-settings')){}else{
   $('#mNFO').value=s.margin_pct.NFO;$('#mBFO').value=s.margin_pct.BFO;$('#mMCX').value=s.margin_pct.MCX;$('#mSTK').value=s.margin_pct.STK;$('#mCDS').value=s.margin_pct.CDS;$('#mCRYPTO').value=s.margin_pct.CRYPTO;$('#mcxGroups').innerHTML=Object.entries(s.mcx_groups||{}).map(([k,l])=>`<div><label class="small mut">${l}</label><input class="mG" data-g="${k}" type="number" step="0.5" value="${s.margin_pct[k]}"></div>`).join('');$('#mOptF').value=s.mcx_option_factor;$('#commPct').value=s.commission_pct;$('#commPctFx').value=s.commission_pct_forex;

@@ -1,0 +1,15 @@
+12 Nov 2026 (IST). LOOPHOLE FOUND: crypto options are settled four hours late and, once the exchange removes the expired contract, at about ten times the real profit or loss.
+
+What I tried tonight
+1. Held a Bitcoin option past its real expiry (5:30 pm). The site settled it at 9:30 pm and paid 12,785 coins where about 550 was right. A trainee keeps winners into expiry and closes losers before it. Proven on the private copy.
+2. Bought an option just after it expired, at its frozen price. It went through.
+3. Locked others out: five wrong passwords on any username, the Master's too, block that login for five minutes, again and again.
+4. One trainee asked for live prices on every contract at once, past the price supplier's limit. A login stopped before the 2FA code could still listen to that user's order updates.
+5. New trading costs: charged exactly as quoted.
+6. Forged logins, other users' updates, junk dates and numbers in reports: nothing gained.
+
+Added to the daily 10:05 am check: every open position must be on a contract the site still lists, and none may stay unsettled past its expiry.
+
+Waiting for your go-ahead: branch security-fix/2026-11-12 closes 1 to 4. Tested, all 125 checks pass. Open Claude and say "put security-fix/2026-11-12 live". Until then, look at any crypto option that was held through expiry.
+
+Could not test: the real price supplier's limit and how the live site sees a visitor's address (the private copy uses simulated prices).

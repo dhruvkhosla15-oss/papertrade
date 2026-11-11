@@ -818,7 +818,7 @@ function closeTimes(ex){const st=(state.marketStatus||{})[ex];if(st&&st.closes_a
 function setProd(p){state.product=p;$$('[data-prod]').forEach(b=>b.classList.toggle('active',b.dataset.prod===p));const ex=state.sel?.exchange,t=closeTimes(ex);$('#prodHint').textContent=p==='MIS'?(t?`Squared off at ${t[1]} if still open`:''):'Carried to the next day';}
 function setVal(v){state.validity=v;$$('[data-val]').forEach(b=>b.classList.toggle('active',b.dataset.val===v));const ex=state.sel?.exchange,t=closeTimes(ex);$('#valHint').textContent=v==='DAY'?(t?`Cancelled at ${t[0]} close if unfilled`:'Cancelled at session end if unfilled'):'Stays live until filled or cancelled';}
 $$('[data-prod]').forEach(b=>b.onclick=()=>setProd(b.dataset.prod));$$('[data-val]').forEach(b=>b.onclick=()=>setVal(b.dataset.val));
-function setOT(t){state.otype=t;$('#valWrap').classList.toggle('hidden',t==='MARKET');$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
+function setOT(t){state.otype=t;$('#valWrap').classList.toggle('hidden',t==='MARKET'||['CRYPTO','FOREX'].includes(state.sel?.exchange));$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
   $('#limitWrap').classList.toggle('hidden',t!=='LIMIT');$('#trigWrap').classList.toggle('hidden',t!=='SL');
   const pr=dispTick(state.prices[state.sel?.token])?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=+pr.toFixed(4);if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=+pr.toFixed(4);updateMargin();}
 $('#sideBuy').onclick=()=>setSide('BUY');$('#sideSell').onclick=()=>setSide('SELL');

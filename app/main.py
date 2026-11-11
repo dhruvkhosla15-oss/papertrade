@@ -243,6 +243,7 @@ async def startup():
     asyncio.create_task(backup_loop())
     asyncio.create_task(_probe.loop(app, engine, feed))
     asyncio.create_task(daystart_loop())
+    asyncio.create_task(feed_watch_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -916,6 +917,43 @@ def _book_totals(db) -> tuple:
         alloc += sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id).filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
         equity += engine.funds(db, u)["equity"]
     return round(alloc, 2), round(equity, 2)
+
+
+async def feed_watch_loop():
+    """Telegram ping when a price feed stays down, a reminder every hour while it is still down, and a
+    ping when it is back. A feed the master switched off on purpose is not reported. Short blips
+    (under PT_FEED_ALERT_SECS, default 90 s) and the first minutes after a restart are ignored."""
+    hold = int(os.getenv("PT_FEED_ALERT_SECS", "90"))
+    await asyncio.sleep(int(os.getenv("PT_FEED_ALERT_GRACE", "180")))
+    down_since: dict = {}; alerted: dict = {}
+    names = {"main": "NSE / BSE / MCX / Currency", "crypto": "Crypto", "forex": "Forex / Global"}
+    ist = lambda ts: (datetime.utcfromtimestamp(ts) + timedelta(hours=5, minutes=30)).strftime("%I:%M %p").lstrip("0")
+    while True:
+        try:
+            st = _feed_status()
+            feeds = {"main": st}
+            if "crypto" in st: feeds["crypto"] = st["crypto"]
+            if "forex" in st and st["forex"].get("configured", True): feeds["forex"] = st["forex"]
+            now = time.time()
+            for k, f in feeds.items():
+                up = bool(f.get("connected")); off_on_purpose = bool(f.get("paused"))
+                if up or off_on_purpose:
+                    if k in alerted and up:
+                        mins = max(1, int((now - down_since.get(k, now)) // 60))
+                        await asyncio.get_event_loop().run_in_executor(None, _probe._telegram, f"✅ limefx: {names[k]} prices are back (were down {mins} min).")
+                    down_since.pop(k, None); alerted.pop(k, None)
+                    continue
+                down_since.setdefault(k, now)
+                if now - down_since[k] >= hold and (k not in alerted or now - alerted[k] >= 3600):
+                    why = "It needs the daily login from the Master panel." if f.get("needs_login") else ""
+                    first = k not in alerted
+                    alerted[k] = now
+                    msg = (f"⚠️ limefx: {names[k]} prices are DOWN since {ist(down_since[k])} IST." if first
+                           else f"⚠️ limefx: {names[k]} prices are STILL down (since {ist(down_since[k])} IST).")
+                    await asyncio.get_event_loop().run_in_executor(None, _probe._telegram, msg + (f" {why}" if why else "") + " Orders in that market are refused until it is back.")
+        except Exception:
+            log.exception("feed watch failed")
+        await asyncio.sleep(20)
 
 
 async def daystart_loop():

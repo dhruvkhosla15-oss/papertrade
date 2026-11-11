@@ -491,7 +491,7 @@ function pdRange(){if(PD.mode==='all')return null;const now=new Date(Date.now()+
 async function loadPeriod(force){const r=pdRange();if(!r){PD.data=null;PD.key='';return;}const key=r.from+r.to;if(!force&&PD.key===key&&Date.now()-PD.at<15000)return;
   try{const rep=await api(`/admin/report?from=${r.from}&to=${r.to}`);const m={};for(const u of rep.users)m[u.id]={real:(u.gross_profit||0)+(u.gross_loss||0),comm:u.commission||0,trades:u.trades||0};PD.data=m;PD.key=key;PD.at=Date.now();}catch(e){}}
 function pdRow(u){const x={...u};const r=pdRange();
-  if(r&&PD.data&&PD.key===r.from+r.to){const p=PD.data[u.id]||{real:0,comm:0,trades:0};x.realised_all=p.real;x.commission_total=p.comm;x.trades=p.trades;x.unrealised=0;}   // a period counts closed trades only
+  if(r&&PD.data&&PD.key===r.from+r.to){const p=PD.data[u.id]||{real:0,comm:0,trades:0};x.realised_all=p.real;x.commission_total=p.comm;x.trades=p.trades;x.unrealised=r.current?(u.unrealised||0):0;}   // open positions show in the current day/week/month; a past period is closed trades only
   else{x.realised_all=u.balance-u.total_credited+(u.commission_total||0);x.commission_total=u.commission_total||0;x.unrealised=u.unrealised||0;}
   x.pl_total=x.unrealised+x.realised_all;x.pnl=x.pl_total-x.commission_total;return x;}
 function pdBars(){const r=pdRange();const h=[['all','All Time'],['day','Daily'],['week','Weekly'],['month','Monthly']].map(([k,l])=>`<button class="fchip${PD.mode===k?' active':''}" data-pm="${k}">${l}</button>`).join('')+(r?`<button class="pdn" data-pn="-1" title="Earlier">‹</button><span class="pdl">${r.label}</span><button class="pdn" data-pn="1" title="Later"${r.current?' disabled':''}>›</button>`:'');
@@ -587,7 +587,7 @@ function doApply(list){const s=$('#doSide').value,t=$('#doType').value,m=$('#doM
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);let realised=f.balance-cred+comm,commV=comm,unr=f.unrealised||0,netV=f.equity-cred;
-  {const r=pdRange();if(r&&PD.data&&PD.key===r.from+r.to){const pp=PD.data[u.id]||{real:0,comm:0};realised=pp.real;commV=pp.comm;unr=0;netV=realised-commV;}}
+  {const r=pdRange();if(r&&PD.data&&PD.key===r.from+r.to){const pp=PD.data[u.id]||{real:0,comm:0};realised=pp.real;commV=pp.comm;unr=r.current?unr:0;netV=unr+realised-commV;}}
   {const pl=unr+realised;const PN=new Set(['Unrealised','Realised','P&L','Net P&L']);
   $('#dFunds').innerHTML=[['Allocated',cred],['Available Balance',f.available],['Margin Used',f.used_margin],['Unrealised',unr],['Realised',realised],['P&L',pl],['Commission',-commV],['Net P&L',netV],['Net Balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
   const T=$('#dTbl');$('#doWrap').classList.toggle('hidden',dtab!=='orders');

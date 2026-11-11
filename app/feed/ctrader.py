@@ -419,7 +419,7 @@ class CTraderForex:
         self._merge()
         log.info("ctrader: %d forex symbols loaded: %s", len(items), sorted(i.symbol for i in items.values()))
         # conversion pairs must always stream: USDINR (if the broker has it) and the USD legs of cross pairs
-        pin = [t for t, i in items.items() if i.symbol in ("USDINR",) or i.symbol.startswith("USD") or i.symbol.endswith("USD")]
+        pin = [t for t, i in items.items() if i.symbol in ("USDINR",) or i.symbol.startswith("USD") or i.symbol.endswith("USD") or i.segment == "GLOBAL-SPOT"]
         self.feed.pin(pin)
 
     # ---- events --------------------------------------------------------------------------------------
@@ -446,6 +446,14 @@ class CTraderForex:
             keep = {k: d.get(k) for k in ("digits", "pipPosition", "lotSize", "minVolume", "maxVolume", "stepVolume", "leverageId", "tradingMode",
                                          "scheduleTimeZone", "schedule", "holiday", "measurementUnits", "enableShortSelling", "swapLong", "swapShort")}
             keep["quote"] = got.get(i) or ({"already_live": True} if i in self.by_symbol_id else {})
+            a = next((x for x in getattr(self, "all_symbols", []) if x["name"].upper() == n.upper()), {})
+            keep["base_asset"], keep["quote_asset"] = a.get("base"), a.get("quote")
+            if d.get("leverageId") is not None:
+                try:
+                    rr = await self._send(PT_LEVERAGE, {"ctidTraderAccountId": self.account_id, "leverageId": int(d["leverageId"])})
+                    keep["leverage_tiers"] = [(int(t.get("volume", 0)), int(t["leverage"]) / 100.0) for t in ((rr.get("payload") or {}).get("leverage") or {}).get("tiers", [])]
+                except Exception as e:
+                    keep["leverage_tiers"] = "error: " + type(e).__name__
             out[n] = keep
         return out
 

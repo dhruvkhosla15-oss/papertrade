@@ -495,7 +495,8 @@ async def candles(token: int, interval: str = "5m", user: User = Depends(current
 # Indices, the most-traded F&O stocks, and the main MCX commodities. Override with PT_SHOWCASE=NIFTY,RELIANCE,GOLD,...
 _SHOWCASE_DEFAULT = ["NIFTY", "BANKNIFTY", "SENSEX",
                      "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "INFY", "TCS", "TATAMOTORS", "BHARTIARTL", "ITC", "LT",
-                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR", "BTC", "ETH", "SOL", "EURUSD", "XAUUSD"]
+                     "GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "USDINR", "BTC", "ETH", "SOL", "EURUSD", "XAUUSD",
+                     "US500", "USTEC", "US30", "XTIUSD"]
 SHOWCASE = [s.strip().upper() for s in os.environ.get("PT_SHOWCASE", ",".join(_SHOWCASE_DEFAULT)).split(",") if s.strip()]
 DEFAULT_WATCH = [(None, n) for n in SHOWCASE]
 
@@ -554,14 +555,18 @@ def public_home():
 
 @app.get("/api/watchlist")
 def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    has_global = any(getattr(i, "segment", "") == "GLOBAL-SPOT" for i in feed.instruments.values())
     if not db.query(Watch).filter_by(user_id=user.id).first() and feed.instruments:
         # empty watchlist (new trainee, or everything removed) -> start from the showcase list
         for n, ins in enumerate(_default_watch_instruments()):
             db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=n))
         set_setting(db, f"watch_seeded_{user.id}", "1"); set_setting(db, f"watch_showcase_{user.id}", "1"); set_setting(db, f"watch_showcase2_{user.id}", "1"); set_setting(db, f"watch_showcase3_{user.id}", "1")
+        if has_global:
+            set_setting(db, f"watch_showcase4_{user.id}", "1")
         db.commit()
     elif (not get_setting(db, f"watch_showcase_{user.id}") or not get_setting(db, f"watch_showcase2_{user.id}")
-          or (not get_setting(db, f"watch_showcase3_{user.id}") and any(getattr(i, "exchange", "") == "FOREX" for i in feed.instruments.values()))) and feed.instruments:
+          or (not get_setting(db, f"watch_showcase3_{user.id}") and any(getattr(i, "exchange", "") == "FOREX" for i in feed.instruments.values()))
+          or (has_global and not get_setting(db, f"watch_showcase4_{user.id}"))) and feed.instruments:
         # one-time: add the showcase scrips (top stocks, then currency + crypto) to watchlists created before they existed
         have = {w.token for w in db.query(Watch).filter_by(user_id=user.id).all()}
         last = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position.desc()).first()
@@ -570,6 +575,8 @@ def watchlist(user: User = Depends(current_user), db: Session = Depends(get_db))
             if ins.token not in have:
                 db.add(Watch(user_id=user.id, token=ins.token, symbol=ins.symbol, exchange=ins.exchange, position=pos)); pos += 1
         set_setting(db, f"watch_showcase_{user.id}", "1"); set_setting(db, f"watch_showcase2_{user.id}", "1"); set_setting(db, f"watch_showcase3_{user.id}", "1")
+        if has_global:
+            set_setting(db, f"watch_showcase4_{user.id}", "1")
         db.commit()
     rows = db.query(Watch).filter_by(user_id=user.id).order_by(Watch.position, Watch.id).all()
     out = []
@@ -1562,6 +1569,22 @@ async def admin_forex_probe(names: str, admin: User = Depends(current_admin)):
     if not forex or not forex.connected:
         raise HTTPException(400, "Forex feed is not connected")
     return await forex.probe([n.strip() for n in names.split(",") if n.strip()][:25])
+
+
+@app.get("/api/admin/feed/forex/global-check")
+def admin_global_check(admin: User = Depends(current_admin)):
+    """Every Global contract with the currency it is priced in, the rupee rate used and what one lot is worth — for checking conversions."""
+    if not forex:
+        return []
+    out = []
+    for tok, ins in forex.items.items():
+        if ins.segment != "GLOBAL-SPOT":
+            continue
+        m = forex.meta.get(tok, {}); px = feed.ltp(tok); vf = forex.value_factor(ins); is_open, opens = forex.market_open(tok)
+        out.append({"symbol": ins.symbol, "title": m.get("title"), "quote": m.get("quote"), "inr_per_quote": round(forex.quote_to_inr(m.get("quote", "USD")) or 0, 4),
+                    "price": px, "lot": ins.lot_size, "one_lot_inr": round((px or 0) * ins.lot_size * vf, 2), "max_leverage": m.get("leverage"),
+                    "open": is_open, "reopens": opens, "tick_age": feed.tick_age(tok)})
+    return sorted(out, key=lambda x: x["symbol"])
 
 
 @app.post("/api/admin/feed/forex/disconnect")

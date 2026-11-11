@@ -88,7 +88,7 @@ class Pulse:
                 if kind == "forex":
                     label = "Forex · spot"
                 elif kind == "global":
-                    label = "Global · " + ((getattr(self.feed, "forex", None) and self.feed.forex.meta.get(spot, {}).get("group")) or "index").lower()
+                    label = "Global · " + ((getattr(self.feed, "forex", None) and self.feed.forex.meta.get(spot, {}).get("group")) or "index")
                 elif kind == "crypto":
                     label = "Crypto · perpetual"
                 elif kind in ("mcx", "currency") and fut:

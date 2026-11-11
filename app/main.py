@@ -134,6 +134,16 @@ def index():
     return FileResponse(STATIC / "index.html", headers=_NOCACHE)
 
 
+@app.get("/manifest.webmanifest")
+async def manifest():
+    return FileResponse(STATIC / "pwa" / "manifest.webmanifest", media_type="application/manifest+json", headers=_NOCACHE)
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return FileResponse(STATIC / "pwa" / "sw.js", media_type="application/javascript", headers={**_NOCACHE, "Service-Worker-Allowed": "/"})
+
+
 @app.get("/admin")
 def admin_page():
     return FileResponse(STATIC / "admin.html", headers=_NOCACHE)

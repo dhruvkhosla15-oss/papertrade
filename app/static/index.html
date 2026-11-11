@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b1220">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="limefx">
+<link rel="apple-touch-icon" href="/static/pwa/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#182540;--itm:#14203a;--seg:#0b1220}
@@ -155,6 +163,11 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .drag{color:var(--mut);cursor:grab;padding:4px 6px 4px 0;touch-action:none;user-select:none;font-size:14px;letter-spacing:-2px;flex:0 0 auto}
 .wl-item.dragging{opacity:.45;background:var(--seg)}.wl-item.over-top{box-shadow:inset 0 2px 0 var(--acc)}.wl-item.over-bot{box-shadow:inset 0 -2px 0 var(--acc)}
 .banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}.banner.soft{background:#3f3a12;color:#fde68a}.banner b{color:#fff}
+
+.pwa{position:fixed;left:12px;right:12px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:40;background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
+.pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
+.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0}
 </style>
 <script src="/static/lightweight-charts.js"></script>
 </head>
@@ -199,6 +212,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 </header>
 <div id="banner" class="feedbar hidden"></div>
 <div id="mkts" class="mkts"></div>
+<div id="pwa" class="pwa hidden"><div class="ic"></div><div class="t"><b>Install limefx</b><span id="pwaMsg">Add it to your home screen — opens like an app, no link needed.</span></div><button class="go" id="pwaGo">Install</button><button class="x" id="pwaX" aria-label="Dismiss">✕</button></div>
 <div class="marquee" id="tickerBox"><div class="track" id="ticker"></div></div>
 <main>
   <!-- WATCHLIST -->
@@ -330,6 +344,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
   <section id="tab-account" class="hidden">
     <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
+    <div class="card row" id="pwaRow" style="align-items:center"><div><b>Install app</b><div class="small mut" id="pwaRowMsg">Put limefx on your home screen — opens full screen, no link.</div></div><button class="btn" id="pwaRowGo" style="flex:0 0 auto">Install</button></div>
     <div class="card" id="tfaCard">
       <div class="row" style="align-items:center"><div style="flex:1"><b>Two-factor login</b><div class="small mut" id="tfaStatus">Adds a 6-digit code from Google Authenticator / Authy to your login.</div></div><span class="pill" id="tfaPill" style="flex:0 0 auto">off</span></div>
       <div id="tfaOff" style="margin-top:10px"><button class="ghost" id="tfaStart" style="width:100%">Turn on two-factor</button>
@@ -571,7 +586,7 @@ document.addEventListener('click',()=>$$('.tselm').forEach(x=>x.classList.add('h
 async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   let me=null;try{me=await api('/me',{_quiet:true});}catch(e){}
   if(!me){return bootGuest();}
-  state.me=me;if(me.usdinr)state.usdinr=me.usdinr;
+  state.me=me;if(me.usdinr)state.usdinr=me.usdinr;setTimeout(()=>{if(window.lfxPwaAfterLogin)window.lfxPwaAfterLogin();},1500);
   if(state.me.user.must_change_password){$('#pwForce').classList.remove('hidden');$('#appView')?.classList.add('hidden');setTimeout(()=>$('#fpOld').focus(),50);return;}
   if(state.me.user.is_admin){state.master=true;await bootGuest();$('#hLogin').textContent='Master panel';$('#hLogin').onclick=()=>location.href='/admin';toast('Viewing as master — live prices only; trading is for trainee logins');return;}
   setGuest(false);$('#loginView').classList.add('hidden');
@@ -982,6 +997,24 @@ $$('nav.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='market')rese
 $('#hFunds').onclick=()=>showTab('account');
 
 boot();
+
+/* ---- installable app (PWA) ---- */
+(function(){
+  if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
+  const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream;
+  const bar=$('#pwa'),row=$('#pwaRow');let deferred=null;
+  let dismissed=false;try{dismissed=localStorage.getItem('lfx_pwa_dismissed')==='1';}catch(e){}
+  function hideAll(){bar.classList.add('hidden');if(row)row.classList.add('hidden');}
+  if(standalone){hideAll();return;}
+  function showIosHint(){$('#pwaMsg').innerHTML='On iPhone: tap <b>Share</b> <span style="font-size:14px">&#x2B06;&#xFE0E;</span> below, then <b>Add to Home Screen</b>.';$('#pwaGo').classList.add('hidden');}
+  window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(!dismissed&&state.me)bar.classList.remove('hidden');});
+  async function install(){if(deferred){deferred.prompt();const r=await deferred.userChoice;deferred=null;if(r&&r.outcome==='accepted')hideAll();}else if(ios){showIosHint();bar.classList.remove('hidden');}else{$('#pwaMsg').textContent='Open this page in Chrome, then use the browser menu → "Add to Home screen".';bar.classList.remove('hidden');}}
+  $('#pwaGo').onclick=install;if(row)$('#pwaRowGo').onclick=install;
+  $('#pwaX').onclick=()=>{bar.classList.add('hidden');dismissed=true;try{localStorage.setItem('lfx_pwa_dismissed','1');}catch(e){}};
+  window.addEventListener('appinstalled',hideAll);
+  window.lfxPwaAfterLogin=function(){if(dismissed)return;if(deferred)bar.classList.remove('hidden');else if(ios){showIosHint();bar.classList.remove('hidden');}};
+})();
 </script>
 </body>
 </html>

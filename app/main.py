@@ -452,7 +452,7 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
             it = feed.index_token_for(n)
             out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
     order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3, "CRYPTO": 4, "FOREX": 5}
-    korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "forex": 4, "stock": 5}
+    korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "forex": 4, "global": 5, "stock": 6}
     out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
     return out
 
@@ -1495,7 +1495,7 @@ pulse = Pulse(feed)
 def public_pulse(period: str = "today", kind: str = "all"):
     if period not in ("today", "week", "month"):
         period = "today"
-    if kind not in ("all", "index", "stock", "mcx", "currency", "crypto", "forex"):
+    if kind not in ("all", "index", "stock", "mcx", "currency", "crypto", "forex", "global"):
         kind = "all"
     return pulse.snapshot(period, kind)
 

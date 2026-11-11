@@ -226,7 +226,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
     <div id="pulseView">
       <div class="pctl">
         <div class="seg" id="pPeriod"><button data-p="today" class="active">Today</button><button data-p="week">This week</button><button data-p="month">This month</button></div>
-        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option><option value="crypto">Crypto</option><option value="forex">Forex</option></select></div>
+        <div class="selwrap"><select id="pKind"><option value="all">All markets</option><option value="index">Indices</option><option value="stock">Stocks (F&amp;O)</option><option value="mcx">MCX Commodities</option><option value="currency">Currency</option><option value="crypto">Crypto</option><option value="forex">Forex</option><option value="global">Global</option></select></div>
       </div>
       <div class="card breadth" id="pBreadth"></div>
       <div class="hero3" id="pHero"></div>
@@ -266,6 +266,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
         <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="crypto"><div class="cat-ic">₿</div><div><b>Crypto</b><div class="small mut">BTC · ETH · SOL · XRP · BNB · Gold · 24×7</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="forex"><div class="cat-ic">🌐</div><div><b>Forex</b><div class="small mut">EURUSD · GBPUSD · USDJPY · Gold · 24×5</div></div><span class="mut">›</span></div>
+        <div class="cat hidden" data-cat="global"><div class="cat-ic">🌍</div><div><b>Global</b><div class="small mut">S&amp;P 500 · Nasdaq · Dow · World indices · Crude</div></div><span class="mut">›</span></div>
       </div>
       <div id="undList" class="card hidden" style="padding:0 12px"></div>
       <div id="chainPanel" class="hidden">
@@ -295,6 +296,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
         <div class="cat" data-cat="currency"><div class="cat-ic">💱</div><div><b>Currency</b><div class="small mut">USDINR · EURINR · GBPINR · JPYINR</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="crypto"><div class="cat-ic">₿</div><div><b>Crypto</b><div class="small mut">BTC · ETH · SOL · XRP · BNB · Gold · 24×7</div></div><span class="mut">›</span></div>
         <div class="cat" data-cat="forex"><div class="cat-ic">🌐</div><div><b>Forex</b><div class="small mut">EURUSD · GBPUSD · USDJPY · Gold · 24×5</div></div><span class="mut">›</span></div>
+        <div class="cat hidden" data-cat="global"><div class="cat-ic">🌍</div><div><b>Global</b><div class="small mut">S&amp;P 500 · Nasdaq · Dow · World indices · Crude</div></div><span class="mut">›</span></div>
       </div>
       <div id="undListF" class="card hidden" style="padding:0 12px"></div>
       <div id="futPanel" class="hidden">
@@ -478,6 +480,8 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // ---- crypto display currency (contracts are USD-quoted on Delta; INR view = USD x live USDINR) ----
+const GNAME={US500:'S&P 500',US30:'Dow Jones 30',USTEC:'Nasdaq 100',US2000:'Russell 2000',UK100:'UK 100',DE40:'Germany 40',STOXX50:'Euro Stoxx 50',JP225:'Japan 225',AUS200:'Australia 200',HK50:'Hong Kong 50',XTIUSD:'WTI Crude Oil',XBRUSD:'Brent Crude Oil',XNGUSD:'Natural Gas',XPTUSD:'Platinum',XPDUSD:'Palladium'};   // contracts listed under Global
+const GGRP=n=>/^US(500|30|TEC|2000)$/.test(n)?'US index':/^X(TI|BR|NG)/.test(n)?'Energy':/^XP/.test(n)?'Metal':'World index';const gOrd=n=>{const i=Object.keys(GNAME).indexOf(n);return i<0?99:i;};
 const isCryptoTok=t=>+t>=5e9&&+t<6e9;   // Delta tokens live at 5e9+, forex at 6e9+
 let CCCY=(()=>{try{return localStorage.getItem('lfx_cccy')||'INR'}catch(e){return 'INR'}})();
 const inrOn=()=>CCCY==='INR'&&!!state.usdinr;   // ₹ view only when Delta's rate is known
@@ -560,23 +564,24 @@ async function bootGuest(){
 function buildMarket(){
   const opts=state.und.map(u=>`<option value="${u.exchange}|${u.name}">${u.name} (${u.exchange})</option>`).join('');
   $('#selUnd').innerHTML=opts;$('#selUndF').innerHTML=opts;
-  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='crypto'?'Crypto':u.kind==='forex'?'Forex':u.kind==='stock'?'Stocks (F&O)':'Index';
+  const grp=u=>u.kind==='mcx'?'MCX Commodities':u.kind==='currency'?'Currency':u.kind==='crypto'?'Crypto':u.kind==='forex'?'Forex':u.kind==='global'?'Global':u.kind==='stock'?'Stocks (F&O)':'Index';
   const listHtml=(withOpts)=>{let last='';return state.und.filter(u=>!withOpts||true).map(u=>{const h=grp(u)!==last?`<h3 style="margin:12px 0 4px">${grp(u)}</h3>`:'';last=grp(u);
-    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
+    return h+`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.kind==='global'&&GNAME[u.name]?GNAME[u.name]:u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?(u.kind==='global'?u.name+' · '+GGRP(u.name):'Forex · 24×5'):u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="p${u.spot_token}">—</b> <span class="small num" id="c${u.spot_token}"></span></span></div>`;}).join('');};
   const nStk=state.und.filter(u=>u.kind==='stock').length;
   const nCur=state.und.filter(u=>u.kind==='currency').length;$$('.cat[data-cat="currency"]').forEach(el=>el.classList.toggle('hidden',!nCur));
   const nCry=state.und.filter(u=>u.kind==='crypto').length;$$('.cat[data-cat="crypto"]').forEach(el=>el.classList.toggle('hidden',!nCry));
   const nFx=state.und.filter(u=>u.kind==='forex').length;$$('.cat[data-cat="forex"]').forEach(el=>el.classList.toggle('hidden',!nFx));
+  const nGl=state.und.filter(u=>u.kind==='global').length;$$('.cat[data-cat="global"]').forEach(el=>el.classList.toggle('hidden',!nGl));
   $('#catStk').textContent=$('#catStkF').textContent=nStk?`Futures & options on ${nStk} NSE stocks`:'F&O on NSE stocks';
-  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency',crypto:'Crypto',forex:'Forex'};
-  const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);
-    const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
+  const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency',crypto:'Crypto',forex:'Forex',global:'Global'};
+  const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);if(cat==='global')items.sort((a,b)=>gOrd(a.name)-gOrd(b.name));
+    const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':cat==='global'?'S&P 500, Crude':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
     const ctog=cat==='crypto'?`<div class="row" style="justify-content:space-between;align-items:center;padding:6px 0 2px"><span class="small mut">Show crypto prices in</span>${ccyToggleHtml()}</div>`:'';
     return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${ctog}${filt}`+
-      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?'Forex · 24×5':u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
+      items.map(u=>`<div class="wl-item" data-und="${u.exchange}|${u.name}" data-kind="${u.kind}"><span><span class="sym">${u.kind==='global'&&GNAME[u.name]?GNAME[u.name]:u.name}</span><div class="small mut">${u.exchange==='MCX'?'MCX':u.exchange==='CDS'?'NSE currency':u.exchange==='CRYPTO'?'Crypto · 24×7':u.exchange==='FOREX'?(u.kind==='global'?u.name+' · '+GGRP(u.name):'Forex · 24×5'):u.exchange==='BFO'?'BSE':'NSE'}${u.kind==='stock'?' stock':''}</div></span><span style="text-align:right"><b class="num" id="${sfx?'fp':'mp'}${u.spot_token}">—</b> <span class="small num" id="${sfx?'fc':'mc'}${u.spot_token}"></span></span></div>`).join('');};
   const openCat=(cat,sfx)=>{const list=$(sfx?'#undListF':'#undList');list.innerHTML=catHtml(cat,sfx);list.classList.remove('hidden');$(sfx?'#catListF':'#catList').classList.add('hidden');bindCcyToggles();
     list.querySelector('.backCat').onclick=()=>{list.classList.add('hidden');$(sfx?'#catListF':'#catList').classList.remove('hidden');};
-    const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>el.classList.toggle('hidden',!!q&&!el.dataset.und.split('|')[1].includes(q)));};setTimeout(()=>inp.focus(),50);}
+    const inp=list.querySelector('.undFilter');if(inp){inp.oninput=()=>{const q=inp.value.trim().toUpperCase();list.querySelectorAll('.wl-item').forEach(el=>{const n=el.dataset.und.split('|')[1];el.classList.toggle('hidden',!!q&&!n.includes(q)&&!(GNAME[n]||'').toUpperCase().includes(q));});};setTimeout(()=>inp.focus(),50);}
     sub(state.und.filter(u=>u.kind===cat&&u.spot_token).map(u=>u.spot_token));
     if(sfx)list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{$('#selUndF').value=el.dataset.und;list.classList.add('hidden');$('#futPanel').classList.remove('hidden');loadFutures();});
     else list.querySelectorAll('.wl-item').forEach(el=>el.onclick=()=>{if(state.guest){showLogin();return;}$('#selUnd').value=el.dataset.und;list.classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();});
@@ -700,7 +705,7 @@ async function loadChain(){
 // ---------- futures view ----------
 $('#selUndF').onchange=loadFutures;
 async function loadFutures(){
-  const [ex,name]=$('#selUndF').value.split('|');$('#undNameF').textContent=name+(ex==='FOREX'?' spot':ex==='CRYPTO'?' perpetual':' futures');
+  const [ex,name]=$('#selUndF').value.split('|');$('#undNameF').textContent=name+(ex==='FOREX'?(GNAME[name]?' · '+GNAME[name]:' spot'):ex==='CRYPTO'?' perpetual':' futures');
   const old=(state.futs||[]).map(f=>f.token);
   const futs=await api(`/futures?exchange=${ex}&name=${name}`);state.futs=futs;
   state.spotTokenF=(state.und.find(u=>u.exchange===ex&&u.name===name)||{}).spot_token;
@@ -811,7 +816,7 @@ function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_optio
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
   const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
 function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');{const h=state.positions.find(x=>x.token===ins.token&&x.qty);const h24=ins.exchange==='CRYPTO'||ins.exchange==='FOREX';$('#prodWrap').classList.toggle('hidden',h24);setProd(h24?'NRML':(h?h.product||'NRML':'NRML'));setVal('DAY');}
-  $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?'Forex spot · 24×5 · P&L converted to ₹':`${ins.exchange} · exp ${ins.expiry}`;
+  $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?(GNAME[ins.symbol]?GNAME[ins.symbol]+' · Global · P&L converted to ₹':'Forex spot · 24×5 · P&L converted to ₹'):`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
   $('#oWatch').onclick=()=>addWatch(ins.token);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
@@ -900,7 +905,7 @@ function initDrag(){const list=$('#wlist');
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':dsym(w.exchange,w.symbol)}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange)+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':dsym(w.exchange,w.symbol)}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):(GNAME[w.symbol]?'Global · '+GNAME[w.symbol]:({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange))+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${(w.segment==='INDICES'&&w.kind!=='stock')?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
@@ -918,7 +923,7 @@ let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{co
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
-    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange)} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:'perpetual'}${['CRYPTO','FOREX'].includes(p.exchange)?'':(p.product==='MIS'?' · <b style="color:var(--acc)">Intraday</b>':' · <b>Overnight</b>')}</div></div>
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${(GNAME[p.symbol]?'Global · '+GNAME[p.symbol]:({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange))} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:(GNAME[p.symbol]?'no expiry':'perpetual')}${['CRYPTO','FOREX'].includes(p.exchange)?'':(p.product==='MIS'?' · <b style="color:var(--acc)">Intraday</b>':' · <b>Overnight</b>')}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${usdOn(p.exchange)?'$'+fmt2(p.unrealised/state.usdinr):fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
     <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');

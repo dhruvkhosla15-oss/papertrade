@@ -38,6 +38,16 @@ WANTED = [s.strip().upper() for s in os.getenv(
     "PT_FOREX_SYMBOLS",
     "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD,EURGBP,EURJPY,GBPJPY,EURAUD,AUDJPY,USDINR,XAUUSD,XAGUSD").split(",") if s.strip()]
 
+# World indices, energy and extra metals from the same feed, shown under "Global" (off until PT_GLOBAL_SYMBOLS is set).
+GLOBAL = [s.strip().upper() for s in os.getenv("PT_GLOBAL_SYMBOLS", "").split(",") if s.strip()]
+GLOBAL_INFO = {   # broker name -> (what the trainee sees, group)
+    "US500": ("S&P 500", "US index"), "US30": ("Dow Jones 30", "US index"), "USTEC": ("Nasdaq 100", "US index"), "US2000": ("Russell 2000", "US index"),
+    "UK100": ("UK 100", "World index"), "DE40": ("Germany 40", "World index"), "STOXX50": ("Euro Stoxx 50", "World index"),
+    "JP225": ("Japan 225", "World index"), "AUS200": ("Australia 200", "World index"), "HK50": ("Hong Kong 50", "World index"),
+    "XTIUSD": ("WTI Crude Oil", "Energy"), "XBRUSD": ("Brent Crude Oil", "Energy"), "XNGUSD": ("Natural Gas", "Energy"),
+    "XPTUSD": ("Platinum", "Metal"), "XPDUSD": ("Palladium", "Metal"),
+}
+
 # ProtoOA payload types
 PT_APP_AUTH, PT_APP_AUTH_RES = 2100, 2101
 PT_ACC_AUTH, PT_ACC_AUTH_RES = 2102, 2103
@@ -151,6 +161,43 @@ class CTraderForex:
 
     def fx_ready(self, ins) -> bool:
         return self.value_factor(ins) > 0
+
+    def market_open(self, token, now=None):
+        """(open?, next opening as an IST string) from the contract's own weekly timetable and holidays.
+        Only enforced for Global contracts — currency pairs keep the plain 24x5 calendar."""
+        m = self.meta.get(token) or {}
+        ins = self.items.get(token)
+        if not ins or ins.segment != "GLOBAL-SPOT" or not m.get("schedule"):
+            return True, ""
+        from datetime import datetime, timedelta, timezone
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(m.get("tz") or "UTC")
+        except Exception:
+            return True, ""
+        now = now or datetime.now(timezone.utc)
+        loc = now.astimezone(tz)
+        week0 = (loc - timedelta(days=(loc.weekday() + 1) % 7)).replace(hour=0, minute=0, second=0, microsecond=0)   # Sunday 00:00 local
+        sec = (loc - week0).total_seconds()
+        is_open = any(a <= sec < b for a, b in m["schedule"])
+        for h in m.get("holidays", []):
+            try:
+                hl = now.astimezone(ZoneInfo(h["tz"]))
+            except Exception:
+                continue
+            hd = datetime(1970, 1, 1).date() + timedelta(days=h["day"])
+            same = (hl.month, hl.day) == (hd.month, hd.day) if h["recurring"] else hl.date() == hd
+            if same:
+                s_ = hl.hour * 3600 + hl.minute * 60 + hl.second
+                if h["start"] is None or h["end"] is None or int(h["start"]) <= s_ < int(h["end"]):
+                    is_open = False
+        if is_open:
+            return True, ""
+        nxt = min((a for a, b in m["schedule"] if a > sec), default=None)
+        if nxt is None:
+            nxt = min(a for a, b in m["schedule"]) + 7 * 86400
+        opens = (week0 + timedelta(seconds=nxt)).astimezone(timezone(timedelta(hours=5, minutes=30)))
+        return False, opens.strftime("%a %-I:%M %p") + " IST"
 
     # ---- token persistence ----------------------------------------------------------------------
     def _load_token(self):
@@ -300,8 +347,9 @@ class CTraderForex:
             pass
         self._all_ids = {s.get("symbolName", "").upper(): int(s["symbolId"]) for s in every if s.get("symbolName")}
         self.all_symbols = sorted(({"name": s.get("symbolName", ""), "desc": s.get("description", ""), "enabled": bool(s.get("enabled", True)),
+                                    "base": self._assets.get(int(s.get("baseAssetId", 0) or 0), ""), "quote": self._assets.get(int(s.get("quoteAssetId", 0) or 0), ""),
                                     "category": cats.get(int(s.get("symbolCategoryId", 0) or 0), "")} for s in every), key=lambda x: (x["category"], x["name"]))
-        light = [s for s in every if s.get("symbolName", "").upper() in WANTED and s.get("enabled", True)]
+        light = [s for s in every if s.get("symbolName", "").upper() in WANTED + GLOBAL and s.get("enabled", True)]
         if not light:
             log.warning("ctrader: none of %s found among %d broker symbols", WANTED, len((r.get("payload") or {}).get("symbol", [])))
             return
@@ -344,7 +392,15 @@ class CTraderForex:
             min_vol = int(int(d.get("minVolume", 0)) / VOL_SCALE) if d.get("minVolume") else 0
             lot_units = min_vol or LOT_UNITS
             unit = "oz" if base in ("XAU", "XAG", "XPT", "XPD") else base
-            items[tok] = Instrument(tok, name, name, "FOREX", "FOREX-SPOT", "FUT", "", 0, lot_units,
+            is_global = name in GLOBAL
+            if is_global:
+                # an index's minimum is a fraction of one index (0.1): one limeFX lot = 1 index, never the 1,000-unit forex default
+                lot_units = max(1, min_vol)
+                grp = GLOBAL_INFO.get(name, (name, "Global"))[1]
+                unit = {"XTI": "barrel", "XBR": "barrel", "XNG": "MMBtu"}.get(name[:3], "oz" if grp == "Metal" else "× index")
+                from .base import GLOBAL_NAMES
+                GLOBAL_NAMES.add(name)
+            items[tok] = Instrument(tok, name, name, "FOREX", "GLOBAL-SPOT" if is_global else "FOREX-SPOT", "FUT", "", 0, lot_units,
                                     10 ** (-digits), f"{lot_units:,} {unit} (price in {quote})",
                                     multiplier=1.0, init_margin_pct=round(init_pct, 4), maint_margin_pct=round(init_pct / 2, 4),
                                     pos_limit=int(int(d.get("maxVolume", 0)) / VOL_SCALE) if d.get("maxVolume") else 0,
@@ -352,7 +408,12 @@ class CTraderForex:
             self.diag[name] = {"lev_id": lev_id, "lev": lev, "min_vol": min_vol, "lot": lot_units}
             self.meta[tok] = {"quote": quote, "base": base, "digits": digits, "leverage": lev,
                               "min_volume": int(int(d.get("minVolume", 0)) / VOL_SCALE) if d.get("minVolume") else 0,
-                              "description": s.get("description", "")}
+                              "description": s.get("description", ""),
+                              "title": GLOBAL_INFO.get(name, ("", ""))[0] if is_global else "", "group": GLOBAL_INFO.get(name, ("", "Global"))[1] if is_global else "",
+                              "tz": d.get("scheduleTimeZone") or "UTC", "schedule": [(int(x["startSecond"]), int(x["endSecond"])) for x in d.get("schedule", [])],
+                              "holidays": [{"day": int(h.get("holidayDate", -1)), "tz": h.get("scheduleTimeZone") or d.get("scheduleTimeZone") or "UTC",
+                                            "start": h.get("startSecond"), "end": h.get("endSecond"), "recurring": bool(h.get("isRecurring"))}
+                                           for h in d.get("holiday", [])]}
         self.items = items
         self.by_symbol_id = {t - TOKEN_BASE: t for t in items}
         self._merge()

@@ -347,6 +347,9 @@ class Engine:
                 raise EngineError("Forex prices are offline right now — trading is paused until the feed is back")
             if not fx.fx_ready(ins):
                 raise EngineError("Waiting for the rupee conversion rate for this pair — try again in a moment")
+            is_open, opens = fx.market_open(token)
+            if not is_open:
+                raise EngineError(f"This market is closed right now — it reopens {opens}")
         ltp = self.feed.ltp(token)
         if ltp is None or (self.feed.tick_age(token) or 0) > 300:
             # Not yet subscribed / stale. Subscribe and ask client to retry.

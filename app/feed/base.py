@@ -14,6 +14,9 @@ from typing import Dict, List, Optional, Callable
 INDEX_NAMES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX", "BANKEX", "SENSEX50"}
 
 
+GLOBAL_NAMES: set = set()   # world indices / energy / metals served by the forex feed, listed under "Global"
+
+
 def kind_of(exchange: str, name: str) -> str:
     """index | stock | mcx — used for grouping, margins and the public ticker."""
     if exchange == "MCX":
@@ -23,7 +26,7 @@ def kind_of(exchange: str, name: str) -> str:
     if exchange == "CRYPTO":
         return "crypto"
     if exchange == "FOREX":
-        return "forex"
+        return "global" if name in GLOBAL_NAMES else "forex"
     return "index" if name in INDEX_NAMES else "stock"
 
 

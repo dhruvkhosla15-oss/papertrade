@@ -291,7 +291,16 @@ class CTraderForex:
         for a in (r.get("payload") or {}).get("asset", []):
             self._assets[int(a["assetId"])] = a["name"]
         r = await self._send(PT_SYMBOLS, {"ctidTraderAccountId": self.account_id, "includeArchivedSymbols": False}, timeout=30)
-        light = [s for s in (r.get("payload") or {}).get("symbol", []) if s.get("symbolName", "").upper() in WANTED and s.get("enabled", True)]
+        every = (r.get("payload") or {}).get("symbol", [])
+        cats = {}
+        try:   # category names (Forex, Indices, Shares…) — only used by the master's "what does this account carry" list
+            rc = await self._send(2160, {"ctidTraderAccountId": self.account_id}, timeout=15)
+            cats = {int(c["id"]): c.get("name", "") for c in (rc.get("payload") or {}).get("symbolCategory", [])}
+        except Exception:
+            pass
+        self.all_symbols = sorted(({"name": s.get("symbolName", ""), "desc": s.get("description", ""), "enabled": bool(s.get("enabled", True)),
+                                    "category": cats.get(int(s.get("symbolCategoryId", 0) or 0), "")} for s in every), key=lambda x: (x["category"], x["name"]))
+        light = [s for s in every if s.get("symbolName", "").upper() in WANTED and s.get("enabled", True)]
         if not light:
             log.warning("ctrader: none of %s found among %d broker symbols", WANTED, len((r.get("payload") or {}).get("symbol", [])))
             return

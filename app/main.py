@@ -1551,6 +1551,12 @@ def forex_token(body: ForexTokenIn, admin: User = Depends(current_admin)):
     return forex.status()
 
 
+@app.get("/api/admin/feed/forex/symbols")
+def admin_forex_symbols(admin: User = Depends(current_admin)):
+    """Everything the connected forex account lists (not just what limefx offers) — for deciding what to add."""
+    return getattr(forex, "all_symbols", []) if forex else []
+
+
 @app.post("/api/admin/feed/forex/disconnect")
 def forex_disconnect(admin: User = Depends(current_admin)):
     if not forex:

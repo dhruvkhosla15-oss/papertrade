@@ -212,7 +212,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div style="min-width:0"><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div><a id="hMaster" class="hidden" href="/admin" style="display:none;font-size:12px;font-weight:600;color:var(--acc);text-decoration:none;margin-top:3px">‹ Master panel</a></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
-  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">My Profile ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
+  <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">Balance ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
 </header>
 <div id="maintBar" class="maintbar hidden"></div>
 <div id="banner" class="feedbar hidden"></div>
@@ -335,8 +335,11 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
     <p id="posEmpty" class="mut card">No open positions</p>
   </section>
 
-  <!-- ORDERS -->
-  <section id="tab-orders" class="hidden">
+  <!-- ACCOUNT -->
+  <section id="tab-account" class="hidden">
+    <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
+    <div class="seg" id="pfSeg" style="margin-bottom:12px"><button data-pf="orders" class="active">Orders</button><button data-pf="acct">Account</button></div>
+    <div id="pfOrders">
     <div class="row" style="margin-bottom:10px"><h3 style="margin:0;flex:1">Order Book</h3><button class="ghost" id="ordXls" style="flex:0 0 auto;padding:8px 12px">⬇ Download</button></div>
     <div class="card" style="padding:0;overflow:auto">
       <table id="ordTbl"><thead><tr><th>Contract</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
@@ -345,11 +348,8 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
     <div class="card" style="padding:0;overflow:auto">
       <table id="trdTbl"><thead><tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Comm.</th><th>Realised</th></tr></thead><tbody></tbody></table>
     </div>
-  </section>
-
-  <!-- ACCOUNT -->
-  <section id="tab-account" class="hidden">
-    <div class="card"><div class="mut small">Logged in as</div><div class="big" id="accName"></div></div>
+      </div>
+    <div id="pfAcct" class="hidden">
     <div class="card row" style="align-items:center"><div><b>Appearance</b><div class="small mut">Dark is easier on the eyes for long sessions</div></div><div class="seg" style="flex:0 0 auto"><button id="thDark">Dark</button><button id="thLight">Light</button></div></div>
     <div class="card row hidden" id="masterRow" style="align-items:center"><div><b>Master test coins</b><div class="small mut">Your own balance for trying trades here. Not counted in any trainee total.</div></div><button class="btn" id="masterCoins" style="flex:0 0 auto">+ ₹10,00,000</button></div>
     <div class="card row" id="pwaRow" style="align-items:center"><div><b>Install app</b><div class="small mut" id="pwaRowMsg">Put limefx on your home screen — opens full screen, no link.</div></div><button class="btn" id="pwaRowGo" style="flex:0 0 auto">Install</button></div>
@@ -380,6 +380,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
       <button class="ghost" id="pwBtn">Update</button>
     </div>
     <button class="ghost" id="logoutBtn" style="width:100%">Log out</button>
+    </div>
   </section>
 </main>
 <nav class="tabs">
@@ -387,7 +388,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
   <button data-tab="watch" data-home="watch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/></svg><span>Watchlist</span></button>
   <button data-tab="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-8M22 19H2"/></svg><span>Market</span></button>
   <button data-tab="positions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg><span>Positions</span></button>
-  <button data-tab="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg><span>Orders</span></button>
+  <button data-tab="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><span>My Profile</span></button>
 </nav>
 </div>
 
@@ -655,7 +656,7 @@ async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
   sub(state.positions.map(p=>p.token));
-  if(state.tab==='orders')loadTrades();if(state.tab==='account'){loadLedger();loadPerf();}
+  if(state.tab==='account'){loadTrades();loadLedger();loadPerf();}
 }
 
 // ---------- websocket ----------
@@ -1010,15 +1011,17 @@ $$('[data-dl]').forEach(b=>b.onclick=()=>{const[f,t]=dlRange(dlPreset);if(dlPres
 
 // ---------- tabs ----------
 $('#goMarket').onclick=()=>showTab('market');
-function showTab(tab,home){if(state.guest&&!['watch','market'].includes(tab)){showLogin();return;}state.tab=tab;
+function setPf(k){$$('#pfSeg button').forEach(b=>b.classList.toggle('active',b.dataset.pf===k));$('#pfOrders').classList.toggle('hidden',k!=='orders');$('#pfAcct').classList.toggle('hidden',k!=='acct');}
+function showTab(tab,home){if(tab==='orders'){tab='account';setPf('orders');}if(state.guest&&!['watch','market'].includes(tab)){showLogin();return;}state.tab=tab;
   $$('nav.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab&&(tab!=='watch'||x.dataset.home===(home||currentHome()))));
-  ['watch','market','positions','orders','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));
-  if(tab==='orders')loadTrades();if(tab==='account'){loadLedger();loadPerf();renderTfa();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
+  ['watch','market','positions','account'].forEach(t=>$('#tab-'+t).classList.toggle('hidden',t!==tab));
+  if(tab==='account'){loadTrades();loadLedger();loadPerf();renderTfa();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
 function currentHome(){try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}}
 function resetMarket(){/* dock tap on Market always lands on the category page, not the last scrip */
   for(const [cat,und,chain] of [['#catList','#undList','#chainPanel'],['#catListF','#undListF','#futPanel']]){const c=$(cat),u=$(und),ch=$(chain);if(c)c.classList.remove('hidden');if(u)u.classList.add('hidden');if(ch)ch.classList.add('hidden');}}
-$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='market')resetMarket();showTab(b.dataset.tab,b.dataset.home);});
-$('#hFunds').onclick=()=>showTab('account');
+$$('#pfSeg button').forEach(b=>b.onclick=()=>setPf(b.dataset.pf));
+$$('nav.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='market')resetMarket();if(b.dataset.tab==='account')setPf('orders');showTab(b.dataset.tab,b.dataset.home);});
+$('#hFunds').onclick=()=>{setPf('acct');showTab('account');};
 
 boot();
 

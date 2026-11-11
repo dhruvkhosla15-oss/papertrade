@@ -298,6 +298,7 @@ class CTraderForex:
             cats = {int(c["id"]): c.get("name", "") for c in (rc.get("payload") or {}).get("symbolCategory", [])}
         except Exception:
             pass
+        self._all_ids = {s.get("symbolName", "").upper(): int(s["symbolId"]) for s in every if s.get("symbolName")}
         self.all_symbols = sorted(({"name": s.get("symbolName", ""), "desc": s.get("description", ""), "enabled": bool(s.get("enabled", True)),
                                     "category": cats.get(int(s.get("symbolCategoryId", 0) or 0), "")} for s in every), key=lambda x: (x["category"], x["name"]))
         light = [s for s in every if s.get("symbolName", "").upper() in WANTED and s.get("enabled", True)]
@@ -361,8 +362,41 @@ class CTraderForex:
         self.feed.pin(pin)
 
     # ---- events --------------------------------------------------------------------------------------
+    async def probe(self, names, secs=8):
+        """Master diagnostic: full contract details + a few seconds of live quotes for symbols limeFX does not offer yet."""
+        ids = {n: self._all_ids.get(n.upper()) for n in names}
+        want = [i for i in ids.values() if i]
+        if not want:
+            return {"error": "none of these symbols exist on the account", "asked": names}
+        r = await self._send(PT_SYMBOL_BY_ID, {"ctidTraderAccountId": self.account_id, "symbolId": want}, timeout=30)
+        full = {int(x["symbolId"]): x for x in (r.get("payload") or {}).get("symbol", [])}
+        self._probe = {i: {"ticks": 0} for i in want if i not in self.by_symbol_id}
+        if self._probe:
+            await self._send(PT_SUB_SPOTS, {"ctidTraderAccountId": self.account_id, "symbolId": list(self._probe)}, wait=False)
+        await asyncio.sleep(secs)
+        got = self._probe; self._probe = {}
+        if got:
+            await self._send(PT_UNSUB_SPOTS, {"ctidTraderAccountId": self.account_id, "symbolId": list(got)}, wait=False)
+        out = {}
+        for n, i in ids.items():
+            if not i:
+                out[n] = {"missing": True}; continue
+            d = full.get(i, {})
+            keep = {k: d.get(k) for k in ("digits", "pipPosition", "lotSize", "minVolume", "maxVolume", "stepVolume", "leverageId", "tradingMode",
+                                         "scheduleTimeZone", "schedule", "holiday", "measurementUnits", "enableShortSelling", "swapLong", "swapShort")}
+            keep["quote"] = got.get(i) or ({"already_live": True} if i in self.by_symbol_id else {})
+            out[n] = keep
+        return out
+
     def _handle(self, m):
         pt = m.get("payloadType"); p = m.get("payload") or {}
+        if pt == PT_SPOT_EVENT and getattr(self, "_probe", None) and int(p.get("symbolId", -1)) in self._probe:
+            q = self._probe[int(p["symbolId"])]
+            q["ticks"] += 1
+            for k in ("bid", "ask"):
+                if p.get(k) is not None:
+                    q[k] = int(p[k]) / PRICE_SCALE
+            return
         if pt == PT_SPOT_EVENT:
             tok = self.by_symbol_id.get(int(p.get("symbolId", -1)))
             if not tok:

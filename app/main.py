@@ -1557,6 +1557,13 @@ def admin_forex_symbols(admin: User = Depends(current_admin)):
     return getattr(forex, "all_symbols", []) if forex else []
 
 
+@app.get("/api/admin/feed/forex/probe")
+async def admin_forex_probe(names: str, admin: User = Depends(current_admin)):
+    if not forex or not forex.connected:
+        raise HTTPException(400, "Forex feed is not connected")
+    return await forex.probe([n.strip() for n in names.split(",") if n.strip()][:25])
+
+
 @app.post("/api/admin/feed/forex/disconnect")
 def forex_disconnect(admin: User = Depends(current_admin)):
     if not forex:

@@ -178,7 +178,7 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="net_realised" title="Realised − commission on closed trades (open positions not counted)">Net P&amp;L</th><th class="sort" data-k="equity" title="Allocated + realised − commission + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited" title="Coins given to the trainee">Allocated</th><th class="sort" data-k="available" title="What they can still trade with">Available balance</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Margin used</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="pl_total" title="Unrealised + Realised, before commission">P&amp;L</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="equity" title="Allocated + P&L − Commission">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="card" style="padding:0;overflow:auto">
@@ -486,7 +486,7 @@ async function loadUsers(){loadLive();users=await api('/admin/users');
   renderUsers();if(detail)refreshDetail();
 }
 function renderUsers(){
-  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0),net_realised:u.balance-u.total_credited}));
+  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0),pl_total:(u.unrealised||0)+u.balance-u.total_credited+(u.commission_total||0)}));
   if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
@@ -494,8 +494,8 @@ function renderUsers(){
   $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}">
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
-    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
-    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num mut">${u.commission_total?'-'+inr(u.commission_total):'₹0'}</td><td class="num ${cls(u.net_realised)}"><b>${sgn(u.net_realised)}</b></td>
+    <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.available)}</td><td class="num">${inr(u.used_margin)}</td>
+    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num ${cls(u.pl_total)}"><b>${sgn(u.pl_total)}</b></td><td class="num mut">${u.commission_total?'-'+inr(u.commission_total):'₹0'}</td>
     <td class="num"><b>${inr(u.equity)}</b><div class="small ${cls(u.pnl)}">${sgn(u.pnl)} · ${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
     <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>

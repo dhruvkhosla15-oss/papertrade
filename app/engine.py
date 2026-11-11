@@ -541,8 +541,9 @@ class Engine:
             if new == 0:
                 pos.qty = 0; pos.margin_blocked = 0.0; pos.is_closed = True
                 # position is flat: a leftover stop/limit on this contract would silently open a new one
+                exit_side = "SELL" if cur > 0 else "BUY"   # only exits (stops/targets) of the closed position
                 for o2 in db.query(Order).filter_by(user_id=user.id, token=order.token, status="OPEN").all():
-                    if o2.id != order.id:
+                    if o2.id != order.id and o2.side == exit_side:
                         o2.status = "CANCELLED"; o2.margin_blocked = 0.0; o2.reason = "Cancelled — position closed"
                         self._emit(user.id, {"type": "order", "order": self.order_dict(o2)})
             elif (new > 0) != (cur > 0):

@@ -1508,7 +1508,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
 
     # ---- Order Book -----------------------------------------------------------------------------
     if only in (None, "orderbook"):
-        orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at).all()
+        orders = db.query(Order).filter(Order.user_id.in_(ids), Order.created_at >= start, Order.created_at < end).order_by(Order.created_at, Order.id).all()
         cnt = lambda st: sum(1 for o in orders if o.status == st)
         sheet("Order Book", ["Date", "Time (IST)"] + tcol + ["Contract", "Side", "Type", "Lots", "Qty", "Limit Price", "Trigger Price", "Fill Price", "Status", "Note"],
               [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S")] + tval(o.user_id) + [o.symbol, o.side, o.order_type,
@@ -1517,7 +1517,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
               summary=f"Orders {len(orders)}   ·   Filled {cnt('FILLED')}   ·   Open {cnt('OPEN')}   ·   Rejected {cnt('REJECTED')}   ·   Cancelled {cnt('CANCELLED')}")
     # ---- P&L Statement --------------------------------------------------------------------------
     if only in (None, "pnl"):
-        trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at).all()
+        trades = db.query(Trade).filter(Trade.user_id.in_(ids), Trade.created_at >= start, Trade.created_at < end).order_by(Trade.created_at, Trade.id).all()
         cm = round(sum(x.commission or 0 for x in trades), 2)
         real = round(sum(x.realised_pnl or 0 for x in trades), 2)
         net = round(real - cm, 2)
@@ -1551,10 +1551,10 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         kinds = {"ADMIN_CREDIT": "Coins Added", "ADMIN_DEBIT": "Coins Removed", "REALISED_PNL": "Realised",
                  "EXPIRY_SETTLEMENT": "Expiry Settlement", "LOT_SIZE_CORRECTION": "Lot Size Correction", "COMMISSION": "Commission",
                  "LIQUIDATION": "Margin Call"}
-        led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at).all()
+        led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at, Ledger.id).all()
         rows = []; opening = None
         if not many:
-            prev = db.query(Ledger).filter(Ledger.user_id == ids[0], Ledger.created_at < start).order_by(Ledger.created_at.desc()).first()
+            prev = db.query(Ledger).filter(Ledger.user_id == ids[0], Ledger.created_at < start).order_by(Ledger.created_at.desc(), Ledger.id.desc()).first()
             opening = prev.balance_after if prev else 0
             rows.append([rep["from"] if from_ else "", "", "Opening Balance", "", opening, ""])
         rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [kinds.get(l.kind, l.kind),

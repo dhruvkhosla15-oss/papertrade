@@ -406,13 +406,18 @@ class Probe:
             want = max(1, min(depth_lots + 3, cap))
             self.note("contract", f"{ins.symbol}: {depth_lots} lots offered, best ask {asks[0][0]}, best bid {bids[0][0]}; trying to buy {want}")
             f0 = await self._funds(ca)
+            # the book can tick between choosing the contract and the order: judge the fill against the
+            # offers seen right before and right after it, not against the older snapshot
+            asks = (self.feed.prices.get(ins.token) or {}).get("asks") or asks
+            depth = sum(a[1] for a in asks); depth_lots = int(depth // ins.lot_size)
             st, o1, d = await self._order(ca, token=ins.token, side="BUY", lots=want)
             q1 = o1.get("qty", 0) if (st == 200 and o1.get("status") == "FILLED") else 0
-            if q1:
-                self.ok("never fills more than the sellers really offered", q1 <= depth + 1e-6, f"filled {q1 // ins.lot_size} of {depth_lots} lots offered")
-                self.ok("fills at the sellers' prices (not at the last traded price)", asks[0][0] - 1e-6 <= o1["fill_price"] <= max(a[0] for a in asks) + 1e-6,
-                        f"filled {o1['fill_price']}, asks {asks[0][0]}–{max(a[0] for a in asks)}")
             asks2 = (self.feed.prices.get(ins.token) or {}).get("asks") or []
+            if q1:
+                seen = [a[0] for a in asks] + [a[0] for a in asks2]
+                self.ok("never fills more than the sellers really offered", q1 <= max(depth, sum(a[1] for a in asks2)) + 1e-6, f"filled {q1 // ins.lot_size} of {depth_lots} lots offered")
+                self.ok("fills at the sellers' prices (not at the last traded price)", min(seen) - 1e-6 <= o1["fill_price"] <= max(seen) + 1e-6,
+                        f"filled {o1['fill_price']}, asks {min(seen)}–{max(seen)}")
             st, o2, d2 = await self._order(ca, token=ins.token, side="BUY", lots=want)
             q2 = o2.get("qty", 0) if (st == 200 and o2.get("status") == "FILLED") else 0
             if want > depth_lots and q1 and [tuple(a[:2]) for a in asks2] == [tuple(a[:2]) for a in asks]:
@@ -502,6 +507,27 @@ class Probe:
             p_bad = [p.id for p in db.query(Position).filter_by(is_closed=False).all()
                      if p.margin_blocked is None or p.margin_blocked < -0.01 or not math.isfinite(p.avg_price or 0) or (p.qty and (p.avg_price or 0) <= 0)]
             self.ok("no open position with a broken price or margin", not p_bad, f"positions {p_bad[:8]}")
+            # A position on a contract the site has stopped listing is valued with the wrong rupee factor
+            # (seen with crypto options after their expiry), and one still open after its expiry day was
+            # never settled. Only judged while that market's feed is up and has its contract list.
+            today = _ist().date().isoformat()
+            listed = {i.exchange for i in self.feed.instruments.values()}
+            lost, overdue, unsure = [], [], 0
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                if not p.qty:
+                    continue
+                ins = self.feed.instruments.get(p.token)
+                up = p.exchange in listed and self._feed_up(ins or type("X", (), {"exchange": p.exchange})())
+                if not up:
+                    unsure += 1; continue
+                if ins is None:
+                    lost.append(p.symbol)
+                if p.expiry and p.expiry < today:
+                    overdue.append(f"{p.symbol} ({p.expiry})")
+            self.ok("every open position is on a contract the site still lists (so it is valued correctly)", not lost, ", ".join(sorted(set(lost))[:8]))
+            self.ok("no open position left unsettled on a contract that expired before today", not overdue, ", ".join(sorted(set(overdue))[:8]))
+            if unsure:
+                self.note("positions not judged", f"{unsure} in a market whose feed is off right now")
             neg = [u.username for u in users if (u.balance or 0) < -0.01]
             if neg:
                 self.note("accounts with a negative balance", ", ".join(neg[:8]))

@@ -74,6 +74,8 @@ class Order(Base):
     reason = Column(String(256), default="")
     margin_blocked = Column(Float, default=0.0)
     leverage = Column(Float)                                # chosen leverage (crypto/forex), None = contract max
+    validity = Column(String(4), default="DAY")              # DAY (cancelled at session close) / GTT (good till triggered)
+    product = Column(String(8), default="NRML")              # MIS (intraday, auto square-off) / NRML (overnight)
     created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
 
@@ -93,6 +95,7 @@ class Position(Base):
     realised_pnl = Column(Float, default=0.0)               # cumulative realised on this position
     margin_blocked = Column(Float, default=0.0)
     expiry = Column(String(10))                             # YYYY-MM-DD
+    product = Column(String(8), default="NRML")              # MIS / NRML
     is_closed = Column(Boolean, default=False)
     opened_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
@@ -158,6 +161,14 @@ def init_db():
     if "leverage" not in ocols:
         with engine.begin() as con:
             con.execute(text("ALTER TABLE orders ADD COLUMN leverage FLOAT"))
+    if "validity" not in ocols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE orders ADD COLUMN validity VARCHAR(4) DEFAULT 'DAY'"))
+            con.execute(text("ALTER TABLE orders ADD COLUMN product VARCHAR(8) DEFAULT 'NRML'"))
+    pcols = {c["name"] for c in inspect(engine).get_columns("positions")}
+    if "product" not in pcols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE positions ADD COLUMN product VARCHAR(8) DEFAULT 'NRML'"))
     tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
     if "commission" not in tcols:
         with engine.begin() as con:

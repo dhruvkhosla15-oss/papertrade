@@ -54,6 +54,9 @@ if _extra:
 
 
 def ist_now() -> datetime:
+    fake = os.environ.get("PT_FAKE_NOW")  # dev/test only
+    if fake:
+        return datetime.fromisoformat(fake)
     return datetime.utcnow() + IST
 
 

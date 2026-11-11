@@ -433,6 +433,8 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
     <button class="ghost" id="oChart" style="width:100%;margin-top:10px">📈 Chart</button>
     <div class="seg" style="margin:10px 0 10px"><button id="sideBuy" class="active">BUY</button><button id="sideSell">SELL</button></div>
     <div class="seg" style="margin-bottom:10px"><button data-ot="MARKET" class="active">Market</button><button data-ot="LIMIT">Limit</button><button data-ot="SL">Stop-loss</button></div>
+    <div id="prodWrap" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Product</span><span class="small mut" id="prodHint" style="font-size:11px"></span></div><div class="seg"><button data-prod="MIS">Intraday</button><button data-prod="NRML" class="active">Overnight</button></div></div>
+    <div id="valWrap" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Validity</span><span class="small mut" id="valHint" style="font-size:11px"></span></div><div class="seg"><button data-val="DAY" class="active">Day</button><button data-val="GTT">GTT</button></div></div>
     <div id="levWrap" class="hidden" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="small mut">Leverage</span><span class="small" id="levVal" style="text-align:right"></span></div><div class="seg levseg" id="levSeg"></div></div>
     <div class="row">
       <div><label class="small mut">Lots</label><input id="oLots" type="number" min="1" value="1"></div>
@@ -801,7 +803,7 @@ function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_optio
   $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;$('#levCustom').value='';$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));lv();updateMargin();});}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
   const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
-function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');
+function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');{const h=state.positions.find(x=>x.token===ins.token&&x.qty);const h24=ins.exchange==='CRYPTO'||ins.exchange==='FOREX';$('#prodWrap').classList.toggle('hidden',h24);setProd(h24?'NRML':(h?h.product||'NRML':'NRML'));setVal('DAY');}
   $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 9:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?'Forex spot · 24×5 · P&L converted to ₹':`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
   $('#oWatch').onclick=()=>addWatch(ins.token);
@@ -811,7 +813,12 @@ function openSheet(ins,side,lots){state.sel=ins;state.side=side||'BUY';setSide(s
   sub(stok?[ins.token,stok]:[ins.token]);renderGreeks(ins);$('#sheet').classList.remove('hidden');updateMargin();}
 function setSide(s){state.side=s;$('#sideBuy').classList.toggle('active',s==='BUY');$('#sideSell').classList.toggle('active',s==='SELL');
   $('#oSubmit').textContent=s;$('#oSubmit').className=s==='BUY'?'buy':'sell';updateMargin();}
-function setOT(t){state.otype=t;$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
+const CLOSE_T={NFO:['3:40 pm','3:30 pm'],BFO:['3:40 pm','3:30 pm'],MCX:['11:55 pm','11:45 pm'],CDS:['5:00 pm','4:45 pm']};const SQ_MIN={NFO:10,BFO:10,MCX:10,CDS:15};
+function closeTimes(ex){const st=(state.marketStatus||{})[ex];if(st&&st.closes_at){const c=new Date(st.closes_at);const f=d=>d.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}).toLowerCase();return [f(c),f(new Date(c.getTime()-(SQ_MIN[ex]||10)*60000))];}return CLOSE_T[ex];}
+function setProd(p){state.product=p;$$('[data-prod]').forEach(b=>b.classList.toggle('active',b.dataset.prod===p));const ex=state.sel?.exchange,t=closeTimes(ex);$('#prodHint').textContent=p==='MIS'?(t?`Squared off at ${t[1]} if still open`:''):'Carried to the next day';}
+function setVal(v){state.validity=v;$$('[data-val]').forEach(b=>b.classList.toggle('active',b.dataset.val===v));const ex=state.sel?.exchange,t=closeTimes(ex);$('#valHint').textContent=v==='DAY'?(t?`Cancelled at ${t[0]} close if unfilled`:'Cancelled at session end if unfilled'):'Stays live until filled or cancelled';}
+$$('[data-prod]').forEach(b=>b.onclick=()=>setProd(b.dataset.prod));$$('[data-val]').forEach(b=>b.onclick=()=>setVal(b.dataset.val));
+function setOT(t){state.otype=t;$('#valWrap').classList.toggle('hidden',t==='MARKET');$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
   $('#limitWrap').classList.toggle('hidden',t!=='LIMIT');$('#trigWrap').classList.toggle('hidden',t!=='SL');
   const pr=dispTick(state.prices[state.sel?.token])?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=+pr.toFixed(4);if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=+pr.toFixed(4);updateMargin();}
 $('#sideBuy').onclick=()=>setSide('BUY');$('#sideSell').onclick=()=>setSide('SELL');
@@ -826,7 +833,7 @@ let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!stat
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
     const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%)`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
-  const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
+  const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype,validity:state.otype==='MARKET'?'DAY':(state.validity||'DAY'),product:state.product||'NRML'};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
   $('#oSubmit').disabled=true;
   try{const j=await api('/orders',{method:'POST',body:b});renderFunds(j.funds);$('#sheet').classList.add('hidden');
@@ -900,14 +907,14 @@ let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{co
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
-    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange)} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:'perpetual'}</div></div>
+    <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange)} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:'perpetual'}${p.product==='MIS'?' · <b style="color:var(--acc)">Intraday</b>':''}</div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${usdOn(p.exchange)?'$'+fmt2(p.unrealised/state.usdinr):fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
     <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
 function renderOrders(){$('#ordTbl tbody').innerHTML=state.orders.map(o=>`<tr><td><span class="sym">${dsym(o.exchange,o.symbol)}</span><div class="small mut">${new Date(o.created_at).toLocaleTimeString('en-IN')}</div></td>
-  <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}${o.leverage?'<div class="small mut">'+o.leverage+'×</div>':''}</td>
+  <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}<div class="small mut">${o.product==='MIS'?'Intraday':'Overnight'}${o.order_type!=='MARKET'?' · '+(o.validity||'DAY'):''}${o.leverage?' · '+o.leverage+'×':''}</div></td>
   <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
   <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No orders yet</td></tr>';

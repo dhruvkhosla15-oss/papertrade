@@ -542,6 +542,8 @@ class OrderIn(BaseModel):
     leverage: Optional[float] = None
     limit_price: Optional[float] = None
     trigger_price: Optional[float] = None
+    validity: Optional[str] = "DAY"
+    product: Optional[str] = None
 
 
 async def _ensure_price(token: int, timeout=3.0):
@@ -570,7 +572,8 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
     async with engine._lock:
         try:
             o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
-                                   body.limit_price, body.trigger_price, body.leverage)
+                                   body.limit_price, body.trigger_price, body.leverage,
+                                   validity=body.validity or "DAY", product=body.product)
         except EngineError as e:
             raise HTTPException(400, str(e))
     return {"order": engine.order_dict(o), "funds": engine.funds(db, user)}

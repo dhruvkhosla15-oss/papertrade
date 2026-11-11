@@ -34,7 +34,16 @@ class EngineError(Exception):
 
 
 def ist_now() -> datetime:
+    import os
+    fake = os.getenv("PT_FAKE_NOW")  # dev/test only: freeze the IST clock
+    if fake:
+        return datetime.fromisoformat(fake)
     return datetime.utcnow() + timedelta(hours=IST_OFFSET_HOURS)
+
+
+# Intraday (MIS) auto square-off: minutes before the exchange close (broker RMS convention —
+# equity F&O and MCX 10 min before close, currency derivatives 15 min before the 5 pm close).
+SQUARE_OFF_MIN = {"NFO": 10, "BFO": 10, "MCX": 10, "CDS": 15}
 
 
 class Engine:
@@ -291,7 +300,7 @@ class Engine:
     # ---- orders ----------------------------------------------------------------
     def place_order(self, db: Session, user: User, token: int, side: str, lots: int,
                     order_type: str = "MARKET", limit_price: float = None, trigger_price: float = None,
-                    leverage: float = None) -> Order:
+                    leverage: float = None, validity: str = "DAY", product: str = None) -> Order:
         ins = self.feed.instruments.get(token)
         if not ins or ins.segment == "INDICES":
             raise EngineError("Unknown or non-tradable instrument")
@@ -302,6 +311,22 @@ class Engine:
             raise EngineError("side must be BUY or SELL")
         if order_type not in ("MARKET", "LIMIT", "SL"):
             raise EngineError("order_type must be MARKET, LIMIT or SL")
+        validity = (validity or "DAY").upper()
+        if validity not in ("DAY", "GTT"):
+            raise EngineError("validity must be DAY or GTT")
+        if product is None:
+            # exits inherit the position's product; fresh orders default to overnight
+            pcur = self._position(db, user.id, token)
+            product = pcur.product if (pcur and pcur.qty) else "NRML"
+        product = product.upper()
+        if product not in ("MIS", "NRML"):
+            raise EngineError("product must be MIS (intraday) or NRML (overnight)")
+        if ins.exchange in ("CRYPTO", "FOREX") and product == "MIS":
+            raise EngineError("Intraday product is not available on 24-hour markets — use Overnight")
+        pcur = self._position(db, user.id, token)
+        if pcur and pcur.qty and (pcur.product or "NRML") != product and ((pcur.qty > 0) == (side == "BUY")):
+            held = "Intraday" if (pcur.product or "NRML") == "MIS" else "Overnight"
+            raise EngineError(f"You already hold {ins.symbol} as {held} — add to it as {held}, or exit it first")
         max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
         if lots < 1 or lots > max_lots:
             raise EngineError(f"lots must be 1..{max_lots}")
@@ -367,7 +392,8 @@ class Engine:
                 leverage = round(float(leverage), 2)
         order = Order(user_id=user.id, token=token, symbol=ins.symbol, exchange=ins.exchange, side=side,
                       order_type=order_type, lots=lots, qty=qty, limit_price=limit_price,
-                      trigger_price=trigger_price, status="OPEN", leverage=leverage)
+                      trigger_price=trigger_price, status="OPEN", leverage=leverage,
+                      validity=validity, product=product)
         db.add(order)
         db.flush()
 
@@ -469,8 +495,11 @@ class Engine:
 
         if pos is None:
             pos = Position(user_id=user.id, token=order.token, symbol=ins.symbol, exchange=ins.exchange,
-                           lot_size=ins.lot_size, qty=0, avg_price=0.0, expiry=ins.expiry)
+                           lot_size=ins.lot_size, qty=0, avg_price=0.0, expiry=ins.expiry,
+                           product=order.product or "NRML")
             db.add(pos); db.flush()
+        if cur == 0:
+            pos.product = order.product or "NRML"
 
         if cur == 0 or (cur > 0) == (signed > 0):
             # adding to position
@@ -498,7 +527,7 @@ class Engine:
                 pos.is_closed = True; pos.qty = 0; pos.margin_blocked = 0.0
                 npos = Position(user_id=user.id, token=order.token, symbol=ins.symbol, exchange=ins.exchange,
                                 lot_size=ins.lot_size, qty=new, avg_price=price, expiry=ins.expiry,
-                                margin_blocked=need)
+                                margin_blocked=need, product=order.product or "NRML")
                 db.add(npos)
             else:
                 pos.qty = new
@@ -557,6 +586,7 @@ class Engine:
                                     db.add(Order(user_id=o.user_id, token=o.token, symbol=o.symbol, exchange=o.exchange,
                                                  side=o.side, order_type="LIMIT", lots=rest // ins.lot_size, qty=rest,
                                                  limit_price=o.limit_price, status="OPEN", leverage=o.leverage,
+                                                 validity=o.validity or "DAY", product=o.product or "NRML",
                                                  margin_blocked=round((o.margin_blocked or 0) * rest / o.qty, 2),
                                                  reason=f"remainder of order #{o.id}"))
                                     o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)
@@ -647,6 +677,74 @@ class Engine:
             finally:
                 db.close()
 
+    def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
+        """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
+        ins = self.feed.instruments.get(p.token)
+        if not ins or not self.market_open(ins.exchange):
+            return False
+        side = "SELL" if p.qty > 0 else "BUY"
+        try:
+            px, bnote, filled = self.book_fill(db, ins, side, abs(p.qty))
+        except EngineError as e:
+            log.warning("force close %s %s: %s", user.username, p.symbol, e)
+            return False
+        order = Order(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange, side=side,
+                      order_type="MARKET", lots=filled // ins.lot_size, qty=filled, status="OPEN",
+                      product=p.product or "NRML", validity="DAY")
+        db.add(order); db.flush()
+        self._fill(db, user, order, px)
+        ok = order.status == "FILLED"
+        if ok:
+            order.reason = f"{note} · {bnote}"; order.fill_price = px
+        db.flush()
+        self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
+        return ok
+
+    async def session_end_pass(self):
+        """Exchange close-of-day rules, like a broker's RMS:
+        - DAY-validity orders still open once an exchange has closed are cancelled;
+        - MIS (intraday) positions are squared off at market 10 minutes before the close (or at the
+          first chance the next session if the book had no depth)."""
+        from .market_calendar import status as mstatus
+        from .config import ENFORCE_MARKET_HOURS as _enf
+        import os
+        if not (_enf or os.getenv("PT_SESSION_END") == "1"):
+            return
+        n = ist_now()
+        async with self._lock:
+            db = SessionLocal()
+            try:
+                for ex in ("NFO", "BFO", "MCX", "CDS"):
+                    st = mstatus(ex, n)
+                    if st["open"]:
+                        closes = datetime.fromisoformat(st["closes_at"])
+                        sq = closes - timedelta(minutes=SQUARE_OFF_MIN.get(ex, 10))
+                        for p in db.query(Position).filter_by(is_closed=False, exchange=ex, product="MIS").all():
+                            if p.qty == 0:
+                                continue
+                            due = n >= sq or (p.opened_at and (p.opened_at + timedelta(hours=IST_OFFSET_HOURS)).date() < n.date())
+                            if not due:
+                                continue
+                            user = db.get(User, p.user_id)
+                            # cancel resting orders on the contract first (like the broker), then square off
+                            for o2 in db.query(Order).filter_by(user_id=user.id, token=p.token, status="OPEN").all():
+                                o2.status = "CANCELLED"; o2.margin_blocked = 0.0; o2.reason = "Cancelled — intraday square-off"
+                                self._emit(user.id, {"type": "order", "order": self.order_dict(o2)})
+                            db.flush()
+                            if self._force_close(db, user, p, "Auto square-off (intraday)"):
+                                db.commit()
+                                self._emit(user.id, {"type": "refresh", "message": f"{p.symbol}: intraday position squared off at market"})
+                            else:
+                                db.rollback()   # no depth yet — keep the orders, retry next minute
+                    else:
+                        for o in db.query(Order).filter_by(status="OPEN", exchange=ex).all():
+                            if (o.validity or "DAY") == "DAY":
+                                o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — session ended (Day order)"
+                                self._emit(o.user_id, {"type": "order", "order": self.order_dict(o)})
+                        db.commit()
+            finally:
+                db.close()
+
     def _liquidate(self, db: Session, user: User, f: dict):
         """Force-close every open position at the book (what the exchange/broker RMS does), cancel
         resting orders. Positions with no counterparty depth are retried on the next pass."""
@@ -686,6 +784,10 @@ class Engine:
                 await self._settle_expired()
             except Exception:
                 log.exception("expiry settlement failed")
+            try:
+                await self.session_end_pass()
+            except Exception:
+                log.exception("session-end pass failed")
             await asyncio.sleep(60)
 
     async def _settle_expired(self):
@@ -738,6 +840,7 @@ class Engine:
     def order_dict(o: Order) -> dict:
         return {"id": o.id, "token": o.token, "symbol": o.symbol, "exchange": o.exchange, "side": o.side, "leverage": o.leverage,
                 "order_type": o.order_type, "lots": o.lots, "qty": o.qty, "limit_price": o.limit_price,
+                "validity": o.validity or "DAY", "product": o.product or "NRML",
                 "trigger_price": o.trigger_price, "status": o.status, "fill_price": o.fill_price,
                 "reason": o.reason, "created_at": o.created_at.isoformat() + "Z"}
 
@@ -752,4 +855,5 @@ class Engine:
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf, "leverage": lev,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
                 "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
-                "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed}
+                "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed,
+                "product": p.product or "NRML"}

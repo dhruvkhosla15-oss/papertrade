@@ -101,22 +101,67 @@ class DeltaCrypto:
                         if st > horizon:
                             continue
                         tok = TOKEN_BASE + int(p["id"])
-                        exp = (st + IST).date().isoformat()          # settles 16:00 UTC = 21:30 IST same day
+                        exp = (st + IST).date().isoformat()          # the exchange's own expiry moment (12:00 UTC = 5:30 pm IST)
                         if p.get("trading_status") not in (None, "operational"):
                             continue
                         out[tok] = Instrument(tok, p["symbol"], und, "CRYPTO", "CRYPTO-OPT",
                                               "CE" if ctype == "call_options" else "PE", exp,
                                               float(p["strike_price"]), 1, float(p["tick_size"]),
                                               f"{p['contract_value']} {und} (price in USD)",
-                                              multiplier=float(p["contract_value"]), **self._risk(p))
+                                              multiplier=float(p["contract_value"]), expiry_at=st.timestamp(), **self._risk(p))
                     after = (j.get("meta") or {}).get("after")
                     if not after:
                         break
+        # The exchange stops listing a contract the moment it expires (or is suspended). Anything a user
+        # here still holds must stay known until it is settled: without the contract a position has no
+        # strike and no rupee value per point, and would be valued and settled at ten times its worth.
+        held = self._held()
+        today = (datetime.now(timezone.utc) + IST).date().isoformat()
+        for tok, old in self.items.items():
+            if tok not in out and (tok in held or (old.instrument_type != "FUT" and old.expiry >= today)):
+                out[tok] = old
+        for tok, sym in held.items():
+            if tok not in out:
+                g = self._rebuild(tok, sym, out)      # e.g. after a restart: rebuilt from the position's own symbol
+                if g:
+                    out[tok] = g
         self.items = out
         self.symbols = {i.symbol: i.token for i in out.values()}
         self._merge()
         log.info("delta: %d crypto instruments (%d perpetuals, %d options)", len(out),
                  sum(1 for i in out.values() if i.instrument_type == "FUT"), sum(1 for i in out.values() if i.instrument_type != "FUT"))
+
+    @staticmethod
+    def _held() -> dict:
+        """{token: symbol} of crypto contracts with an open position or a resting order."""
+        try:
+            from ..db import SessionLocal, Position, Order
+            db = SessionLocal()
+            try:
+                out = {p.token: p.symbol for p in db.query(Position).filter_by(is_closed=False, exchange="CRYPTO") if p.qty}
+                for o in db.query(Order).filter_by(status="OPEN", exchange="CRYPTO"):
+                    out.setdefault(o.token, o.symbol)
+                return out
+            finally:
+                db.close()
+        except Exception:
+            log.exception("delta: could not read held contracts")
+            return {}
+
+    @staticmethod
+    def _rebuild(tok: int, sym: str, listed: dict):
+        """An option the exchange no longer lists, rebuilt from its symbol (C-BTC-75000-121126) so a
+        position in it can still be valued and settled. The contract size is the perpetual's."""
+        try:
+            kind, und, strike, ddmmyy = sym.split("-")
+            perp = next(i for i in listed.values() if i.instrument_type == "FUT" and i.name == und)
+            exp = f"20{ddmmyy[4:6]}-{ddmmyy[2:4]}-{ddmmyy[0:2]}"
+            datetime.fromisoformat(exp)
+            return Instrument(tok, sym, und, "CRYPTO", "CRYPTO-OPT", {"C": "CE", "P": "PE"}[kind], exp, float(strike), 1,
+                              perp.tick_size, f"{perp.multiplier:g} {und} (price in USD)", multiplier=perp.multiplier)
+        except Exception:
+            log.error("delta: held contract %s is no longer listed and could not be rebuilt", sym)
+            return None
 
     @staticmethod
     def _risk(p):

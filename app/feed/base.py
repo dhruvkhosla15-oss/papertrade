@@ -49,6 +49,7 @@ class Instrument:
     pos_limit: int = 0              # exchange position size limit in qty units (0 = none)
     price_band_pct: float = 0.0     # exchange price band for limit/stop prices (0 = none)
     leverage_options: tuple = ()    # selectable leverage steps the exchange offers (crypto/forex)
+    expiry_at: float = 0.0          # exact expiry moment (epoch seconds) when the exchange publishes one; 0 = session close on the expiry date
 
     def to_dict(self):
         d = asdict(self)

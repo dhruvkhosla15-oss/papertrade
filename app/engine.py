@@ -58,6 +58,7 @@ class Engine:
         # shadow book: paper fills consume depth until the live book changes
         # token -> {"sig": depth signature, "bids": {price: consumed_qty}, "asks": {price: consumed_qty}}
         self._consumed = {}
+        self._unsettled_warned = set()    # positions already reported as impossible to settle (contract not listed)
 
     def set_event_callback(self, cb):
         self._event_cb = cb
@@ -144,11 +145,28 @@ class Engine:
         from .market_calendar import is_open
         return is_open(exchange)
 
+    def expired(self, ins=None, exchange: str = None, expiry: str = None, now: datetime = None) -> bool:
+        """True once a contract has reached its expiry moment: the exchange's own settlement time where
+        the feed publishes it (crypto options: 5:30 pm IST), otherwise the session close on the expiry
+        date. From that moment the contract is settled and nothing may trade on it — its last quotes
+        are history, and holding it any longer would be option time nobody paid for."""
+        expiry = expiry if expiry is not None else (ins.expiry if ins else "")
+        exchange = exchange or (ins.exchange if ins else "")
+        if not expiry:
+            return False
+        n = now or ist_now()
+        at = getattr(ins, "expiry_at", 0) if ins else 0
+        if at:
+            return (n - timedelta(hours=IST_OFFSET_HOURS) - datetime(1970, 1, 1)).total_seconds() >= at
+        from .market_calendar import close_time_str
+        today = n.date().isoformat()
+        return expiry < today or (expiry == today and n.strftime("%H:%M") >= close_time_str(exchange, n.date()))
+
     def tradable_now(self, ins) -> bool:
         """Exchange calendar plus the contract's own timetable (Global contracts have daily breaks and
         holidays inside the 24x5 week). Nothing may fill — resting orders, stops, square-offs, margin
         calls — while the contract itself is shut: its last quote is stale, not a price."""
-        if not ins or not self.market_open(ins.exchange):
+        if not ins or not self.market_open(ins.exchange) or self.expired(ins):
             return False
         fx = getattr(self.feed, "forex", None)
         if fx and ins.token in getattr(fx, "items", {}):
@@ -393,6 +411,8 @@ class Engine:
             raise EngineError(f"lots must be 1..{max_lots}")
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
+        if self.expired(ins):
+            raise EngineError("This contract has expired — open positions in it are settled automatically")
         cry = getattr(self.feed, "crypto", None)
         if cry and token in cry.items and not cry.connected:
             raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
@@ -902,10 +922,16 @@ class Engine:
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.expiry:
                         continue
-                    from .market_calendar import close_time_str
-                    close_time = close_time_str(p.exchange)
-                    if p.expiry < today or (p.expiry == today and hm >= close_time):
-                        ins = self.feed.instruments.get(p.token)
+                    ins = self.feed.instruments.get(p.token)
+                    if self.expired(ins, p.exchange, p.expiry, n):
+                        if ins is None and p.exchange in ("CRYPTO", "FOREX"):
+                            # Without the contract we know neither its strike nor what one point is worth
+                            # in rupees; settling anyway would use the last quote times 1 (ten times too
+                            # much on a BTC option). Wait until the feed lists it again.
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s: contract no longer listed by the feed", p.symbol, p.user_id)
+                            continue
                         ltp = None
                         if ins and ins.instrument_type in ("CE", "PE"):
                             # options settle at intrinsic value vs the underlying (exchange rule), never at a stale LTP
@@ -931,7 +957,7 @@ class Engine:
                 # cancel open orders on expired contracts
                 for o in db.query(Order).filter_by(status="OPEN").all():
                     ins = self.feed.instruments.get(o.token)
-                    if ins and ins.expiry and ins.expiry < today:
+                    if ins and self.expired(ins, now=n):
                         o.status = "CANCELLED"; o.reason = "contract expired"; o.margin_blocked = 0.0
                 db.commit()
             finally:

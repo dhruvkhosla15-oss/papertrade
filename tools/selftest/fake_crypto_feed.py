@@ -18,7 +18,7 @@ for s in PX:
                      "position_size_limit": 125000, "price_band": "5", "trading_status": "operational", "state": "live"})
 now = datetime.now(timezone.utc)
 for d in (0, 1, 2):
-    st = (now + timedelta(days=d)).replace(hour=16, minute=0, second=0, microsecond=0)
+    st = (now + timedelta(days=d)).replace(hour=12, minute=0, second=0, microsecond=0)
     if st < now: continue
     for und, step in (("BTC", 1000), ("ETH", 50)):
         atm = round(PX[und + "USD"] / step) * step
@@ -37,6 +37,15 @@ def prods(contract_types: str = "", states: str = "live", page_size: int = 100, 
     ct = set(contract_types.split(",")) if contract_types else None
     res = [p for p in products if not ct or p["contract_type"] in ct]
     return {"success": True, "result": res, "meta": {"after": None, "total_count": len(res)}}
+
+@app.get("/debug/expire")
+def expire(ddmmyy: str):
+    """What the real exchange does at 5:30 pm IST: the day's options stop being listed and stop ticking."""
+    global products
+    gone = [p["symbol"] for p in products if p["symbol"].endswith("-" + ddmmyy)]
+    products = [p for p in products if p["symbol"] not in gone]
+    for g in gone: BYSYM.pop(g, None)
+    return {"ok": True, "gone": len(gone)}
 
 @app.get("/debug/shift")
 def shift(symbol: str, pct: float):

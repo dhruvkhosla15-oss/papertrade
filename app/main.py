@@ -893,6 +893,24 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
     return out
 
 
+@app.get("/api/admin/positions")
+def admin_positions(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Every open position across all trainees, marked at the live exit price."""
+    users = {u.id: u for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()}
+    out = []
+    for p in db.query(Position).filter_by(is_closed=False).all():
+        u = users.get(p.user_id)
+        if not u or not p.qty:
+            continue
+        d = engine.position_dict(p)
+        ins = feed.instruments.get(p.token)
+        d.update(user_id=u.id, username=u.username, display_name=u.display_name or u.username,
+                 segment=getattr(ins, "segment", ""), name=getattr(ins, "name", ""),
+                 opened_at=(p.opened_at.isoformat() + "Z") if p.opened_at else None)
+        out.append(d)
+    return out
+
+
 # ---- scheduled maintenance notice --------------------------------------------------------------------
 class MaintIn(BaseModel):
     at: str                 # "HH:MM" today (IST)

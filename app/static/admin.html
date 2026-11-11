@@ -178,7 +178,12 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><input id="uFilter" placeholder="Search trainee…" style="max-width:240px;padding:7px 10px"><span class="small mut">Click a column to sort · click a row for details</span></div>
-    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="equity" title="Allocated + realised − commission + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="uTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th>Status</th><th class="sort" data-k="total_credited">Allocated</th><th class="sort" data-k="used_margin" title="Margin blocked by open positions and pending orders">Exposure</th><th class="sort" data-k="available" title="What they can still trade with">Available</th><th class="sort" data-k="unrealised" title="Open positions marked to exit price">Unrealised</th><th class="sort" data-k="realised_all" title="Booked P&L on closed trades, before commission">Realised</th><th class="sort" data-k="commission_total" title="Total commission deducted, all time">Commission</th><th class="sort" data-k="net_realised" title="Realised − commission on closed trades (open positions not counted)">Net P&amp;L</th><th class="sort" data-k="equity" title="Allocated + realised − commission + unrealised">Net balance</th><th class="sort" data-k="open_positions">Open pos</th><th class="sort" data-k="trades">Trades</th><th>Coins</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Live positions <span class="small mut" id="lpCount"></span></h2><span class="small mut" id="lpTot"></span></div>
+    <table id="lpTbl"><thead><tr><th class="sort" data-k="display_name">Trainee</th><th class="sort" data-k="symbol">Contract</th><th>Side</th><th class="sort" data-k="lots">Lots</th><th>Avg price</th><th>Now</th><th class="sort" data-k="unrealised" title="If closed right now at the live exit price">Unrealised</th><th class="sort" data-k="margin">Margin</th><th>Type</th><th class="sort" data-k="opened_at">Opened</th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -461,8 +466,19 @@ $('#tfaDisable').onclick=async()=>{try{await api('/admin/2fa/disable',{method:'P
 
 // ----- trainees table -----
 $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};
+$$('#lpTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(lpK===k)lpDir=-lpDir;else{lpK=k;lpDir=(k==='display_name'||k==='symbol')?1:-1;}renderLive();});
 $$('#uTbl th.sort').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir=-sortDir;else{sortK=k;sortDir=k==='display_name'?1:-1;}renderUsers();});
-async function loadUsers(){users=await api('/admin/users');
+let livePos=[],lpK='unrealised',lpDir=1;
+function lpPx(v){return v==null?'—':(Math.abs(v)<10?fmt(v,4):fmt(v,2));}
+function renderLive(){const l=[...livePos];l.sort((a,b)=>{const x=a[lpK],y=b[lpK];return (typeof x==='string'?String(x).localeCompare(String(y)):(x||0)-(y||0))*lpDir;});
+  $('#lpCount').textContent=l.length?'· '+l.length:'';const tu=l.reduce((a,p)=>a+(p.unrealised||0),0),tm=l.reduce((a,p)=>a+(p.margin||0),0);
+  $('#lpTot').innerHTML=l.length?'Unrealised <b class="'+cls(tu)+'">'+sgn(tu)+'</b> · Margin '+inr(tm):'';
+  $$('#lpTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===lpK?(lpDir>0?' ▲':' ▼'):''));
+  $('#lpTbl tbody').innerHTML=l.map(p=>{const t=p.opened_at?new Date(p.opened_at):null;const when=t?t.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}):'';
+    return `<tr class="clickable" data-uid="${p.user_id}"><td><b>${p.display_name}</b><div class="small mut">${p.username}</div></td><td><b>${p.symbol}</b><div class="small mut">${p.exchange==='FOREX'?(p.segment==='GLOBAL-SPOT'?'Global':'Forex'):p.exchange==='CRYPTO'?'Crypto':p.exchange}${p.leverage?' · '+p.leverage+'x':''}</div></td><td><span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'}</span></td><td class="num">${Math.abs(p.lots)}<div class="small mut">${Math.abs(p.qty)} qty</div></td><td class="num">${lpPx(p.avg_price)}</td><td class="num">${lpPx(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}"><b>${sgn(p.unrealised)}</b></td><td class="num">${inr(p.margin)}</td><td>${p.product==='MIS'?'Intraday':'Overnight'}</td><td class="small mut">${when}</td></tr>`}).join('')||'<tr><td colspan=10 class="mut">No one is holding a position right now</td></tr>';
+  $$('#lpTbl tr.clickable').forEach(r=>r.onclick=()=>openDetail(+r.dataset.uid));}
+async function loadLive(){try{livePos=await api('/admin/positions');renderLive();}catch(e){}}
+async function loadUsers(){loadLive();users=await api('/admin/users');
   const tc=users.reduce((a,u)=>a+u.total_credited,0),te=users.reduce((a,u)=>a+u.equity,0),tx=users.reduce((a,u)=>a+(u.used_margin||0),0);
   $('#sUsers').textContent=users.length;$('#sCredited').textContent=inr(tc);$('#sEquity').textContent=inr(te);$('#sExposure').textContent=inr(tx);$('#sAvail').textContent=inr(users.reduce((a,u)=>a+(u.available||0),0));{const c=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sComm').textContent=c?'-'+inr(c):'₹0';$('#sComm').className='num '+(c?'dn':'');}
   $('#sPnl').textContent=sgn(te-tc);$('#sPnl').className='num '+cls(te-tc);const tcm=users.reduce((a,u)=>a+(u.commission_total||0),0);$('#sGross').textContent=sgn(te-tc+tcm);$('#sGross').className='num '+cls(te-tc+tcm);$('#sPos').textContent=users.reduce((a,u)=>a+u.open_positions,0);
@@ -470,7 +486,7 @@ async function loadUsers(){users=await api('/admin/users');
   renderUsers();if(detail)refreshDetail();
 }
 function renderUsers(){
-  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0)}));
+  let list=users.map(u=>({...u,pnl:u.equity-u.total_credited,realised_all:u.balance-u.total_credited+(u.commission_total||0),net_realised:u.balance-u.total_credited}));
   if(filterQ)list=list.filter(u=>(u.display_name+' '+u.username).toLowerCase().includes(filterQ));
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
@@ -479,11 +495,11 @@ function renderUsers(){
     <td><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
     <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.used_margin)}</td><td class="num">${inr(u.available)}</td>
-    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num mut">${u.commission_total?'-'+inr(u.commission_total):'₹0'}</td>
+    <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num mut">${u.commission_total?'-'+inr(u.commission_total):'₹0'}</td><td class="num ${cls(u.net_realised)}"><b>${sgn(u.net_realised)}</b></td>
     <td class="num"><b>${inr(u.equity)}</b><div class="small ${cls(u.pnl)}">${sgn(u.pnl)} · ${u.total_credited?fmt(u.pnl/u.total_credited*100,1)+'%':''}</div></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
     <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:110px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
-    <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`).join('')||`<tr><td colspan=12 class="mut">${users.length?'No match':'No trainees yet — add one above'}</td></tr>`;
+    <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`).join('')||`<tr><td colspan=13 class="mut">${users.length?'No match':'No trainees yet — add one above'}</td></tr>`;
   if(focused){const i=$(`.coinIn[data-id="${focused.id}"]`);if(i){i.value=focused.v;i.focus();}}
   $$('[data-add],[data-sub]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.add||b.dataset.sub;const inp=$(`.coinIn[data-id="${id}"]`);let amt=+inp.value;if(!amt)return toast('Enter an amount',1);if(b.dataset.sub)amt=-amt;
     const note=prompt('Note (optional)','')??'';try{await api(`/admin/users/${id}/coins`,{method:'POST',body:{amount:amt,note}});toast(`${amt>0?'Added':'Removed'} ${inr(Math.abs(amt))}`);inp.value='';loadUsers();}catch(e){toast(e.message,1)}});

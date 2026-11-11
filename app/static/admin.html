@@ -437,13 +437,13 @@ function feedDownText(f){const d=[];if(f.connected===false)d.push('NSE','BSE','M
 function ordWhen(o,full){const c=new Date(o.created_at),u=new Date(o.updated_at||o.created_at);const f=d=>full?d.toLocaleString('en-IN'):d.toLocaleTimeString('en-IN');const sameDay=c.toDateString()===u.toDateString();const lbl={FILLED:'filled',CANCELLED:'cancelled',REJECTED:'rejected'}[o.status];if(lbl&&u-c>2000)return `placed ${f(c)}<br>${lbl} ${(full||!sameDay)?u.toLocaleString('en-IN'):f(u)}`;return f(c);}
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
   const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const todayS=(ms.NFO&&ms.NFO.today)||(ms.MCX&&ms.MCX.today)||'';
-  const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=0?'':dd===1?'tmrw ':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
+  const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=1?'':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
   const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null],['US','US',(ms.US&&f.forex)?f.forex.connected:null]];
   return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
     if(!c)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
-    return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
+    return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o?'opens '+o:'closed'}</small></span>`;}).join('');}
 $('#mSave').onclick=async()=>{try{await api('/admin/settings',{method:'POST',body:{margin_pct:{NFO:+$('#mNFO').value,BFO:+$('#mBFO').value,MCX:+$('#mMCX').value,STK:+$('#mSTK').value,CDS:+$('#mCDS').value,CRYPTO:+$('#mCRYPTO').value,...Object.fromEntries($$('.mG').map(i=>[i.dataset.g,+i.value]))},mcx_option_factor:+$('#mOptF').value,commission_pct:+$('#commPct').value,commission_pct_forex:+$('#commPctFx').value,liquidity_check:$('#lqOn').value==='true',max_spread_pct:+$('#lqSpread').value,stale_minutes:+$('#lqStale').value}});toast('Settings saved');}catch(e){toast(e.message,1)}};
 
 const istToday=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);

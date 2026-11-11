@@ -620,13 +620,13 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
 }
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
   const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const todayS=(ms.NFO&&ms.NFO.today)||(ms.MCX&&ms.MCX.today)||'';
-  const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=0?'':dd===1?'tmrw ':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
+  const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=1?'':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
   const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null],['US','US',(ms.US&&f.forex)?f.forex.connected:null]];
   return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
     if(!c)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
-    return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o||'closed'}</small></span>`;}).join('');}
+    return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o?'opens '+o:'closed'}</small></span>`;}).join('');}
 function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
   function apply(){const t=tr();if(!t)return;const h=t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translate3d(${-Math.round(x)}px,0,0)`;}
   function tick(ts){if(!last)last=ts;const dt=Math.min((ts-last)/1000,.1);last=ts;const on=box.id==='mkts'?box.classList.contains('run'):true;if(on&&!drag&&!hov){x+=speed*dt;apply();}else if(!on){x=0;apply();}requestAnimationFrame(tick);}

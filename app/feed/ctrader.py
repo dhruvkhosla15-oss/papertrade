@@ -77,6 +77,7 @@ VOL_SCALE = 100            # cTrader volumes are in cents of units
 
 class CTraderForex:
     def __init__(self, feed):
+        self._hours = {}
         self.feed = feed
         self.items: dict = {}          # token -> Instrument
         self.by_symbol_id: dict = {}   # cTrader symbolId -> token
@@ -193,13 +194,26 @@ class CTraderForex:
                 s_ = hl.hour * 3600 + hl.minute * 60 + hl.second
                 if h["start"] is None or h["end"] is None or int(h["start"]) <= s_ < int(h["end"]):
                     is_open = False
+        ist = timezone(timedelta(hours=5, minutes=30))
         if is_open:
+            end = next((b for a, b in m["schedule"] if a <= sec < b), None)
+            self._hours[token] = {"open": True, "opens_at": None,
+                                  "closes_at": (week0 + timedelta(seconds=end)).astimezone(ist).replace(tzinfo=None).isoformat(timespec="seconds") if end else None}
             return True, ""
         nxt = min((a for a, b in m["schedule"] if a > sec), default=None)
         if nxt is None:
             nxt = min(a for a, b in m["schedule"]) + 7 * 86400
-        opens = (week0 + timedelta(seconds=nxt)).astimezone(timezone(timedelta(hours=5, minutes=30)))
+        opens = (week0 + timedelta(seconds=nxt)).astimezone(ist)
+        self._hours[token] = {"open": False, "opens_at": opens.replace(tzinfo=None).isoformat(timespec="seconds"), "closes_at": None}
         return False, opens.strftime("%a %-I:%M %p") + " IST"
+
+    def hours(self, symbol):
+        """{open, opens_at, closes_at} (IST, ISO) for one contract by name, or None if it is not offered."""
+        tok = next((t for t, i in self.items.items() if i.symbol == symbol), None)
+        if tok is None or not (self.meta.get(tok) or {}).get("schedule"):
+            return None
+        self.market_open(tok)
+        return self._hours.get(tok)
 
     # ---- token persistence ----------------------------------------------------------------------
     def _load_token(self):

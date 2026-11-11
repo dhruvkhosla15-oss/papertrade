@@ -512,10 +512,19 @@ def _default_watch_instruments():
 
 
 def _market_status():
-    from .market_calendar import status
+    from .market_calendar import status, ist_now
     if not config.ENFORCE_MARKET_HOURS:
-        return {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
-    return {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
+        out = {ex: {"open": True, "holiday": None, "opens_at": None, "closes_at": None, "label": "open"} for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
+    else:
+        out = {ex: status(ex) for ex in ("NFO", "BFO", "MCX", "CDS", "CRYPTO", "FOREX")}
+    try:   # "US" chip: follows the S&P 500 contract's own timetable (the Global section)
+        h = forex.hours("US500") if forex else None
+        if h:
+            out["US"] = {"open": h["open"], "holiday": None, "opens_at": h["opens_at"], "closes_at": h["closes_at"],
+                         "label": "open" if h["open"] else "closed", "today": ist_now().date().isoformat()}
+    except Exception:
+        log.exception("US market status failed")
+    return out
 
 
 def _public_tokens():

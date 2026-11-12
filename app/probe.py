@@ -412,6 +412,24 @@ class Probe:
             asks, bids = t.get("asks") or [], t.get("bids") or []
             if asks and bids and 0 < sum(a[0] * a[1] for a in asks) * (self.engine.vf(i) or 1) < 350_000:
                 pick = (i, asks, bids); break
+        if not pick:
+            # Nothing two-sided among the far strikes of the nearest expiry (on Currency the weekly
+            # contracts do not trade at all): widen to every out-of-the-money strike of the nearest
+            # three expiries, still thinnest first.
+            exps = sorted({i.expiry for i in opts})[:3]
+            seen = set(watched)
+            more = sorted([i for i in opts if i.expiry in exps and i.token not in seen and
+                           ((i.instrument_type == "CE" and i.strike > spot) or (i.instrument_type == "PE" and i.strike < spot))],
+                          key=lambda i: (exps.index(i.expiry) if i.expiry != exp else 0, -abs(i.strike - spot)))
+            more = [i for i in more if abs(i.strike - spot) <= spot * 0.06][:60]
+            if more:
+                self.feed.subscribe([i.token for i in more]); watched += [i.token for i in more]
+                await asyncio.sleep(4)
+                for i in sorted(more, key=lambda i: -abs(i.strike - spot)):
+                    t = self.feed.prices.get(i.token) or {}
+                    asks, bids = t.get("asks") or [], t.get("bids") or []
+                    if asks and bids and 0 < sum(a[0] * a[1] for a in asks) * (self.engine.vf(i) or 1) < 350_000:
+                        pick = (i, asks, bids); break
         ca = self._client(ua)
         try:
             nobid = next((i for i in cand if (self.feed.prices.get(i.token) or {}).get("ltp") and not ((self.feed.prices.get(i.token) or {}).get("bids"))), None)

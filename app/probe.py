@@ -140,12 +140,15 @@ class Probe:
         today = _ist().date().isoformat()
 
         def nearest(exchange, names):
+            """Candidates, best first: the nearest three expiries of each name. The run takes the first one
+            that actually has a live two-sided price, so a dead weekly contract (seen on USDINR) cannot
+            leave a whole market unattacked."""
+            out = []
             for nm in names:
                 c = [i for i in ins_all if i.exchange == exchange and i.instrument_type == "FUT" and i.name == nm
                      and (not i.expiry or i.expiry >= today)]
-                if c:
-                    return sorted(c, key=lambda i: i.expiry or "")[0]
-            return None
+                out += sorted(c, key=lambda i: i.expiry or "")[:3]
+            return out
 
         def sym(exchange, symbol):
             return next((i for i in ins_all if i.exchange == exchange and i.symbol == symbol), None)
@@ -156,6 +159,23 @@ class Probe:
                 ("MCX", nearest("MCX", ["CRUDEOILM", "GOLDM", "SILVERM", "NATGASMINI"])),
                 ("Currency", nearest("CDS", ["USDINR", "EURINR", "GBPINR"])),
                 ("Crypto", cry), ("Forex", sym("FOREX", "EURUSD")), ("Global", sym("FOREX", "US500"))]
+
+    async def _pick(self, cands):
+        """First candidate with a live two-sided price; the first one if the market is shut or none has."""
+        cands = [c for c in (cands or []) if c]
+        if not cands:
+            return None
+        first = cands[0]
+        if len(cands) == 1 or not self._feed_up(first) or not self.engine.tradable_now(first):
+            return first
+        self.feed.pin([c.token for c in cands])
+        for _ in range(32):
+            for c in cands:
+                bid, ask, ltp = self._quote(c.token)
+                if bid and ask and ltp:
+                    return c
+            await asyncio.sleep(0.25)
+        return first
 
     def _feed_up(self, ins) -> bool:
         if ins.exchange == "CRYPTO":
@@ -607,6 +627,8 @@ class Probe:
             return {"at": f"{_ist():%Y-%m-%d %H:%M}", "secs": round(time.time() - t0, 1), "passed": 0, "failed": 1, "ok": False, "rows": self.rows}
         try:
             for label, ins in self._targets():
+                if isinstance(ins, list):
+                    ins = await self._pick(ins)
                 if not ins:
                     self.area = label; self.note("skipped", "no contract listed"); continue
                 try:

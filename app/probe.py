@@ -551,6 +551,24 @@ class Probe:
                     self.ok("the two dollar–rupee sources agree within 10%", abs(cu / r - 1) < 0.10, f"{cu} vs {round(r, 3)}")
         except Exception as e:
             self.ok("conversion rates readable", False, type(e).__name__)
+        # Crypto options: this site must treat them as expired at the exchange's own moment (5:30 pm IST).
+        # Settling later hands out hours of free option time; that was the loophole of 12 Nov 2026.
+        try:
+            if cry and cry.connected:
+                from .market_calendar import close_time_str
+                opts = [i for i in cry.items.values() if i.instrument_type in ("CE", "PE") and getattr(i, "expiry_at", 0)]
+                bad = []
+                for i in opts:
+                    t = datetime.utcfromtimestamp(i.expiry_at) + timedelta(hours=5, minutes=30)
+                    if (self.engine.expired(i, now=t - timedelta(minutes=1)) or not self.engine.expired(i, now=t + timedelta(minutes=1))
+                            or i.expiry != t.date().isoformat() or close_time_str("CRYPTO") != t.strftime("%H:%M")):
+                        bad.append(f"{i.symbol} ({t:%d %b %H:%M})")
+                if opts:
+                    self.ok(f"crypto options stop trading and settle at the exchange's own expiry time ({len(opts)} contracts)", not bad, ", ".join(bad[:5]))
+                else:
+                    self.note("crypto expiry time not checked", "no crypto options listed right now")
+        except Exception as e:
+            self.ok("crypto expiry time readable", False, type(e).__name__)
         self.note("feeds", f"NSE/MCX {'on' if self.feed.connected else 'OFF'} · crypto {'on' if cry and cry.connected else 'OFF'} · forex/global {'on' if fx and fx.connected else 'OFF'}")
 
     # ---- run -----------------------------------------------------------------------------------

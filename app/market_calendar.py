@@ -151,7 +151,7 @@ def close_time_str(exchange: str, d: date | None = None) -> str:
     d = d or ist_now().date()
     s, _ = _sessions(exchange, d)
     if exchange == "CRYPTO":
-        return "21:30"     # Delta options settle 16:00 UTC
+        return "17:30"     # Delta India options expire at 5:30 pm IST (12:00 UTC) on their expiry date
     if exchange == "FOREX":
         return "23:59"
     return s[-1][1].strftime("%H:%M") if s else ("17:00" if exchange == "CDS" else "15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))

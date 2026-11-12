@@ -49,7 +49,7 @@ def get_db():
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     tok = request.cookies.get(COOKIE) or request.headers.get("authorization", "").replace("Bearer ", "")
     data = decode_token(tok) if tok else None
-    if not data or data.get("pre2fa"):
+    if not data or data.get("pre2fa") or "uid" not in data:      # only a full login token is a session
         raise HTTPException(401, "Not logged in")
     u = db.get(User, data["uid"])
     if not u or not u.is_active and not u.is_admin:

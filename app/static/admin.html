@@ -199,21 +199,21 @@ a{color:var(--acc)}
     <p class="small mut" id="pRangeTxt" style="margin-top:8px"></p>
   </div>
   <div class="card grid">
-    <div class="stat"><span class="mut small">Net P&L (period)</span><b id="pNet" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Realised − Commission on trades closed in this period. Open positions are not included.">Net P&L (Closed Trades)</span><b id="pNet" class="num">—</b></div>
     <div class="stat"><span class="mut small">Trades</span><b id="pTrades" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Win rate</span><b id="pWin" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Profit factor</span><b id="pPF" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Best day</span><b id="pBestDay" class="num">—</b></div>
-    <div class="stat"><span class="mut small">Worst day</span><b id="pWorstDay" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Win Rate</span><b id="pWin" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Profit Factor</span><b id="pPF" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Best Day</span><b id="pBestDay" class="num">—</b></div>
+    <div class="stat"><span class="mut small">Worst Day</span><b id="pWorstDay" class="num">—</b></div>
   </div>
-  <div class="card"><h2>Daily P&L</h2><div id="dailyChart"></div></div>
+  <div class="card"><h2>Daily Net P&L (Closed Trades)</h2><div id="dailyChart"></div></div>
   <div class="card" style="padding:0;overflow:auto">
-    <div style="padding:10px 12px"><h2 style="margin:0">User ranking</h2></div>
-    <table id="pTbl"><thead><tr><th>#</th><th>User</th><th>Trades</th><th>Closed</th><th>Wins</th><th>Losses</th><th>Win %</th><th>Gross profit</th><th>Gross loss</th><th>Commission</th><th>Net P&L</th><th>Best trade</th><th>Worst trade</th><th>Profit factor</th><th>Equity now</th><th></th></tr></thead><tbody></tbody></table>
+    <div style="padding:10px 12px"><h2 style="margin:0">User Ranking</h2></div>
+    <table id="pTbl"><thead><tr><th>#</th><th>User</th><th>Trades</th><th>Closing Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th title="Booked P&L on trades closed in this period, before commission">Realised</th><th>Commission</th><th title="Realised − Commission. Open positions are not included.">Net P&L (Closed Trades)</th><th>Best Trade</th><th>Worst Trade</th><th>Profit Factor</th><th title="Allocated + Net P&L (All Time), as of now — includes open positions">Net Balance</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   <div class="card" style="padding:0;overflow:auto">
-    <div style="padding:10px 12px"><h2 style="margin:0">Day by day</h2></div>
-    <table id="dTblDaily"><thead><tr><th>Date</th><th>Day</th><th>Net P&L</th><th>Cumulative</th></tr></thead><tbody></tbody></table>
+    <div style="padding:10px 12px"><h2 style="margin:0">Day By Day</h2></div>
+    <table id="dTblDaily"><thead><tr><th>Date</th><th>Day</th><th>Net P&L (Closed Trades)</th><th>Cumulative</th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -276,7 +276,7 @@ a{color:var(--acc)}
   </div>
   <div class="card">
     <h2>Daily safety check</h2>
-    <p class="small mut" style="margin-bottom:10px">Every day at <span id="pbAt">10:05 am</span> the site attacks itself with two hidden test accounts — nonsense numbers, cheap-margin orders, many orders at once, instant round trips, touching other accounts, trading closed markets — then checks every real account's books. The result also goes to Telegram.</p>
+    <p class="small mut" style="margin-bottom:10px">Every day at <span id="pbAt">10:05 am and 9:35 pm</span> the site attacks itself with two hidden test accounts — nonsense numbers, cheap-margin orders, many orders at once, instant round trips, touching other accounts, trading closed markets — then checks every real account's books. The result also goes to Telegram.</p>
     <div class="bar"><button class="ghost" id="pbRun">Run it now</button><span class="small" id="pbInfo"></span></div>
     <div id="pbRows" class="small" style="margin-top:10px;max-height:320px;overflow:auto"></div>
     <div id="pbHist" class="small mut" style="margin-top:8px"></div>
@@ -399,7 +399,7 @@ async function loadMaint(){try{const j=await fetch('/api/public/maintenance').th
 $('#mtSet').onclick=async()=>{if(!$('#mtAt').value){toast('Pick a time',1);return;}try{await api('/admin/maintenance',{method:'POST',body:{at:$('#mtAt').value,minutes:+$('#mtMin').value||10,message:$('#mtMsg').value}});toast('Maintenance announced to all users');loadMaint();}catch(e){toast(e.message,1);}};
 $('#mtClear').onclick=async()=>{try{await api('/admin/maintenance',{method:'DELETE'});toast('Notice cleared');loadMaint();}catch(e){toast(e.message,1);}};
 function pbEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function renderProbe(d){const l=d.last;try{const [h,m]=d.runs_at.split(':').map(Number);$('#pbAt').textContent=((h%12)||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm');}catch(e){}
+function renderProbe(d){const l=d.last;try{$('#pbAt').textContent=String(d.runs_at).split(',').map(x=>{const [h,m]=x.trim().split(':').map(Number);return ((h%12)||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm');}).join(' and ');}catch(e){}
   if(!l){$('#pbInfo').textContent='Not run yet — first run is at the next scheduled time, or press the button.';$('#pbRows').innerHTML='';return;}
   $('#pbInfo').innerHTML=(l.ok?'<b style="color:#22c55e">All '+l.passed+' checks passed</b>':'<b style="color:#ef4444">'+l.failed+' of '+(l.passed+l.failed)+' checks FAILED</b>')+' · '+pbEsc(l.at)+' · took '+l.secs+'s · Telegram: '+pbEsc(l.telegram||'');
   let area='',h='';for(const r of l.rows){if(r.area!==area){area=r.area;h+='<div style="margin-top:8px"><b>'+pbEsc(area)+'</b></div>';}
@@ -578,9 +578,9 @@ async function loadPerf(){
   const ranked=[...r.users].sort((a,b)=>b.net_pnl-a.net_pnl);
   $('#pTbl tbody').innerHTML=ranked.map((u,i)=>`<tr class="clickable" data-id="${u.id}"><td>${i+1}</td><td style="text-align:left"><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td class="num">${u.trades}</td><td class="num">${u.closing_trades}</td><td class="num up">${u.wins}</td><td class="num dn">${u.losses}</td><td class="num">${u.win_rate==null?'—':fmt(u.win_rate,1)+'%'}</td>
-    <td class="num up">${inr(u.gross_profit)}</td><td class="num dn">${inr(u.gross_loss)}</td><td class="num mut">${u.commission?'-'+inr(u.commission):'—'}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
+    <td class="num ${cls(u.gross_profit+u.gross_loss)}">${sgn(u.gross_profit+u.gross_loss)}</td><td class="num mut">${u.commission?'-'+inr(u.commission):'—'}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
     <td class="num ${cls(u.best)}">${u.best?inr(u.best):'—'}</td><td class="num ${cls(u.worst)}">${u.worst?inr(u.worst):'—'}</td><td class="num">${u.profit_factor==null?(u.gross_profit?'∞':'—'):fmt(u.profit_factor)}</td><td class="num">${inr(u.equity)}</td>
-    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=16 class="mut">No trades in this period</td></tr>';
+    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=15 class="mut">No trades in this period</td></tr>';
   $$('#pTbl tr.clickable').forEach(x=>x.onclick=()=>openDetail(+x.dataset.id));
   let cum=0;const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   $('#dTblDaily tbody').innerHTML=days.map(([d,v])=>{cum+=v;return`<tr><td>${d}</td><td style="text-align:left" class="mut">${DN[new Date(d+'T00:00:00Z').getUTCDay()]}</td><td class="num ${cls(v)}">${sgn(v)}</td><td class="num ${cls(cum)}">${sgn(cum)}</td></tr>`;}).reverse().join('')||'<tr><td colspan=4 class="mut">No trading days in this period</td></tr>';

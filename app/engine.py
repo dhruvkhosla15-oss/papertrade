@@ -891,6 +891,21 @@ class Engine:
             set_setting(db, "strict_liq_from", v); db.commit()
         return datetime.fromisoformat(v)
 
+    def _user_alert(self, db: Session, user: User, title: str, text: str):
+        """Keep a message for the user that is shown as a pop-up the next time they open the app (and
+        straight away if they are online) and stays until they press OK."""
+        if (user.username or "").startswith("zz-probe-"):
+            return
+        from .db import set_setting
+        key = f"user_alerts_{user.id}"
+        try:
+            cur = json.loads(get_setting(db, key, "[]") or "[]")
+        except Exception:
+            cur = []
+        when = (datetime.utcnow() + timedelta(hours=IST_OFFSET_HOURS)).strftime("%d %b, %I:%M %p")
+        cur.append({"id": str(int(time.time() * 1000)), "title": title, "text": f"{when}\n{text}"})
+        set_setting(db, key, json.dumps(cur[-10:]))
+
     def _owner_ping(self, user: User, text: str):
         if (user.username or "").startswith("zz-probe-"):
             return
@@ -951,7 +966,7 @@ class Engine:
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
         rows.sort(key=lambda r: r[0])
-        closed = []
+        closed, detail = [], []
         for _, p, ins in rows:
             short = -self.funds(db, user)["available"]
             if short <= 0:
@@ -975,14 +990,19 @@ class Engine:
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px
                 closed.append(f"{filled // ins.lot_size} lot{'s' if filled // ins.lot_size != 1 else ''} of {symbol}")
+                detail.append(f"{closed[-1]} at ₹{px:,.2f}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
         if closed:
             self._ledger(db, user, 0.0, "LIQUIDATION", note)
             db.commit()
             after = self.funds(db, user)["available"]
+            self._user_alert(db, user, "Position liquidated",
+                             "Squared off at market: " + "; ".join(detail) + f".\nReason: your Available Balance went below zero "
+                             f"(₹{f['available']:,.0f}). You can only carry positions that your coins cover.\n"
+                             f"Available Balance now ₹{after:,.0f}.")
             log.warning("SHORTFALL SQUARE-OFF user=%s %s (available %s -> %s)", user.username, closed, f["available"], after)
             self._emit(user.id, {"type": "refresh", "message": "Margin shortfall: " + ", ".join(closed) + " squared off at market "
-                                 "because your Available Balance went below zero"})
+                                 "because your Available Balance went below zero", "alert": True})
             self._owner_ping(user, f"limefx auto square-off\n{user.display_name} ({user.username}): Available Balance was "
                                    f"₹{f['available']:,.0f}. Closed {', '.join(closed)} at market. Available Balance now ₹{after:,.0f}.")
         else:
@@ -994,7 +1014,7 @@ class Engine:
         note = f"Liquidated — equity ₹{f['equity']:,.0f} fell below maintenance ₹{f['maintenance']:,.0f}"
         for o in db.query(Order).filter_by(user_id=user.id, status="OPEN").all():
             o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — margin call"
-        closed = 0
+        closed, detail = 0, []
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
             if not ins or not self.tradable_now(ins):
@@ -1011,10 +1031,15 @@ class Engine:
             self._fill(db, user, order, px)
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px; closed += 1
+                n = filled // ins.lot_size
+                detail.append(f"{n} lot{'s' if n != 1 else ''} of {p.symbol} at ₹{px:,.2f}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
         if closed:
             self._ledger(db, user, 0.0, "LIQUIDATION", note)
             db.commit()
+            self._user_alert(db, user, "Position liquidated",
+                             "Squared off at market: " + "; ".join(detail) + ".\nReason: margin call — your losses used up the "
+                             "margin on your positions.")
             log.warning("LIQUIDATION user=%s positions=%d %s", user.username, closed, note)
             self._emit(user.id, {"type": "refresh", "message": "Margin call: your positions were liquidated at market"})
         else:

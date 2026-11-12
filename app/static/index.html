@@ -663,7 +663,12 @@ function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const mtxt=f.margin_short?'<span><b>Margin shortfall</b> — your Available Balance is below zero. Positions are squared off automatically at market until it is back above zero.</span>':f.margin_warn?'<span><b>Margin low</b> — reduce positions or ask for more coins. If your Available Balance goes below zero, positions are squared off automatically.</span>':'';
   const mb=$('#marginBar');if(mb){mb.innerHTML=mtxt;mb.className=mtxt?'feedbar':'feedbar hidden';}
   const fm=$('#fMaint');if(fm){fm.innerHTML=mtxt?'<b class="dn">'+(f.margin_short?'Margin shortfall — positions are squared off automatically':'Margin low — reduce positions or ask for more coins')+'</b>':'';fm.style.display=mtxt?'':'none';}}
-async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
+async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);showAlerts(m.alerts);}catch(e){}}
+/* messages the system left for this user (e.g. "Position liquidated"): a pop-up that stays until OK is pressed */
+function showAlerts(list){if(!list||!list.length||document.querySelector('.mpop'))return;
+  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';
+  d.innerHTML=`<div class="box" style="max-height:80vh;overflow:auto">`+list.map(a=>`<b style="font-size:16px;color:#f87171">${esc(a.title)}</b><p class="small" style="margin:8px 0 14px;line-height:1.55;white-space:pre-line">${esc(a.text)}</p>`).join('')+`<button style="width:100%">OK</button></div>`;
+  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST'});}catch(e){}};document.body.appendChild(d);}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
@@ -954,7 +959,7 @@ function ofApply(list){const s=$('#ofSide').value,t=$('#ofType').value,m=$('#ofM
 function renderOrders(){const all=(dateF.orders.p!=='all'&&state.ordView)?state.ordView:(state.orders||[]);$('#ordTbl tbody').innerHTML=ofApply(all).map(o=>`<tr><td><span class="sym">${dsym(o.exchange,o.symbol)}</span><div class="small mut">${ordWhen(o)}</div></td>
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}<div class="small mut">${o.product==='MIS'?'Intraday':'Overnight'}${o.order_type!=='MARKET'?' · '+(o.validity||'DAY'):''}${o.leverage?' · '+o.leverage+'×':''}</div></td>
   <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
-  <td><span class="pill ${o.status}">${o.status}</span>${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
+  <td><span class="pill ${o.status}">${o.status}</span>${/^(Auto square-off|Liquidated)/.test(o.reason||'')?' <span class="pill REJECTED">LIQUIDATED</span>':''}${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
   <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||`<tr><td colspan=7 class="mut">${all.length?'No orders match these filters':'No orders yet'}</td></tr>`;
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
 async function loadTrades(){const q=dateQS('orders');const t=await api('/trades'+(q?q.qs:''));$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${dsym(x.exchange,x.symbol)}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${cpx(x.exchange,x.price)}</td><td class="num mut">${x.commission?'-'+fmt2(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt2(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}

@@ -460,7 +460,37 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
-            "liquidity": {"on": on, "max_spread_pct": spread}}
+            "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}
+
+
+def _user_alerts(db, user) -> list:
+    try:
+        return json.loads(get_setting(db, f"user_alerts_{user.id}", "[]") or "[]")
+    except Exception:
+        return []
+
+
+class AlertIn(BaseModel):
+    title: str = "Notice"
+    text: str
+
+
+@app.post("/api/admin/users/{uid}/alert")
+def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Master leaves a pop-up message for one user; it shows when they next open the app, until they press OK."""
+    u = db.get(User, uid)
+    if not u or not body.text.strip():
+        raise HTTPException(400, "Unknown user or empty message")
+    engine._user_alert(db, u, (body.title.strip() or "Notice")[:60], body.text.strip()[:1200])
+    return {"ok": True, "pending": len(_user_alerts(db, u))}
+
+
+@app.post("/api/alerts/ack")
+def ack_alerts(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The user pressed OK on the pop-up: their pending alerts (e.g. 'Position liquidated') are cleared."""
+    if _user_alerts(db, user):
+        set_setting(db, f"user_alerts_{user.id}", "[]"); db.commit()
+    return {"ok": True}
 
 
 class PasswordIn(BaseModel):
@@ -1657,9 +1687,13 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         cm = round(sum(x.commission or 0 for x in trades), 2)
         real = round(sum(x.realised_pnl or 0 for x in trades), 2)
         net = round(real - cm, 2)
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L (Closed Trades)"],
+        # trades the system made itself (auto square-off / margin call) are marked as liquidated
+        liq_orders = {o.id for o in db.query(Order).filter(Order.id.in_([x.order_id for x in trades if x.order_id])).all()
+                      if (o.reason or "").startswith(("Auto square-off", "Liquidated"))} if trades else set()
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L (Closed Trades)", "Note"],
               [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
-                x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2)] for x in trades],
+                x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2),
+                "Liquidated by system" if x.order_id in liq_orders else ""] for x in trades],
               money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), int_cols=(sh(6),), statement="P&L Statement",
               summary=f"Trades {len(trades)}   ·   Realised {sg(real)}   ·   Commission {sg(-cm)}   ·   Net P&L (Closed Trades) {sg(net)}   (open positions not included)",
               totals=["TOTAL"] + [""] * (sh(8) - 1) + [real, -cm, net])

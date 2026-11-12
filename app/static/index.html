@@ -219,6 +219,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 </header>
 <div id="maintBar" class="maintbar hidden"></div>
 <div id="banner" class="feedbar hidden"></div>
+<div id="marginBar" class="feedbar hidden"></div>
 <div id="mkts" class="mkts"></div>
 <div id="pwa" class="pwa hidden"><div class="ic"></div><div class="t"><b>Install limefx</b><span id="pwaMsg">Add it to your home screen — opens like an app, no link needed.</span></div><button class="go" id="pwaGo">Install</button><button class="x" id="pwaX" aria-label="Dismiss">✕</button></div>
 <div class="marquee" id="tickerBox"><div class="track" id="ticker"></div></div>
@@ -659,7 +660,9 @@ function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);fitFunds();
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);
-  const fm=$('#fMaint');if(fm){const warn=f.maintenance>0&&f.equity<f.maintenance*1.5;fm.innerHTML=warn?'<b class="dn">Close to a margin call — add coins or reduce positions</b>':'';fm.style.display=warn?'':'none';}}
+  const mtxt=f.margin_short?'<span><b>Margin shortfall</b> — your Available Balance is below zero. Positions are squared off automatically at market until it is back above zero.</span>':f.margin_warn?'<span><b>Margin low</b> — reduce positions or ask for more coins. If your Available Balance goes below zero, positions are squared off automatically.</span>':'';
+  const mb=$('#marginBar');if(mb){mb.innerHTML=mtxt;mb.className=mtxt?'feedbar':'feedbar hidden';}
+  const fm=$('#fMaint');if(fm){fm.innerHTML=mtxt?'<b class="dn">'+(f.margin_short?'Margin shortfall — positions are squared off automatically':'Margin low — reduce positions or ask for more coins')+'</b>':'';fm.style.display=mtxt?'':'none';}}
 async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);}catch(e){}}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}

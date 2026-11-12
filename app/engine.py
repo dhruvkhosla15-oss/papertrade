@@ -58,6 +58,8 @@ class Engine:
         # shadow book: paper fills consume depth until the live book changes
         # token -> {"sig": depth signature, "bids": {price: consumed_qty}, "asks": {price: consumed_qty}}
         self._consumed = {}
+        self._margin_level = {}           # user id -> 0 fine / 1 warned (margin low) / 2 below zero
+        self._neg_since = {}              # user id -> time the Available Balance was first seen below zero
         self._unsettled_warned = set()    # positions already reported as impossible to settle (contract not listed)
 
     def set_event_callback(self, cb):
@@ -345,10 +347,14 @@ class Engine:
             Ledger.user_id == user.id, Ledger.created_at >= day_start,
             Ledger.kind.in_(["REALISED_PNL", "COMMISSION", "EXPIRY_SETTLEMENT"])))
         maint = self.maintenance(db, user)
+        from .config import MARGIN_WARN_SHARE
+        avail = round(user.balance + min(0.0, unreal) - used, 2)
         return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
-                "available": round(user.balance + min(0.0, unreal) - used, 2), "unrealised": round(unreal, 2),
+                "available": avail, "unrealised": round(unreal, 2),
                 "realised_today": round(realised_today, 2), "equity": round(user.balance + unreal, 2),
-                "maintenance": round(maint, 2)}
+                "maintenance": round(maint, 2),
+                "margin_warn": bool(used > 0 and 0 <= avail < used * MARGIN_WARN_SHARE),
+                "margin_short": bool(used > 0 and avail < 0)}
 
     def maintenance(self, db: Session, user: User) -> float:
         """Maintenance requirement across open positions: exchange % of notional where published
@@ -784,14 +790,21 @@ class Engine:
             db = SessionLocal()
             try:
                 uids = {p.user_id for p in db.query(Position).filter_by(is_closed=False).all()}
+                strict_from = self.strict_from(db)
+                strict = datetime.utcnow() >= strict_from
+                for gone in [u for u in self._margin_level if u not in uids]:
+                    self._margin_level.pop(gone, None); self._neg_since.pop(gone, None)
                 for uid in uids:
                     user = db.get(User, uid)
                     if not user:
                         continue
                     try:
                         f = self.funds(db, user)
+                        self._margin_notice(user, f, strict, strict_from)
                         if f["maintenance"] > 0 and f["equity"] < f["maintenance"]:
                             self._liquidate(db, user, f)
+                        elif strict and f["margin_short"]:
+                            self._square_off_shortfall(db, user, f)
                     except Exception:
                         # one broken account must never stop margin calls for everyone else
                         log.exception("liquidation check failed for user %s", uid)
@@ -866,6 +879,114 @@ class Engine:
                         db.commit()
             finally:
                 db.close()
+
+    def strict_from(self, db: Session) -> datetime:
+        """UTC time from which a below-zero Available Balance is squared off. Set once, a short grace after
+        the rule first runs, so accounts that were already below zero get the warning first."""
+        v = get_setting(db, "strict_liq_from", "")
+        if not v:
+            from .db import set_setting
+            from .config import STRICT_LIQ_GRACE_MIN
+            v = (datetime.utcnow() + timedelta(minutes=STRICT_LIQ_GRACE_MIN)).isoformat()
+            set_setting(db, "strict_liq_from", v); db.commit()
+        return datetime.fromisoformat(v)
+
+    def _owner_ping(self, user: User, text: str):
+        if (user.username or "").startswith("zz-probe-"):
+            return
+        try:
+            from .probe import _telegram
+            asyncio.get_event_loop().run_in_executor(None, _telegram, text)
+        except Exception:
+            log.exception("owner ping failed")
+
+    def _margin_notice(self, user: User, f: dict, strict: bool, strict_from: datetime):
+        """Tell the user once when margin runs low, and once when Available Balance goes below zero."""
+        level = 2 if f["margin_short"] else 1 if f["margin_warn"] else 0
+        if level == 2:
+            self._neg_since.setdefault(user.id, time.time())
+        else:
+            self._neg_since.pop(user.id, None)
+        prev = self._margin_level.get(user.id, 0)
+        if level > prev:
+            if level == 1:
+                msg = ("Margin low: your Available Balance is almost used up. Reduce positions or ask for more coins "
+                       "— if it goes below zero, positions are squared off automatically.")
+            elif strict:
+                msg = "Margin shortfall: your Available Balance is below zero. Positions are being squared off at market."
+            else:
+                at = (strict_from + timedelta(hours=IST_OFFSET_HOURS)).strftime("%I:%M %p").lstrip("0")
+                msg = (f"Margin shortfall: your Available Balance is below zero (₹{f['available']:,.0f}). Reduce positions or ask "
+                       f"for more coins now — from {at} positions are squared off automatically.")
+                self._owner_ping(user, f"limefx margin shortfall\n{user.display_name} ({user.username}): Available Balance "
+                                       f"₹{f['available']:,.0f}, margin used ₹{f['used_margin']:,.0f}. Warned; auto square-off starts {at}.")
+            self._emit(user.id, {"type": "refresh", "message": msg})
+        if level < prev and not (prev == 1 and f["used_margin"] > 0 and f["available"] < f["used_margin"] * 0.25):
+            self._margin_level[user.id] = level          # small hysteresis so the low-margin warning does not flap
+        elif level > prev:
+            self._margin_level[user.id] = level
+
+    def _square_off_shortfall(self, db: Session, user: User, f: dict):
+        """Available Balance is below zero: the user is carrying more than their coins cover. Cancel resting
+        orders (they block margin), then close lots at the book, worst-losing position first, only as many
+        as it takes to bring Available Balance back above zero. Anything that cannot be closed right now
+        (market shut, no counterparty) is retried on the next pass."""
+        import math
+        note = f"Auto square-off — Available Balance ₹{f['available']:,.0f} fell below zero"
+        resting = [o for o in db.query(Order).filter_by(user_id=user.id, status="OPEN").all() if (o.margin_blocked or 0) > 0]
+        if resting:
+            for o in resting:
+                o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — margin shortfall"
+                self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
+            db.commit()
+            f = self.funds(db, user)
+            if not f["margin_short"]:
+                self._emit(user.id, {"type": "refresh", "message": "Margin shortfall: your pending orders were cancelled to free margin"})
+                return
+        rows = []
+        for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
+            ins = self.feed.instruments.get(p.token)
+            if not ins or not p.qty or not self.tradable_now(ins):
+                continue
+            mk = self.mark_price(p.token, p.qty)
+            rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
+        rows.sort(key=lambda r: r[0])
+        closed = []
+        for _, p, ins in rows:
+            short = -self.funds(db, user)["available"]
+            if short <= 0:
+                break
+            lots = abs(p.qty) // ins.lot_size
+            if lots <= 0:
+                continue
+            per_lot = (p.margin_blocked or 0.0) / lots
+            k = lots if per_lot <= 0 else min(lots, max(1, math.ceil(short * 1.05 / per_lot)))
+            side = "SELL" if p.qty > 0 else "BUY"
+            symbol = p.symbol
+            try:
+                px, bnote, filled = self.book_fill(db, ins, side, k * ins.lot_size)
+            except EngineError as e:
+                log.warning("shortfall square-off %s %s: %s", user.username, symbol, e)
+                continue
+            order = Order(user_id=user.id, token=p.token, symbol=symbol, exchange=p.exchange, side=side,
+                          order_type="MARKET", lots=filled // ins.lot_size, qty=filled, status="OPEN")
+            db.add(order); db.flush()
+            self._fill(db, user, order, px)
+            if order.status == "FILLED":
+                order.reason = f"{note} · {bnote}"; order.fill_price = px
+                closed.append(f"{filled // ins.lot_size} lot{'s' if filled // ins.lot_size != 1 else ''} of {symbol}")
+            self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
+        if closed:
+            self._ledger(db, user, 0.0, "LIQUIDATION", note)
+            db.commit()
+            after = self.funds(db, user)["available"]
+            log.warning("SHORTFALL SQUARE-OFF user=%s %s (available %s -> %s)", user.username, closed, f["available"], after)
+            self._emit(user.id, {"type": "refresh", "message": "Margin shortfall: " + ", ".join(closed) + " squared off at market "
+                                 "because your Available Balance went below zero"})
+            self._owner_ping(user, f"limefx auto square-off\n{user.display_name} ({user.username}): Available Balance was "
+                                   f"₹{f['available']:,.0f}. Closed {', '.join(closed)} at market. Available Balance now ₹{after:,.0f}.")
+        else:
+            db.commit()
 
     def _liquidate(self, db: Session, user: User, f: dict):
         """Force-close every open position at the book (what the exchange/broker RMS does), cancel

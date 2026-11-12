@@ -185,6 +185,59 @@ class Probe:
         return bool(self.feed.connected)
 
     # ---- the attacks -----------------------------------------------------------------------
+    async def _shortfall(self, label, ins, ua):
+        """Nobody may carry more than their coins cover. Open a position on the test account, then take its
+        coins away so that its Available Balance is below zero, and expect the system to square it off."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        bid, ask, ltp = self._quote(ins.token)
+        if not (bid and ask and ltp):
+            return
+        db = SessionLocal()
+        try:
+            strict = datetime.utcnow() >= self.engine.strict_from(db)
+        finally:
+            db.close()
+        if not strict:
+            self.note("margin shortfall not tested", "the auto square-off rule is still in its one-time warning period"); return
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            st, o, d = await self._order(ca, token=ins.token, side="BUY", lots=2)
+            if st != 200:
+                st, o, d = await self._order(ca, token=ins.token, side="BUY", lots=1)
+            o = await self._wait_order(ca, o["id"]) if st == 200 else None
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == ins.token]
+            if not (o and o.get("status") == "FILLED" and pos):
+                self.note("margin shortfall not tested", f"could not open a test position ({d or (o or {}).get('reason', '')})"[:150]); return
+            lots0 = abs(pos[0]["qty"]) // ins.lot_size
+            f = await self._funds(ca)
+            await self._set_balance(ua.id, round(f["used_margin"] * 0.97, 2))        # coins no longer cover the margin
+            f1 = await self._funds(ca)
+            st, _, d = await self._order(ca, token=ins.token, side="BUY", lots=1)
+            self.ok("short of margin: a new order is refused", st == 400, d)
+            lots1, f2 = lots0, f1
+            for _ in range(30):
+                await asyncio.sleep(0.5)
+                pos = [p for p in (await self._positions(ca)) or [] if p["token"] == ins.token]
+                lots1 = abs(pos[0]["qty"]) // ins.lot_size if pos else 0
+                f2 = await self._funds(ca)
+                if lots1 < lots0 and f2["available"] >= 0:
+                    break
+            self.ok("carrying more than your coins cover is squared off automatically (Available Balance back above zero)",
+                    lots1 < lots0 and f2["available"] >= 0,
+                    f"Available Balance ₹{f1['available']:,.0f} → ₹{f2['available']:,.0f}; {lots0} lot(s) → {lots1}")
+            if lots0 >= 2:
+                self.ok("only as many lots as needed are squared off", lots1 == lots0 - 1, f"{lots0} lots → {lots1}")
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await self._set_balance(ua.id, 1_000_000.0)
+            await ca.aclose()
+
     async def _attack(self, label, ins, ua, ub):
         self.area = label
         T = ins.token
@@ -579,6 +632,23 @@ class Probe:
             self.ok("no open position left unsettled on a contract that expired before today", not overdue, ", ".join(sorted(set(overdue))[:8]))
             if unsure:
                 self.note("positions not judged", f"{unsure} in a market whose feed is off right now")
+            # Nobody may carry more than their coins cover: an Available Balance below zero must be squared
+            # off within seconds. Judged only for accounts with a position in a market that is open now.
+            strict = datetime.utcnow() >= self.engine.strict_from(db)
+            over = []
+            for u in users:
+                ps = [p for p in db.query(Position).filter_by(user_id=u.id, is_closed=False).all() if p.qty]
+                if not ps:
+                    continue
+                f = self.engine.funds(db, u)
+                since = self.engine._neg_since.get(u.id)
+                can = any(self.feed.instruments.get(p.token) and self.engine.tradable_now(self.feed.instruments[p.token]) for p in ps)
+                if f["available"] < -1 and can and since and time.time() - since > 90:
+                    over.append(f"{u.username} ₹{f['available']:,.0f}")
+            if strict:
+                self.ok("no account is carrying more than its coins cover (Available Balance not below zero)", not over, "; ".join(over[:6]))
+            elif over:
+                self.note("accounts below zero Available Balance", "; ".join(over[:6]) + " — warned; auto square-off starts after the one-time warning period")
             neg = [u.username for u in users if (u.balance or 0) < -0.01]
             if neg:
                 self.note("accounts with a negative balance", ", ".join(neg[:8]))
@@ -652,6 +722,7 @@ class Probe:
                     self.area = label; self.note("skipped", "no contract listed"); continue
                 try:
                     await self._attack(label, ins, ua, ub)
+                    await self._shortfall(label, ins, ua)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")

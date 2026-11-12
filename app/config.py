@@ -79,6 +79,13 @@ FREEZE_QTY.update({k.strip().upper(): int(v) for k, v in
 # maintenance requirement. Exchange-published maintenance % where available (Delta), else this share
 # of the blocked margin (brokers square off well before the full margin is lost).
 MAINT_SHARE = float(os.getenv("PT_MAINT_SHARE", "0.5"))
+# Margin shortfall: a user may only carry what their coins cover. The moment running losses take the
+# Available Balance (coins − margin blocked − running loss) below zero, positions are squared off at
+# market, worst loser first, just enough lots to bring it back above zero. A warning goes out earlier,
+# when Available Balance drops under this share of the margin blocked.
+MARGIN_WARN_SHARE = float(os.getenv("PT_MARGIN_WARN_SHARE", "0.2"))
+# One-time grace (minutes) after this rule first ships, so accounts already below zero are warned first.
+STRICT_LIQ_GRACE_MIN = float(os.getenv("PT_STRICT_LIQ_GRACE_MIN", "15"))
 # Crypto derivatives via Delta Exchange India public data. PT_CRYPTO=0 turns it off.
 ENABLE_CRYPTO = os.getenv("PT_CRYPTO", "1").strip().lower() not in ("0", "false", "no", "off")
 # Forex via a cTrader broker account (Open API). On when the client credentials are set.

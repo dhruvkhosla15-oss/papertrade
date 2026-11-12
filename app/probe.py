@@ -24,7 +24,9 @@ from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting,
 
 log = logging.getLogger("probe")
 PREFIX = "zz-probe-"
-RUN_AT = os.getenv("PT_PROBE_AT", "10:05")          # IST, every day
+RUN_AT = os.getenv("PT_PROBE_AT", "10:05,21:35")    # IST times, comma-separated: a live check at each slot
+_SLOTS = [s.strip() for s in RUN_AT.split(",") if s.strip()] or ["10:05"]   # 10:05 catches Indian markets
+# while they are open; 21:35 catches the US / Global ETF session, which is closed during the morning slot.
 _running = asyncio.Lock()
 
 
@@ -459,7 +461,14 @@ class Probe:
                 continue
             n += 1
             vals = [t.get(k) for k in ("ltp", "bid", "ask") if t.get(k) is not None]
-            if ins.segment != "INDICES" and any((not isinstance(v, (int, float))) or (not math.isfinite(v)) or v <= 0 for v in vals):
+            # Any negative or non-finite price is always a broken feed. A price of exactly zero is only
+            # broken where zero is impossible — an index level or a future/spot last trade. A deep
+            # out-of-the-money option (e.g. an 82 USDINR put when the rate is ~94) legitimately has a
+            # premium and a one-sided book that round to zero; that is a worthless contract, not a feed
+            # bug, and the thin-contract buy-out test already proves it cannot be used to make money.
+            neg = any((not isinstance(v, (int, float))) or (not math.isfinite(v)) or v < 0 for v in vals)
+            zero_bad = ins.segment != "INDICES" and ins.instrument_type not in ("CE", "PE") and any(v == 0 for v in vals)
+            if neg or zero_bad:
                 bad.append(ins.symbol); continue
             b, a = t.get("bid"), t.get("ask")
             if b and a and b > a * 1.0000001:
@@ -612,8 +621,9 @@ class Probe:
                         except Exception:
                             pass
                         await c.aclose()
-            for label, exchange, names in (("NSE", "NFO", ["NIFTY", "BANKNIFTY"]), ("MCX", "MCX", ["CRUDEOILM", "CRUDEOIL", "NATURALGAS", "NATGASMINI", "GOLDM", "GOLD", "SILVERM"]),
-                                          ("Crypto", "CRYPTO", ["BTC", "ETH"])):
+            for label, exchange, names in (("NSE", "NFO", ["NIFTY", "BANKNIFTY"]), ("BSE", "BFO", ["SENSEX", "BANKEX"]),
+                                          ("MCX", "MCX", ["CRUDEOILM", "CRUDEOIL", "NATURALGAS", "NATGASMINI", "GOLDM", "GOLD", "SILVERM"]),
+                                          ("Currency", "CDS", ["USDINR", "EURINR", "GBPINR"]), ("Crypto", "CRYPTO", ["BTC", "ETH"])):
                 try:
                     await self._illiquid(label, exchange, names, ua)
                 except Exception as e:
@@ -669,7 +679,7 @@ def _message(res: dict) -> str:
     return head + body + tail
 
 
-async def run_and_report(app, engine, feed, scheduled: bool = False) -> dict:
+async def run_and_report(app, engine, feed, scheduled: bool = False, slot: str = "") -> dict:
     if _running.locked():
         return {"busy": True}
     async with _running:
@@ -686,7 +696,7 @@ async def run_and_report(app, engine, feed, scheduled: bool = False) -> dict:
             hist = ([{"at": res["at"], "passed": res["passed"], "failed": res["failed"], "ok": res["ok"]}] + hist)[:30]
             set_setting(db, "probe_hist", json.dumps(hist))
             if scheduled:
-                set_setting(db, "probe_day", _ist().date().isoformat())
+                set_setting(db, "probe_slot", f"{_ist().date().isoformat()}|{slot}")
         finally:
             db.close()
         log.warning("daily safety check: %d passed, %d failed (%ss)", res["passed"], res["failed"], res["secs"])
@@ -719,7 +729,9 @@ def _forward_nightly_report():
 
 
 async def loop(app, engine, feed):
-    """Once a day at RUN_AT (IST). If the server was down at that minute, it runs when it is back."""
+    """A live check at each time in RUN_AT (IST). Two slots a day so every market gets checked while it is
+    open: the morning slot covers the Indian markets, the evening slot the US / Global session that is shut
+    in the morning. If the server was down at a slot's minute, that slot runs when it is back."""
     await asyncio.sleep(150)          # let the price feeds connect after a restart
     try:
         await asyncio.get_event_loop().run_in_executor(None, _forward_nightly_report)
@@ -728,14 +740,19 @@ async def loop(app, engine, feed):
     while True:
         try:
             now = _ist()
-            if now.strftime("%H:%M") >= RUN_AT:
+            today = now.date().isoformat()
+            hm = now.strftime("%H:%M")
+            due = [s for s in _SLOTS if hm >= s]        # slots whose time has passed today
+            if due:
+                slot = max(due)                          # the latest one that is due
+                marker = f"{today}|{slot}"
                 db = SessionLocal()
                 try:
-                    done = get_setting(db, "probe_day")
+                    done = get_setting(db, "probe_slot")
                 finally:
                     db.close()
-                if done != now.date().isoformat():
-                    await run_and_report(app, engine, feed, scheduled=True)
+                if done != marker:
+                    await run_and_report(app, engine, feed, scheduled=True, slot=slot)
         except Exception:
             log.exception("daily safety check failed to run")
         await asyncio.sleep(60)

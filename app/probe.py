@@ -149,7 +149,10 @@ class Probe:
             return next((i for i in ins_all if i.exchange == exchange and i.symbol == symbol), None)
 
         cry = next((i for i in ins_all if i.exchange == "CRYPTO" and i.instrument_type == "FUT" and i.symbol.startswith("BTC")), None)
-        return [("NSE", nearest("NFO", ["NIFTY", "BANKNIFTY"])), ("MCX", nearest("MCX", ["CRUDEOILM", "GOLDM", "SILVERM", "NATGASMINI"])),
+        # one full attack run per market we offer, so no market is left unchecked
+        return [("NSE", nearest("NFO", ["NIFTY", "BANKNIFTY"])), ("BSE", nearest("BFO", ["SENSEX", "BANKEX"])),
+                ("MCX", nearest("MCX", ["CRUDEOILM", "GOLDM", "SILVERM", "NATGASMINI"])),
+                ("Currency", nearest("CDS", ["USDINR", "EURINR", "GBPINR"])),
                 ("Crypto", cry), ("Forex", sym("FOREX", "EURUSD")), ("Global", sym("FOREX", "US500"))]
 
     def _feed_up(self, ins) -> bool:

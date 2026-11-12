@@ -86,9 +86,21 @@ class PriceFeed:
             out.setdefault(i.exchange, set()).add(i.name)
         return {k: sorted(v) for k, v in out.items()}
 
+    @staticmethod
+    def dead_weekly(i) -> bool:
+        """NSE currency lists weekly futures and options that never trade (no buyers or sellers at all,
+        and a stale last price). They are left out of the lists users browse; the monthly contracts,
+        which do trade, stay. Symbols: monthly USDINR26NOVFUT / USDINR26NOV95CE, weekly USDINR26N13FUT."""
+        import re
+        return i.exchange == "CDS" and not re.match(rf"{re.escape(i.name)}\d\d[A-Z]{{3}}", i.symbol)
+
     def expiries(self, exchange: str, name: str) -> List[str]:
-        return sorted({i.expiry for i in self.instruments.values()
-                       if i.exchange == exchange and i.name == name and i.expiry})
+        """Expiries for the option chain: only dates that actually have options (a future's own expiry
+        date used to show up as an empty chain), without the dead currency weeklies."""
+        mine = [i for i in self.instruments.values()
+                if i.exchange == exchange and i.name == name and i.expiry and not self.dead_weekly(i)]
+        opt = sorted({i.expiry for i in mine if i.instrument_type in ("CE", "PE")})
+        return opt or sorted({i.expiry for i in mine})
 
     def chain(self, exchange: str, name: str, expiry: str) -> List[Instrument]:
         return sorted((i for i in self.instruments.values()

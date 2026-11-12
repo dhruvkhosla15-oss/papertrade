@@ -489,14 +489,22 @@ def _user_dict(u: User):
 
 
 # ---- market data ------------------------------------------------------------------------
+# Commodities the exchange lists but nobody trades (no buyers or sellers on any contract, stale price).
+# Left out of the lists users browse. Override with PT_HIDE_UNDERLYINGS=NAME,NAME (empty = hide nothing).
+HIDE_UNDERLYINGS = {s.strip().upper() for s in os.environ.get("PT_HIDE_UNDERLYINGS", "KAPAS,COTTON").split(",") if s.strip()}
+
+
 @app.get("/api/underlyings")
 def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may browse the scrip lists
     out = []
     from .feed.base import kind_of
+    has_opt = {(i.exchange, i.name) for i in feed.instruments.values() if i.instrument_type in ("CE", "PE")}
     for exch, names in feed.underlyings().items():
         for n in names:
+            if n in HIDE_UNDERLYINGS:
+                continue
             it = feed.index_token_for(n)
-            out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n)})
+            out.append({"exchange": exch, "name": n, "spot_token": it, "kind": kind_of(exch, n), "has_options": (exch, n) in has_opt})
     order = {"NFO": 0, "BFO": 1, "MCX": 2, "CDS": 3, "CRYPTO": 4, "FOREX": 5}
     korder = {"index": 0, "mcx": 1, "currency": 2, "crypto": 3, "forex": 4, "global": 5, "stock": 6}
     out.sort(key=lambda x: (korder[x["kind"]], order.get(x["exchange"], 9), x["name"]))
@@ -523,7 +531,8 @@ def chain(exchange: str, name: str, expiry: str, user: User = Depends(current_us
 def futures(exchange: str, name: str, user: Optional[User] = Depends(optional_user)):   # visitors may see futures prices
     today = date.today().isoformat()
     items = sorted((i for i in feed.instruments.values()
-                    if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and (i.expiry >= today or not i.expiry)),
+                    if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and (i.expiry >= today or not i.expiry)
+                    and not feed.dead_weekly(i)),
                    key=lambda x: x.expiry)
     return [i.to_dict() for i in items]
 

@@ -584,7 +584,7 @@ function buildMarket(){
   const nGl=state.und.filter(u=>u.kind==='global').length;$$('.cat[data-cat="global"]').forEach(el=>el.classList.toggle('hidden',!nGl));
   $('#catStk').textContent=$('#catStkF').textContent=nStk?`Futures & options on ${nStk} NSE stocks`:'F&O on NSE stocks';
   const CATN={index:'Indices',stock:'Stocks',mcx:'MCX Commodities',currency:'Currency',crypto:'Crypto',forex:'Forex',global:'Global'};
-  const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat);if(cat==='global')items.sort((a,b)=>gOrd(a.name)-gOrd(b.name));
+  const catHtml=(cat,sfx)=>{const items=state.und.filter(u=>u.kind===cat&&(sfx||u.has_options!==false||!['mcx','stock','currency','index'].includes(u.kind)));if(cat==='global')items.sort((a,b)=>gOrd(a.name)-gOrd(b.name));
     const filt=items.length>12?`<input class="undFilter" placeholder="Find — e.g. ${cat==='stock'?'RELIANCE, TCS':cat==='global'?'S&P 500, Crude':'GOLD, CRUDEOIL'}" style="padding:9px 10px;margin:8px 0">`:'';
     const ctog=cat==='crypto'?`<div class="row" style="justify-content:space-between;align-items:center;padding:6px 0 2px"><span class="small mut">Show crypto prices in</span>${ccyToggleHtml()}</div>`:'';
     return `<div class="catHead"><button class="ghost backCat" style="flex:0 0 auto;padding:8px 12px">‹ Markets</button><b>${CATN[cat]}</b><span class="small mut">${items.length} scrips</span></div>${ctog}${filt}`+

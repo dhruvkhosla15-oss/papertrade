@@ -906,6 +906,34 @@ class Engine:
         cur.append({"id": str(int(time.time() * 1000)), "title": title, "text": f"{when}\n{text}"})
         set_setting(db, key, json.dumps(cur[-10:]))
 
+    def liq_charge_terms(self, db: Session) -> tuple:
+        """(flat coins per order, % of position value on crypto) charged when the SYSTEM squares a position
+        off (margin shortfall / margin call), on top of the normal commission. Master can change both."""
+        def num(key, default, hi):
+            v = get_setting(db, key)
+            try:
+                return max(0.0, min(hi, float(v))) if v not in (None, "") else default
+            except ValueError:
+                return default
+        return num("liq_charge_flat", 50.0, 10000.0), num("liq_charge_pct_CRYPTO", 0.05, 5.0)
+
+    def _liq_charge(self, db: Session, user: User, order: Order, ins, px: float) -> float:
+        """Book the auto square-off charge for one liquidation order: its own ledger line, and added to the
+        trade's commission so every report and statement counts it."""
+        flat, pct = self.liq_charge_terms(db)
+        if ins.exchange == "CRYPTO":
+            amt = round(px * order.qty * self.vf(ins) * pct / 100.0, 2); how = f"{pct:g}% of position value"
+        else:
+            amt = round(flat, 2); how = f"₹{flat:g} per order"
+        if amt <= 0:
+            return 0.0
+        self._ledger(db, user, -amt, "COMMISSION", f"Auto square-off charge ({how}) on {order.side} {order.qty} {ins.symbol} @ {px}")
+        db.flush()                       # the trade row was only just added
+        t = db.query(Trade).filter_by(order_id=order.id).order_by(Trade.id.desc()).first()
+        if t:
+            t.commission = round((t.commission or 0.0) + amt, 2)
+        return amt
+
     def _owner_ping(self, user: User, text: str):
         if (user.username or "").startswith("zz-probe-"):
             return
@@ -966,7 +994,7 @@ class Engine:
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
         rows.sort(key=lambda r: r[0])
-        closed, detail = [], []
+        closed, detail, charged = [], [], 0.0
         for _, p, ins in rows:
             short = -self.funds(db, user)["available"]
             if short <= 0:
@@ -989,6 +1017,7 @@ class Engine:
             self._fill(db, user, order, px)
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px
+                charged += self._liq_charge(db, user, order, ins, px)
                 closed.append(f"{filled // ins.lot_size} lot{'s' if filled // ins.lot_size != 1 else ''} of {symbol}")
                 detail.append(f"{closed[-1]} at ₹{px:,.2f}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
@@ -999,6 +1028,7 @@ class Engine:
             self._user_alert(db, user, "Position liquidated",
                              "Squared off at market: " + "; ".join(detail) + f".\nReason: your Available Balance went below zero "
                              f"(₹{f['available']:,.0f}). You can only carry positions that your coins cover.\n"
+                             + (f"Auto square-off charge: ₹{charged:,.2f}.\n" if charged else "") +
                              f"Available Balance now ₹{after:,.0f}.")
             log.warning("SHORTFALL SQUARE-OFF user=%s %s (available %s -> %s)", user.username, closed, f["available"], after)
             self._emit(user.id, {"type": "refresh", "message": "Margin shortfall: " + ", ".join(closed) + " squared off at market "
@@ -1014,7 +1044,7 @@ class Engine:
         note = f"Liquidated — equity ₹{f['equity']:,.0f} fell below maintenance ₹{f['maintenance']:,.0f}"
         for o in db.query(Order).filter_by(user_id=user.id, status="OPEN").all():
             o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — margin call"
-        closed, detail = 0, []
+        closed, detail, charged = 0, [], 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
             if not ins or not self.tradable_now(ins):
@@ -1031,6 +1061,7 @@ class Engine:
             self._fill(db, user, order, px)
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px; closed += 1
+                charged += self._liq_charge(db, user, order, ins, px)
                 n = filled // ins.lot_size
                 detail.append(f"{n} lot{'s' if n != 1 else ''} of {p.symbol} at ₹{px:,.2f}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
@@ -1039,7 +1070,8 @@ class Engine:
             db.commit()
             self._user_alert(db, user, "Position liquidated",
                              "Squared off at market: " + "; ".join(detail) + ".\nReason: margin call — your losses used up the "
-                             "margin on your positions.")
+                             "margin on your positions."
+                             + (f"\nAuto square-off charge: ₹{charged:,.2f}." if charged else ""))
             log.warning("LIQUIDATION user=%s positions=%d %s", user.username, closed, note)
             self._emit(user.id, {"type": "refresh", "message": "Margin call: your positions were liquidated at market"})
         else:

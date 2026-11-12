@@ -1479,6 +1479,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "commission_pct_options": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_options")),
             "commission_flat": float(get_setting(db, "commission_flat") or 0),
+            "liq_charge_flat": engine.liq_charge_terms(db)[0], "liq_charge_pct_crypto": engine.liq_charge_terms(db)[1],
             "commission_pct_crypto": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_CRYPTO")),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
             "feed": _feed_status(), "enforce_market_hours": config.ENFORCE_MARKET_HOURS,
@@ -1491,6 +1492,8 @@ class SettingsIn(BaseModel):
     commission_pct_forex: Optional[float] = None
     commission_pct_options: Optional[float] = None
     commission_flat: Optional[float] = None
+    liq_charge_flat: Optional[float] = None
+    liq_charge_pct_crypto: Optional[float] = None
     commission_pct_crypto: Optional[float] = None
     mcx_option_factor: Optional[float] = None
     liquidity_check: Optional[bool] = None
@@ -1510,6 +1513,10 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, "commission_pct_FOREX", str(max(0.0, float(body.commission_pct_forex))))
     if body.commission_pct_options is not None:
         set_setting(db, "commission_pct_options", str(max(0.0, min(5.0, float(body.commission_pct_options)))))
+    if body.liq_charge_flat is not None:
+        set_setting(db, "liq_charge_flat", str(max(0.0, min(10000.0, float(body.liq_charge_flat)))))
+    if body.liq_charge_pct_crypto is not None:
+        set_setting(db, "liq_charge_pct_CRYPTO", str(max(0.0, min(5.0, float(body.liq_charge_pct_crypto)))))
     if body.commission_flat is not None:
         set_setting(db, "commission_flat", str(max(0.0, min(1000.0, float(body.commission_flat)))))
     if body.commission_pct_crypto is not None:
@@ -1727,7 +1734,8 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
             prev = db.query(Ledger).filter(Ledger.user_id == ids[0], Ledger.created_at < start).order_by(Ledger.created_at.desc(), Ledger.id.desc()).first()
             opening = prev.balance_after if prev else 0
             rows.append([rep["from"] if from_ else "", "", "Opening Balance", "", opening, ""])
-        rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [kinds.get(l.kind, l.kind),
+        rows += [[_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [
+                  "Auto Square-off Charge" if (l.note or "").startswith("Auto square-off charge") else "Auto Square-off" if (l.note or "").startswith("Auto square-off") else kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
         pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION")), 2)

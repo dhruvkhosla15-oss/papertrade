@@ -25,6 +25,7 @@ from . import config
 from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
 from .auth import (make_pre_token, optional_user, get_db, current_user, current_admin, hash_password, verify_password, make_token,
                    decode_token, COOKIE)
+from .auth import session_current as _session_current
 from .engine import Engine, EngineError
 from .feed.mock import MockFeed
 
@@ -438,13 +439,17 @@ class AdminPwIn(BaseModel):
 
 
 @app.post("/api/admin/admins/{uid}/password")
-def admins_password(uid: int, body: AdminPwIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def admins_password(uid: int, body: AdminPwIn, request: Request, response: Response, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     u = db.get(User, uid)
     if not u or not u.is_admin:
         raise HTTPException(404, "No such master account")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
-    u.password_hash = hash_password(body.password); db.commit()
+    u.password_hash = hash_password(body.password)
+    u.pw_changed_at = float(int(time.time()))         # logins made with the old password stop working
+    db.commit()
+    if u.id == admin.id:                              # a master changing their own password stays logged in on this device
+        _set_login_cookie(request, response, make_token(u), u.username)
     return {"ok": True}
 
 
@@ -499,7 +504,7 @@ class PasswordIn(BaseModel):
 
 
 @app.post("/api/password")
-def change_password(body: PasswordIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def change_password(body: PasswordIn, request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not verify_password(body.old_password, user.password_hash):
         raise HTTPException(400, "Current password is wrong")
     if len(body.new_password) < 6:
@@ -508,8 +513,11 @@ def change_password(body: PasswordIn, user: User = Depends(current_user), db: Se
         raise HTTPException(400, "Choose a new password that is different from the current one")
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = False
+    user.pw_changed_at = float(int(time.time()))      # every login made before this moment stops working...
     db.commit()
-    return {"ok": True}
+    tok = make_token(user)                            # ...except this device, which gets a fresh one
+    _set_login_cookie(request, response, tok, user.username)
+    return {"ok": True, "token": tok}
 
 
 def _user_dict(u: User):
@@ -545,8 +553,8 @@ def underlyings(user: Optional[User] = Depends(optional_user)):   # visitors may
 def expiries(exchange: str, name: str, user: User = Depends(current_user)):
     from .engine import ist_now
     n = ist_now(); today = n.date().isoformat()
-    from .market_calendar import close_time_str
-    close = close_time_str(exchange)
+    from .market_calendar import expiry_time_str
+    close = expiry_time_str(exchange)
     out = [e for e in feed.expiries(exchange, name) if e > today or (e == today and n.strftime("%H:%M") < close)]
     return out
 
@@ -776,14 +784,27 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
     if ins and not _feed_up(ins.exchange):
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
     await _ensure_price(body.token)
-    async with engine._lock:
-        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
-        try:
-            o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
-                                   body.limit_price, body.trigger_price, body.leverage,
-                                   validity=body.validity or "DAY", product=body.product)
-        except EngineError as e:
-            raise HTTPException(400, str(e))
+    # A contract nobody is streaming has a frozen price. Stream it for this order and wait for a new
+    # price (some feeds publish only every few seconds); a fill or a resting order then keeps it streaming
+    # on its own. The stream is kept half a minute so that a retry finds the price already live.
+    held = ins is not None and not feed.live(body.token)
+    if held:
+        feed.subscribe([body.token])
+        t0 = time.time()
+        while not feed.live(body.token) and time.time() - t0 < 6.0:
+            await asyncio.sleep(0.1)
+    try:
+        async with engine._lock:
+            db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
+            try:
+                o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
+                                       body.limit_price, body.trigger_price, body.leverage,
+                                       validity=body.validity or "DAY", product=body.product)
+            except EngineError as e:
+                raise HTTPException(400, str(e))
+    finally:
+        if held:
+            asyncio.get_event_loop().call_later(30, feed.unsubscribe, [body.token])
     return {"order": engine.order_dict(o), "funds": engine.funds(db, user)}
 
 
@@ -908,7 +929,7 @@ async def ws_endpoint(ws: WebSocket):
             _u = None if data.get("pre2fa") else _db.get(User, data.get("uid"))
         finally:
             _db.close()
-        if not _u or not (_u.is_active or _u.is_admin):
+        if not _u or not (_u.is_active or _u.is_admin) or not _session_current(data, _u):
             data = None
     guest = not data
     await ws.accept()
@@ -1415,6 +1436,7 @@ def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_ad
     if body.password:
         u.password_hash = hash_password(body.password)
         u.must_change_password = True
+        u.pw_changed_at = float(int(time.time()))     # logins made with the old password stop working
     if body.display_name is not None:
         u.display_name = body.display_name
     if body.reset_2fa:

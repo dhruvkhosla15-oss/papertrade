@@ -61,6 +61,8 @@ class Engine:
         self._margin_level = {}           # user id -> 0 fine / 1 warned (margin low) / 2 below zero
         self._neg_since = {}              # user id -> time the Available Balance was first seen below zero
         self._unsettled_warned = set()    # positions already reported as impossible to settle (contract not listed)
+        self._und_wait = {}               # underlying token -> first time a settlement found its price frozen
+        self._und_pinned = set()          # underlyings this engine started streaming for a settlement
 
     def set_event_callback(self, cb):
         self._event_cb = cb
@@ -160,9 +162,9 @@ class Engine:
         at = getattr(ins, "expiry_at", 0) if ins else 0
         if at:
             return (n - timedelta(hours=IST_OFFSET_HOURS) - datetime(1970, 1, 1)).total_seconds() >= at
-        from .market_calendar import close_time_str
+        from .market_calendar import expiry_time_str
         today = n.date().isoformat()
-        return expiry < today or (expiry == today and n.strftime("%H:%M") >= close_time_str(exchange, n.date()))
+        return expiry < today or (expiry == today and n.strftime("%H:%M") >= expiry_time_str(exchange, n.date()))
 
     def tradable_now(self, ins) -> bool:
         """Exchange calendar plus the contract's own timetable (Global contracts have daily breaks and
@@ -440,6 +442,11 @@ class Engine:
             if not self.feed.connected:
                 raise EngineError("Live prices are offline right now — trading is paused until the feed is back")
             raise EngineError("No live price yet for this contract — try again in a second")
+        if not self.feed.live(token):
+            # Nobody is streaming this contract, so the price in memory is frozen at the moment the last
+            # viewer left. Filling against it would let a user wait for the market to move and then trade
+            # at the old price. (The order endpoint starts the stream and waits for a new price first.)
+            raise EngineError("No live price yet for this contract — try again in a second")
         if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
             raise EngineError("limit_price required")
         if order_type == "SL" and (trigger_price is None or trigger_price <= 0):
@@ -652,6 +659,11 @@ class Engine:
                      exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
                      commission=comm))
         self.feed.pin([order.token])
+        if ins.instrument_type in ("CE", "PE"):
+            # an option is margined and, at expiry, settled against its underlying: keep that price live
+            ut = self.feed.index_token_for(ins.name)
+            if ut:
+                self.feed.pin([ut])
 
     # ---- tick handling: pending orders ------------------------------------------
     def _on_tick(self, tick: dict):
@@ -1097,6 +1109,19 @@ class Engine:
         async with self._lock:
             db = SessionLocal()
             try:
+                # An option is settled against its underlying, so that price must be live when the moment
+                # comes: keep the underlying of every open option position streaming (the nearest future
+                # of a commodity or currency changes from month to month).
+                und_of = {}
+                for p in db.query(Position).filter_by(is_closed=False).all():
+                    ins = self.feed.instruments.get(p.token)
+                    if not p.qty or not ins or ins.instrument_type not in ("CE", "PE"):
+                        continue
+                    if ins.name not in und_of:
+                        und_of[ins.name] = self.feed.index_token_for(ins.name)
+                    ut = und_of[ins.name]
+                    if ut and ut in self.feed.instruments and ut not in self.feed._refcount:
+                        self.feed.pin([ut])
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.expiry:
                         continue
@@ -1113,7 +1138,21 @@ class Engine:
                         ltp = None
                         if ins and ins.instrument_type in ("CE", "PE"):
                             # options settle at intrinsic value vs the underlying (exchange rule), never at a stale LTP
-                            und = self.feed.ltp(self.feed.index_token_for(ins.name) or -1)
+                            ut = self.feed.index_token_for(ins.name) or -1
+                            und = self.feed.ltp(ut)
+                            if ut in self.feed.instruments and not self.feed.live(ut):
+                                # The underlying is not being streamed, so its price in memory is frozen
+                                # (minutes or days old) — settling against it pays the wrong amount, and a
+                                # user could arrange which old price that is. Start the stream and settle
+                                # on a later pass; after three minutes without a new price, settle on the
+                                # last known one as before rather than leave the position open for ever.
+                                first = self._und_wait.setdefault(ut, time.time())
+                                if time.time() - first < 180:
+                                    if ut not in self._und_pinned:
+                                        self._und_pinned.add(ut); self.feed.pin([ut])
+                                    continue
+                            else:
+                                self._und_wait.pop(ut, None)
                             if und is not None:
                                 ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
                         if ltp is None:

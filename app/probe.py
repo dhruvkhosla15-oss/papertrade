@@ -71,7 +71,7 @@ class Probe:
                 for u, bal in zip(self._users(db), balances):
                     for M in (Trade, Ledger, Order, Position):
                         db.query(M).filter_by(user_id=u.id).delete()
-                    u.balance = bal; u.is_active = True; u.must_change_password = False
+                    u.balance = bal; u.is_active = True; u.must_change_password = False; u.pw_changed_at = 0.0
                 db.commit()
             finally:
                 db.close()
@@ -237,6 +237,101 @@ class Probe:
                 pass
             await self._set_balance(ua.id, 1_000_000.0)
             await ca.aclose()
+
+    async def _frozen(self, label, ins, ua):
+        """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.
+        An order must never be filled at such a price (look, stop looking, wait for the market to move,
+        then trade at the old price — the loophole of 13 Nov 2026). Take a contract nobody is streaming,
+        look at it once, plant a recognisable price in its frozen book and send an order: it must be
+        refused or filled at a newly streamed price, never at the planted one."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        feed = self.feed
+        today = _ist().date().isoformat()
+        if ins.exchange == "CRYPTO":
+            cand = [i for i in feed.instruments.values() if i.exchange == "CRYPTO" and i.instrument_type in ("CE", "PE")
+                    and i.expiry and i.expiry >= today]
+            spot = feed.ltp(feed.index_token_for(ins.name) or -1) or 0
+            cand.sort(key=lambda i: (i.name != ins.name, i.expiry, abs(i.strike - spot)))
+        else:
+            cand = [i for i in feed.instruments.values() if i.exchange == ins.exchange and i.segment == ins.segment
+                    and i.instrument_type == "FUT" and (not i.expiry or i.expiry >= today)]
+            cand.sort(key=lambda i: (i.expiry or "", i.symbol))
+        cand = [i for i in cand if i.token != ins.token and i.token not in feed._refcount and self.engine.tradable_now(i)][:4]
+        if not cand:
+            self.note("frozen-price order not tested", "every contract of this market is being streamed all the time"); return
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            why = "no contract with a two-sided price that nobody else is streaming"
+            for c in cand:
+                T = c.token
+                feed.subscribe([T])                              # look at it once ...
+                try:
+                    for _ in range(20):
+                        t = feed.prices.get(T) or {}
+                        if feed.live(T) and t.get("asks") and t.get("bid") and t.get("ask"):
+                            break
+                        await asyncio.sleep(0.25)
+                finally:
+                    feed.unsubscribe([T])                        # ... and stop looking: the price is now frozen
+                real = feed.prices.get(T)
+                if T in feed._refcount or not real or not (real.get("asks") and real.get("bid") and real.get("ask")):
+                    continue
+                trap = round(real["ask"] * 1.0137, 6)            # worse for the buyer, so nobody could ever gain from it
+                planted = dict(real)
+                planted.update({"ask": trap, "asks": [(trap,) + tuple(real["asks"][0][1:])]})
+                feed.prices[T] = planted
+                try:
+                    st, o, d = await self._order(ca, token=T, side="BUY", lots=1)
+                finally:
+                    if feed.prices.get(T) is planted:
+                        feed.prices[T] = real
+                if st == 200 and o.get("status") == "FILLED":
+                    hit = abs((o.get("fill_price") or 0) - trap) < 1e-9
+                    self.ok("an order on a contract nobody is streaming waits for a live price (never fills at the frozen one)", not hit,
+                            f"{c.symbol}: frozen book said {trap}, filled {o.get('fill_price')}")
+                    return
+                if st == 400 and "live price" in d:
+                    self.ok("an order on a contract nobody is streaming waits for a live price (never fills at the frozen one)", True,
+                            f"{c.symbol}: refused until a new price arrives")
+                    return
+                why = f"{c.symbol}: {d or o.get('reason') or 'no fill'}"
+            self.note("frozen-price order not tested", why[:160])
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await ca.aclose()
+
+    async def _old_login(self, ub):
+        """A new password must end every older login (found 13 Nov 2026: a login kept working for a month
+        after the Master reset the password). The test account's own session is used: mark its password as
+        changed just now and the session opened before that must be turned away."""
+        self.area = "Logins"
+        c = self._client(ub)
+        try:
+            r1 = await c.get("/api/me")
+            async with self.engine._lock:
+                db = SessionLocal()
+                try:
+                    db.get(User, ub.id).pw_changed_at = time.time() + 60; db.commit()
+                finally:
+                    db.close()
+            r2 = await c.get("/api/me")
+            r3 = await c.post("/api/orders", json={"token": 1, "side": "BUY", "lots": 1})
+            self.ok("a login made before the password was changed stops working", r1.status_code == 200 and r2.status_code == 401 and r3.status_code == 401,
+                    f"before {r1.status_code}, after {r2.status_code}/{r3.status_code}")
+        finally:
+            async with self.engine._lock:
+                db = SessionLocal()
+                try:
+                    db.get(User, ub.id).pw_changed_at = 0.0; db.commit()
+                finally:
+                    db.close()
+            await c.aclose()
 
     async def _attack(self, label, ins, ua, ub):
         self.area = label
@@ -632,6 +727,19 @@ class Probe:
             self.ok("no open position left unsettled on a contract that expired before today", not overdue, ", ".join(sorted(set(overdue))[:8]))
             if unsure:
                 self.note("positions not judged", f"{unsure} in a market whose feed is off right now")
+            # An option is settled against its underlying. If nobody streams the underlying its price in
+            # memory is frozen, and the settlement pays the wrong amount (found 13 Nov 2026).
+            cold = []
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                ins = self.feed.instruments.get(p.token)
+                if not p.qty or not ins or ins.instrument_type not in ("CE", "PE") or not self._feed_up(ins):
+                    continue
+                if p.opened_at and (datetime.utcnow() - p.opened_at).total_seconds() < 180:
+                    continue
+                ut = self.feed.index_token_for(ins.name)
+                if ut and ut in self.feed.instruments and ut not in self.feed._refcount:
+                    cold.append(f"{p.symbol} ({ins.name})")
+            self.ok("the underlying of every open option position is being streamed (so it settles at a live price)", not cold, ", ".join(sorted(set(cold))[:8]))
             # Nobody may carry more than their coins cover: an Available Balance below zero must be squared
             # off within seconds. Judged only for accounts with a position in a market that is open now.
             strict = datetime.utcnow() >= self.engine.strict_from(db)
@@ -669,24 +777,32 @@ class Probe:
                     self.ok("the two dollar–rupee sources agree within 10%", abs(cu / r - 1) < 0.10, f"{cu} vs {round(r, 3)}")
         except Exception as e:
             self.ok("conversion rates readable", False, type(e).__name__)
-        # Crypto options: this site must treat them as expired at the exchange's own moment (5:30 pm IST).
-        # Settling later hands out hours of free option time; that was the loophole of 12 Nov 2026.
+        # Expiry moment. Crypto options: the exchange's own moment (5:30 pm IST) — settling later hands out
+        # hours of free option time (the loophole of 12 Nov 2026). Currency: the last trading day ends at
+        # 12:30 pm although the segment stays open until 5 pm (closed 13 Nov 2026).
         try:
+            bad, n = [], 0
             if cry and cry.connected:
                 from .market_calendar import close_time_str
                 opts = [i for i in cry.items.values() if i.instrument_type in ("CE", "PE") and getattr(i, "expiry_at", 0)]
-                bad = []
                 for i in opts:
                     t = datetime.utcfromtimestamp(i.expiry_at) + timedelta(hours=5, minutes=30)
                     if (self.engine.expired(i, now=t - timedelta(minutes=1)) or not self.engine.expired(i, now=t + timedelta(minutes=1))
                             or i.expiry != t.date().isoformat() or close_time_str("CRYPTO") != t.strftime("%H:%M")):
                         bad.append(f"{i.symbol} ({t:%d %b %H:%M})")
-                if opts:
-                    self.ok(f"crypto options stop trading and settle at the exchange's own expiry time ({len(opts)} contracts)", not bad, ", ".join(bad[:5]))
-                else:
-                    self.note("crypto expiry time not checked", "no crypto options listed right now")
+                n += len(opts)
+            cds = [i for i in self.feed.instruments.values() if i.exchange == "CDS" and i.instrument_type == "FUT" and i.expiry][:60]
+            for i in cds:
+                d = datetime.fromisoformat(i.expiry)
+                if self.engine.expired(i, now=d.replace(hour=12, minute=29)) or not self.engine.expired(i, now=d.replace(hour=12, minute=31)):
+                    bad.append(f"{i.symbol} (12:30 pm on {d:%d %b})")
+            n += len(cds)
+            if n:
+                self.ok(f"crypto options and currency contracts stop trading and settle at the exchange's own expiry time ({n} contracts)", not bad, ", ".join(bad[:5]))
+            else:
+                self.note("expiry time not checked", "no crypto options or currency contracts listed right now")
         except Exception as e:
-            self.ok("crypto expiry time readable", False, type(e).__name__)
+            self.ok("expiry time readable", False, type(e).__name__)
         self.note("feeds", f"NSE/MCX {'on' if self.feed.connected else 'OFF'} · crypto {'on' if cry and cry.connected else 'OFF'} · forex/global {'on' if fx and fx.connected else 'OFF'}")
 
     # ---- run -----------------------------------------------------------------------------------
@@ -723,6 +839,7 @@ class Probe:
                 try:
                     await self._attack(label, ins, ua, ub)
                     await self._shortfall(label, ins, ua)
+                    await self._frozen(label, ins, ua)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
@@ -741,6 +858,11 @@ class Probe:
                 except Exception as e:
                     log.exception("probe thin-contract attack on %s crashed", label)
                     self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                await self._old_login(ub)
+            except Exception as e:
+                log.exception("probe login check crashed")
+                self.ok("the login check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

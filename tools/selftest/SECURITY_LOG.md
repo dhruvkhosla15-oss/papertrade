@@ -1,38 +1,17 @@
 # limefx security log
 
-The daily safety check (`app/probe.py`) attacks the live site every day at 10:05 am IST with two hidden
-test accounts. This file is the memory of the nightly review that keeps adding to it: what has been
-tried, what was found, what is waiting for the owner's go-ahead. Newest entry first. Read it before
-thinking of new attacks so the same idea is not tried twice.
+The daily safety check (`app/probe.py`) attacks the live site every day at 10:05 am and 9:35 pm IST with two
+hidden test accounts. This file is the memory of the nightly review that keeps adding to it: what has been
+tried, what was found, what is waiting for the owner. Newest entry first. Read it before thinking of new
+attacks so the same idea is not tried twice.
 
-## Waiting for the owner's go-ahead
-### Branch `security-fix/2026-11-12` (found 12 Nov 2026, tested on the private copy, NOT live)
-To deploy: open Claude and say "put security-fix/2026-11-12 live". All 125 checks pass on the branch twice in a row.
-1. **Crypto options settled late and at ten times their value (money, serious).** Crypto options really expire at
-   5:30 pm IST. The site settled them at 9:30 pm, at the 9:30 pm price: four hours of free option time for anyone who
-   holds through expiry. Worse, the hourly contract refresh drops the expired option in between, and from then on the
-   position is valued and settled at its last quote times 1 instead of the contract's rupee factor (about 0.09 for a
-   BTC option): roughly ten times the real profit or loss. A trainee keeps winners into expiry and closes losers
-   before it. Proven: 10 lots of a BTC call, honest result about +550 coins, credited 12,785. Orders on the expired
-   contract were also still accepted at its frozen quotes for a few minutes.
-   *Fix:* the contract's own expiry moment from the exchange is used (fallback 5:30 pm); nothing trades on an expired
-   contract; a contract someone still holds stays known after the exchange stops listing it (rebuilt from its symbol
-   after a restart, contract size taken from the perpetual); a position whose contract is unknown is never settled
-   at a guessed value (it waits, and the daily check reports it). The on-screen text "9:30 pm IST" becomes "5:30 pm IST".
-   New daily check on the branch: crypto options stop trading and settle at the exchange's own expiry time.
-   Until this is live: look at any crypto option that was held through its expiry (EXPIRY_SETTLEMENT lines in the ledger).
-2. **Anyone can lock anyone out of logging in (nuisance, no money).** Five wrong passwords on a username, with no
-   login needed, block that username for five minutes, even with the right password, and it can be repeated forever.
-   Works on trainees and on the Master. *Fix:* a browser or phone that has logged in to an account before carries a
-   signed marker and is counted separately, so a stranger's guesses no longer lock the real owner out. A brand-new
-   device is still locked during an attack (that part of the guessing protection is kept).
-3. **A half-finished 2FA login could listen in (small).** With only the password (no authenticator code yet) the live
-   socket still treated the visitor as that user and sent the user's private order updates. *Fix:* such a login, and a
-   frozen or deleted account, is a plain visitor on the socket.
-4. **One account could ask for live prices on every contract at once (precaution).** Visitors are capped, logged-in
-   users were not: one trainee pushed the subscription count to 3,407, above the price provider's limit of 3,000 per
-   connection. Harm on the live site could not be measured here (simulated prices have no limit). *Fix:* 1,200 contracts
-   per account across all its tabs and a ceiling of 2,900 for screens (orders and open positions are never limited).
+Rule since 12 Nov 2026 (owner's decision): a fix that is proven on the private copy goes live the same night
+(attack refused after the fix, full self-test passes twice with no server errors, nothing in any existing
+account is rewritten, honest trading unchanged). Only a fix that cannot meet those conditions waits on a
+branch `security-fix/YYYY-MM-DD` for the owner.
+
+## Waiting for the owner
+Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
 
 ## Ideas already covered by the daily check
 - Nonsense numbers: zero / negative / fractional / NaN / Infinity lots, prices, triggers, leverage; junk side and order type
@@ -47,9 +26,54 @@ To deploy: open Claude and say "put security-fix/2026-11-12 live". All 125 check
 - Prices: stale, zero, negative, bid above ask, last far from bid/ask, rupee conversion rates, live mark for every open position
 - Books: balance vs last ledger line on every real account; resting orders / positions with a broken price or margin
 - Books: every open position is on a contract the site still lists; no position left unsettled past its expiry day (12 Nov 2026)
-- On branch security-fix/2026-11-12 only, until it is live: crypto options stop trading and settle at the exchange's own expiry time
+- Crypto options stop trading and settle at the exchange's own expiry time (12 Nov 2026); widened 13 Nov 2026 to
+  Currency: contracts stop at 12:30 pm on their last day
+- Margin shortfall in every market: new order refused, automatic square-off, only the needed lots (12 Nov 2026)
+- Frozen price, in every market (13 Nov 2026): an order on a contract nobody is streaming must wait for a live price.
+  The check plants a recognisable (worse) price in the frozen book of an unstreamed contract and sends an order;
+  a fill at the planted price is the failure. Forex / Global: every contract is always streamed, so only a note.
+- Logins (13 Nov 2026): a login made before the password was changed stops working
+- Books (13 Nov 2026): the underlying of every open option position is being streamed (so it settles at a live price)
 
 ## Findings
+
+### 2026-11-13 (nightly review) — four fixes, all live tonight
+- LOOPHOLE, FIXED, live: **trading at a frozen price (free coins, every market except Forex / Global).** Prices arrive
+  only for contracts somebody is looking at. When the last viewer leaves, the last price stays in memory and an order
+  was still filled against it for up to five minutes. A user looks at a contract over the live socket, stops looking,
+  watches the index (always live), and buys whichever frozen contracts the move has already made cheap. Proven: eight
+  in-the-money NIFTY puts bought at prices 200 s old after the index fell, sold at once: +24,564 coins on 5,000,000;
+  the same on SENSEX: +14,831. Also shown on MCX, Currency and crypto options (orders accepted at prices 105–116 s
+  old). Forex and Global were not open to it: every contract there is streamed all the time.
+  *Fix:* the feed knows whether a price is live (contract streamed now, and a price received since that streaming
+  began). An order on a contract nobody streams first starts the stream and waits (up to 6 s) for a new price; without
+  one it is refused ("No live price yet"). The app always streams the contract on the order screen, so an honest order
+  is not delayed. After the fix the same attack loses the spread (−365 to −1,350).
+- LOOPHOLE, FIXED, live: **options settled against a frozen underlying price.** At expiry an option is paid out against
+  its underlying. For commodity and currency options (nearest future) and stock options (the stock) nobody kept that
+  price streaming, so the settlement could use one that was minutes, hours or days old; a user can choose the moment it
+  freezes. Proven on NATURALGAS: settled against a price frozen 150 s earlier while the live one had moved; the payout
+  on 10 lots was wrong by a few thousand coins. Index options (index always streamed) and crypto options were safe.
+  *Fix:* the underlying of every open option position is kept streaming (at the fill, and re-checked every minute); a
+  settlement that still finds the underlying frozen starts the stream and waits up to three minutes for a live price.
+- RULE BYPASS, FIXED, live: **currency contracts traded after 12:30 pm on their last day** (open idea of 12 Nov). The real
+  exchange stops them at 12:30 pm and settles at the RBI rate; the site kept them open until 5 pm. No gain could be shown
+  on simulated prices. *Fix:* on its expiry date a currency contract expires (no orders, settled) at 12:30 pm.
+- SECURITY, FIXED, live: **a login survived a new password** (open idea of 12 Nov). After the Master reset a user's
+  password, or the user changed it, every earlier login kept working for up to 30 days. Proven: an old login placed
+  orders after the reset. *Fix:* a login made before the last password change is refused (HTTP and live socket); the
+  device that changes the password stays logged in; logins from before this update keep working until the next
+  password change (nobody was logged out by the update). New column users.pw_changed_at.
+- Nothing in any account was changed. Whether somebody already used the frozen-price trick cannot be told from the
+  books (the fills look like ordinary fills); a sign would be a user with many quick, small, almost always winning
+  round trips on contracts nobody else trades.
+- Checked, no hole: Forex and Global against the frozen-price attack; the full daily check by hand on the private copy
+  in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): 198 checks pass.
+- Observation for the owner (not a cheat, not changed): the new "Available Balance below zero" square-off also counts
+  the running loss of a BOUGHT option, although its whole premium is already blocked. Someone who puts nearly all
+  their coins into bought options is squared off (with the ₹50 charge) after a dip of a few percent in the premium.
+- Daily check: three new checks and one widened (see "Ideas already covered").
+
 
 ### 2026-11-12 (nightly review)
 - LOOPHOLE, fix waiting on branch security-fix/2026-11-12: crypto options settled four hours late and, once the
@@ -78,6 +102,9 @@ To deploy: open Claude and say "put security-fix/2026-11-12 live". All 125 check
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Frozen-price attack on Forex and Global (13 Nov 2026): every contract there is streamed permanently, fills were
+  always at the live price.
+- Using the new margin-shortfall square-off and its charge to gain (13 Nov 2026): it only ever costs the user.
 - Junk in dates, sizes and ids on the read / report / export endpoints (12 Nov 2026): only an error page for the sender
   (a few answer "500" instead of "400"); nothing leaks, nothing sticks, the site keeps answering.
 - Export file name / sheet name tricks to smuggle text into the download header: refused before the name is built.
@@ -86,10 +113,14 @@ To deploy: open Claude and say "put security-fix/2026-11-12 live". All 125 check
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
-- Currency (CDS) contracts stop trading at 12:30 pm on expiry day but are settled at 5:00 pm: same pattern as the
-  crypto hole, much smaller. Check weekly currency options held through 12:30.
-- A session stays valid for 30 days after the user changes the password or the Master resets it (only freezing or
-  deleting the account ends it). Not a way to cheat, but a stolen or shared login cannot be ended by a new password.
+- The Zerodha login return address (/auth/kite/callback) needs no Master login. It only works with a one-time code
+  from Zerodha for this app, so probably harmless; cannot be tried on the private copy (simulated prices).
+- After a price feed reconnects, prices in memory are as old as the outage until the first new tick (a second or
+  so). Orders are refused while a feed is down; the moment after it is back was not attacked.
+- Rupee conversion for Forex cross pairs uses the USD legs; those are always streamed. A cross pair that is not a
+  USD pair (if the broker ever lists one) would be open to the frozen-price idea only through the daily check's note.
+- Short-option margin before the first fill uses the underlying's price in memory (may be frozen) or the strike.
+  Margin only, no money; not attacked.
 - Looking up a contract that has no price yet subscribes it for good (until the next restart); thousands of look-ups
   could fill the price connection like the socket trick. Simulated prices never have "no price", so not shown here.
 - The address used for login throttling is taken from a header the visitor may be able to set; whether the live

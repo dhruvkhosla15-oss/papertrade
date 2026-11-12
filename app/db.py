@@ -37,6 +37,7 @@ class User(Base):
     must_change_password = Column(Boolean, default=False)   # set on creation / admin reset; cleared when the user changes it
     totp_secret = Column(String(64), default="")   # master 2FA (TOTP); empty = not set up
     totp_enabled = Column(Boolean, default=False)
+    pw_changed_at = Column(Float, default=0.0)   # epoch seconds of the last password change / reset; older logins stop working
     balance = Column(Float, default=0.0)        # coins (₹ equivalent). Realised P&L flows in here.
     created_at = Column(DateTime, default=now)
 
@@ -163,6 +164,8 @@ def init_db():
             con.execute(text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) DEFAULT ''"))
         if "totp_enabled" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0"))
+        if "pw_changed_at" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN pw_changed_at FLOAT DEFAULT 0"))
         if "must_change_password" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
             # users created earlier who have never placed an order still get the first-login prompt

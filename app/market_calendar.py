@@ -155,3 +155,12 @@ def close_time_str(exchange: str, d: date | None = None) -> str:
     if exchange == "FOREX":
         return "23:59"
     return s[-1][1].strftime("%H:%M") if s else ("17:00" if exchange == "CDS" else "15:40" if exchange != "MCX" else mcx_close(d).strftime("%H:%M"))
+
+
+def expiry_time_str(exchange: str, d: date | None = None) -> str:
+    """When a contract stops trading and is settled on its expiry date. Everywhere this is the session
+    close, except NSE currency derivatives: their last trading day ends at 12:30 pm (the contract is then
+    settled at the RBI reference rate), although the segment itself stays open until 5 pm."""
+    if exchange == "CDS":
+        return "12:30"
+    return close_time_str(exchange, d)

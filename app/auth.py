@@ -22,8 +22,27 @@ def verify_password(p: str, h: str) -> bool:
 
 
 def make_token(user: User) -> str:
-    return jwt.encode({"uid": user.id, "adm": user.is_admin, "exp": int(time.time()) + 30 * 86400},
+    now = int(time.time())
+    return jwt.encode({"uid": user.id, "adm": user.is_admin, "iat": now, "exp": now + SESSION_SECS},
                       SECRET_KEY, algorithm="HS256")
+
+
+SESSION_SECS = 30 * 86400
+
+
+def session_current(data: dict, user: User) -> bool:
+    """False for a login made before the account's password was last changed or reset. A new password
+    must end every older login: otherwise someone who once got into an account (a shared phone, a
+    borrowed password) keeps trading on it for a month, whatever the owner or the Master does.
+    Logins from before this rule carry no start time; theirs is worked out from the expiry."""
+    changed = getattr(user, "pw_changed_at", None) or 0
+    if not changed:
+        return True
+    try:
+        started = data.get("iat") or (int(data.get("exp") or 0) - SESSION_SECS)
+        return float(started) >= float(changed)
+    except (TypeError, ValueError):
+        return False
 
 
 def make_pre_token(user: User) -> str:
@@ -54,6 +73,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     u = db.get(User, data["uid"])
     if not u or not u.is_active and not u.is_admin:
         raise HTTPException(401, "Account inactive")
+    if not session_current(data, u):
+        raise HTTPException(401, "Password was changed — please log in again")
     # first login: nothing but the password change (and the few calls the change screen needs) until it's done
     if getattr(u, "must_change_password", False) and request.url.path not in PASSWORD_CHANGE_ALLOWED:
         raise HTTPException(403, "Password change required before you can use the platform")

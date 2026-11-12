@@ -1,15 +1,20 @@
-12 Nov 2026 (IST). LOOPHOLE FOUND: crypto options are settled four hours late and, once the exchange removes the expired contract, at about ten times the real profit or loss.
+13 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: a user could trade at an old, frozen price after the market had already moved, and pocket the difference.
 
 What I tried tonight
-1. Held a Bitcoin option past its real expiry (5:30 pm). The site settled it at 9:30 pm and paid 12,785 coins where about 550 was right. A trainee keeps winners into expiry and closes losers before it. Proven on the private copy.
-2. Bought an option just after it expired, at its frozen price. It went through.
-3. Locked others out: five wrong passwords on any username, the Master's too, block that login for five minutes, again and again.
-4. One trainee asked for live prices on every contract at once, past the price supplier's limit. A login stopped before the 2FA code could still listen to that user's order updates.
-5. New trading costs: charged exactly as quoted.
-6. Forged logins, other users' updates, junk dates and numbers in reports: nothing gained.
+1. Looked at a contract, stopped looking so its price froze, waited for the index to move, then traded at the old price. Worked: +24,564 coins in minutes on Nifty options, +14,831 on Sensex. Also on MCX, Currency and crypto options.
+2. Held an option to expiry while its underlying price was frozen: it was paid out on the old price.
+3. Traded a currency contract after 12:30 pm on its last day, when the real exchange has stopped it: accepted.
+4. Used an old login after the Master reset the password: still worked.
+5. Tried to gain from the new auto square-off: no gain.
 
-Added to the daily 10:05 am check: every open position must be on a contract the site still lists, and none may stay unsettled past its expiry.
+Markets attacked: NSE, BSE, MCX, Currency, Crypto, Forex, Global (the last two were not open to it).
 
-Waiting for your go-ahead: branch security-fix/2026-11-12 closes 1 to 4. Tested, all 125 checks pass. Open Claude and say "put security-fix/2026-11-12 live". Until then, look at any crypto option that was held through expiry.
+Live now: orders wait for a live price; options settle on a live price; currency contracts stop at 12:30 pm on their last day; a new password ends every older login. Honest trading is unchanged, no account was touched. Someone may already have used the frozen price: look for many quick, small, nearly always winning trades.
 
-Could not test: the real price supplier's limit and how the live site sees a visitor's address (the private copy uses simulated prices).
+Added to the daily check: frozen price in every market, old login, option underlying live, currency 12:30 cut-off.
+
+Note: the new auto square-off also hits holders of bought options after a small dip. Tell me if you want that changed.
+
+Waiting for you: nothing.
+
+Could not test: the Zerodha login return address.

@@ -67,6 +67,7 @@ class PriceFeed:
         self.by_symbol: Dict[str, Instrument] = {}
         self.prices: Dict[int, dict] = {}
         self._refcount: Dict[int, int] = {}
+        self._since: Dict[int, float] = {}       # token -> when the current unbroken streaming of it began
         self._listeners: List[Callable[[dict], None]] = []
         self.connected = False
         self.status_msg = "not started"
@@ -148,6 +149,15 @@ class PriceFeed:
         p = self.prices.get(token)
         return time.time() - p["ts"] if p else None
 
+    def live(self, token: int) -> bool:
+        """True when the saved price is a live quote: the contract is being streamed right now and a
+        price has arrived since that streaming began. A contract nobody is looking at stops receiving
+        prices, and the last one stays in memory — frozen. Anything that turns a price into money (an
+        order, an expiry settlement) must not use a frozen one: a user could look at a contract, stop
+        looking, watch the market move and then trade at the old price."""
+        p = self.prices.get(token)
+        return bool(p) and token in self._refcount and (p.get("ts") or 0) >= self._since.get(token, 0)
+
     def on_tick(self, cb: Callable[[dict], None]):
         self._listeners.append(cb)
 
@@ -169,6 +179,7 @@ class PriceFeed:
             self._refcount[t] = self._refcount.get(t, 0) + 1
             if self._refcount[t] == 1:
                 fresh.append(t)
+                self._since[t] = time.time()
         if fresh:
             self._subscribe(fresh)
 
@@ -179,6 +190,7 @@ class PriceFeed:
                 self._refcount[t] -= 1
                 if self._refcount[t] <= 0:
                     del self._refcount[t]
+                    self._since.pop(t, None)
                     gone.append(t)
         if gone:
             self._unsubscribe(gone)

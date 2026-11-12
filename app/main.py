@@ -1648,20 +1648,20 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         cm = round(sum(x.commission or 0 for x in trades), 2)
         real = round(sum(x.realised_pnl or 0 for x in trades), 2)
         net = round(real - cm, 2)
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L"],
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L (Closed Trades)"],
               [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
                 x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2)] for x in trades],
               money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), int_cols=(sh(6),), statement="P&L Statement",
-              summary=f"Trades {len(trades)}   ·   Realised {sg(real)}   ·   Commission {sg(-cm)}   ·   Net P&L {sg(net)}   (closed trades in this period)",
+              summary=f"Trades {len(trades)}   ·   Realised {sg(real)}   ·   Commission {sg(-cm)}   ·   Net P&L (Closed Trades) {sg(net)}   (open positions not included)",
               totals=["TOTAL"] + [""] * (sh(8) - 1) + [real, -cm, net])
         # the same figures per user, in the order the screens use, then how the account stands now
-        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L", "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
+        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L (Closed Trades)", "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
                           "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (All Time)"],
               [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), -u["commission"], u["net_pnl"], u["trades"], u["closing_trades"],
                 u["wins"], u["losses"], u["win_rate"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"],
                 u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
               money_cols=(3, 4, 5, 11, 12, 13, 14, 16, 17, 18), int_cols=(6, 7, 8, 9, 10, 15), statement="Summary",
-              summary="Realised, Commission, Net P&L and Trades are for the period. Allocated, Net Balance and Net P&L (All Time) are as of now.",
+              summary="Realised, Commission, Net P&L (Closed Trades) and Trades are for the period and count closed trades only — open positions are not included. Allocated, Net Balance and Net P&L (All Time) are as of now and do include open positions.",
               totals=(["TOTAL", "", real, -cm, net, len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
                       round(sum(u["equity"] for u in rep["users"]), 2), round(sum(u["overall_pnl"] for u in rep["users"]), 2)]) if many else None)
         days = sorted({d for u in rep["users"] for d in u["daily"]})
@@ -1670,9 +1670,9 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
             v = rep["daily"].get(d, 0); cum = round(cum + v, 2)
             rows.append([d] + ([u["daily"].get(d, 0) for u in rep["users"]] if many else []) + [v, cum])
         ncol = (len(rep["users"]) if many else 0) + 3
-        sheet("Daily Net P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L", "Cumulative Net P&L"], rows,
+        sheet("Daily Net P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L (Closed Trades)", "Cumulative Net P&L (Closed Trades)"], rows,
               money_cols=tuple(range(2, ncol + 1)), statement="Daily Net P&L",
-              summary="Net P&L per day = Realised − Commission on that day's closed trades.")
+              summary="Net P&L per day = Realised − Commission on that day's closed trades. Open positions are not included — they land here on the day they close.")
     # ---- Ledger Statement -----------------------------------------------------------------------
     if only in (None, "ledger"):
         kinds = {"ADMIN_CREDIT": "Coins Added", "ADMIN_DEBIT": "Coins Removed", "REALISED_PNL": "Realised",

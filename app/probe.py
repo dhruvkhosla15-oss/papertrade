@@ -418,10 +418,11 @@ class Probe:
             # three expiries, still thinnest first.
             exps = sorted({i.expiry for i in opts})[:3]
             seen = set(watched)
-            more = sorted([i for i in opts if i.expiry in exps and i.token not in seen and
-                           ((i.instrument_type == "CE" and i.strike > spot) or (i.instrument_type == "PE" and i.strike < spot))],
-                          key=lambda i: (exps.index(i.expiry) if i.expiry != exp else 0, -abs(i.strike - spot)))
-            more = [i for i in more if abs(i.strike - spot) <= spot * 0.06][:60]
+            more = []
+            for e in exps:                # per expiry: the 24 strikes nearest the money, where any trading is
+                more += sorted([i for i in opts if i.expiry == e and i.token not in seen and
+                                ((i.instrument_type == "CE" and i.strike > spot) or (i.instrument_type == "PE" and i.strike < spot))],
+                               key=lambda i: abs(i.strike - spot))[:24]
             if more:
                 self.feed.subscribe([i.token for i in more]); watched += [i.token for i in more]
                 await asyncio.sleep(4)

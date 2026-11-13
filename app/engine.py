@@ -712,6 +712,11 @@ class Engine:
                 on, _, _ = self.liquidity_settings(db)
                 bid, ask = tick.get("bid"), tick.get("ask")
                 for o in orders:
+                    if o.status != "OPEN":
+                        # An earlier fill in this same pass closed the position and cancelled this exit
+                        # order (stop-loss and target, or the same exit placed twice). It must stay
+                        # cancelled: filling it anyway opened a position the other way round.
+                        continue
                     if not self.tradable_now(ins):
                         continue
                     if (o.order_type == "LIMIT" and not o.limit_price) or (o.order_type == "SL" and not o.trigger_price):

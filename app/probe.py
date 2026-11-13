@@ -360,6 +360,41 @@ class Probe:
                 pass
             await ca.aclose()
 
+    async def _stream_flood(self, ub):
+        """Orders on many contracts nobody is watching. Every such order makes the site stream the contract
+        (it needs a live price), even when the order is nonsense and is refused. Without a limit one account
+        could fill the price socket in seconds, and it stayed full: nobody else's contracts got prices."""
+        self.area = "Price socket"
+        try:
+            from .main import ORDER_STREAM_LIMIT as limit
+        except Exception:
+            limit = 25
+        if not self.feed.connected:
+            self.note("skipped", "main price feed is not connected"); return
+        today = _ist().date().isoformat()
+        quiet = [i for i in self.feed.instruments.values()
+                 if i.exchange in ("NFO", "BFO", "MCX", "CDS") and i.instrument_type in ("CE", "PE") and (i.expiry or "") > today
+                 and i.token not in self.feed._refcount and i.token < 5_000_000_000]
+        quiet.sort(key=lambda i: (i.expiry, i.symbol), reverse=True)        # far months first: nobody is there
+        n = limit + 15
+        if len(quiet) < n:
+            self.note("skipped", "not enough unwatched contracts to try it"); return
+        toks = [i.token for i in quiet[:n]]
+        clients = [self._client(ub) for _ in range(n)]
+        try:
+            res = await asyncio.gather(*[c.post("/api/orders", json={"token": t, "side": "BUY", "lots": 0}) for c, t in zip(clients, toks)],
+                                       return_exceptions=True)
+        finally:
+            for c in clients:
+                await c.aclose()
+        codes = [r.status_code for r in res if not isinstance(r, Exception)]
+        streamed = sum(1 for t in toks if t in self.feed._refcount)
+        self.ok(f"{n} junk orders on {n} unwatched contracts: at most {limit} of them start streaming", streamed <= limit + 2 and 200 not in codes,
+                f"{streamed} streaming, {codes.count(429)} orders told to slow down")
+        await asyncio.sleep(33)
+        still = sum(1 for t in toks if t in self.feed._refcount)
+        self.ok("those streams are dropped again after half a minute (the socket does not fill up for good)", still <= 2, f"{still} still streaming")
+
     async def _old_login(self, ub):
         """A new password must end every older login (found 13 Nov 2026: a login kept working for a month
         after the Master reset the password). The test account's own session is used: mark its password as
@@ -570,6 +605,29 @@ class Probe:
                 self.ok("Cancel sent 5 times at once cancels once and frees the margin once", okc == 1 and abs(fb["used_margin"]) < 0.01 and abs(fb["balance"] - 1_000_000.0) < 0.01,
                         f"{okc} cancels accepted, margin held ₹{fb['used_margin']:,.2f}")
             await self._flatten(cb); await self._flatten(ca)
+            # 9. the same exit resting twice (stop-loss and target, or a double tap on a limit exit) --------
+            # Both become fillable on the same price tick. The first closes the position and cancels the
+            # other; the cancelled one must not fill as well and open a position the other way round.
+            st, o, d = await self._order(cb, token=T, side="BUY", lots=1)
+            if st == 200 and o.get("status") == "FILLED":
+                lo = bid * (0.01 if not band else 1 - band / 100 * 0.9)
+                clients = [self._client(ub) for _ in range(2)]
+                try:
+                    res = await asyncio.gather(*[c.post("/api/orders", json={"token": T, "side": "SELL", "lots": 1, "order_type": "LIMIT",
+                                                                             "limit_price": round(lo, 6)}) for c in clients], return_exceptions=True)
+                finally:
+                    for c in clients:
+                        await c.aclose()
+                ids = [r.json()["order"]["id"] for r in res if not isinstance(r, Exception) and r.status_code == 200]
+                done = [await self._wait_order(cb, i) for i in ids]
+                after = await self._positions(cb)
+                short = [p for p in after or [] if p["token"] == T and p["qty"] < 0]
+                if len(ids) == 2 and any(x and x["status"] == "FILLED" for x in done):
+                    self.ok("the same limit exit resting twice closes the position once — never flips it the other way", not short,
+                            f"now holding {short[0]['qty']}" if short else f"{sum(1 for x in done if x and x['status'] == 'FILLED')} filled")
+                else:
+                    self.note("double limit exit inconclusive", "the exits were not both accepted, or no price tick arrived within 7 s")
+                await self._flatten(cb)
             left = ((await self._positions(ca)) or []) + ((await self._positions(cb)) or [])
             if left:
                 self.note("test position could not be closed (no depth)", ", ".join(p["symbol"] for p in left))
@@ -948,6 +1006,11 @@ class Probe:
             except Exception as e:
                 log.exception("probe login check crashed")
                 self.ok("the login check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                await self._stream_flood(ub)
+            except Exception as e:
+                log.exception("probe price-socket check crashed")
+                self.ok("the price-socket check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

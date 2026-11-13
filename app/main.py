@@ -767,7 +767,7 @@ async def instrument(token: int, user: User = Depends(current_user)):
     i = feed.instruments.get(token)
     if not i:
         raise HTTPException(404, "unknown instrument")
-    await _ensure_price(token)
+    await _ensure_price(token, uid=user.id)
     return {**i.to_dict(), "price": feed.prices.get(token)}
 
 
@@ -784,9 +784,43 @@ class OrderIn(BaseModel):
     product: Optional[str] = None
 
 
-async def _ensure_price(token: int, timeout=3.0):
-    if feed.ltp(token) is None:
-        feed.pin([token])
+ORDER_STREAM_LIMIT = 25     # contracts one account may have streaming only because it sent an order or looked one up
+ORDER_STREAM_CEILING = 2980 # such streams never take the last places on the price socket (open positions need them)
+_temp_streams: dict = {}    # user id -> {token: time the temporary stream ends}
+
+
+def _temp_stream_end(uid: int, token: int):
+    feed.unsubscribe([token])
+    mine = _temp_streams.get(uid)
+    if mine is not None:
+        mine.pop(token, None)
+        if not mine:
+            _temp_streams.pop(uid, None)
+
+
+def _temp_stream(uid: int, token: int) -> bool:
+    """Stream a contract for half a minute on behalf of one account (an order or a look-up on a contract
+    nobody is watching). A fill or a resting order keeps it streaming on its own. One account can hold only
+    a few of these at a time: without that limit, orders sent on thousands of different contracts (even
+    orders that are refused) filled the price socket and left no room for anyone else's contracts.
+    False = this account has too many already, or the socket is full."""
+    mine = _temp_streams.setdefault(uid, {})
+    if token in mine:
+        return True
+    if len(mine) >= ORDER_STREAM_LIMIT or (token not in feed._refcount and len(feed._refcount) >= ORDER_STREAM_CEILING):
+        if not mine:
+            _temp_streams.pop(uid, None)
+        return False
+    mine[token] = time.time() + 30
+    feed.subscribe([token])
+    asyncio.get_event_loop().call_later(30, _temp_stream_end, uid, token)
+    return True
+
+
+async def _ensure_price(token: int, timeout=3.0, uid: int = 0):
+    if feed.ltp(token) is None and token in feed.instruments:
+        if not _temp_stream(uid, token):
+            return
         t0 = time.time()
         while feed.ltp(token) is None and time.time() - t0 < timeout:
             await asyncio.sleep(0.1)
@@ -806,28 +840,31 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
     ins = feed.instruments.get(body.token)
     if ins and not _feed_up(ins.exchange):
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
-    await _ensure_price(body.token)
+    await _ensure_price(body.token, uid=user.id)
     # A contract nobody is streaming has a frozen price. Stream it for this order and wait for a new
     # price (some feeds publish only every few seconds); a fill or a resting order then keeps it streaming
     # on its own. The stream is kept half a minute so that a retry finds the price already live.
-    held = ins is not None and not feed.live(body.token)
-    if held:
-        feed.subscribe([body.token])
+    if ins is not None and not feed.live(body.token):
+        if not _temp_stream(user.id, body.token):
+            raise HTTPException(429, "Too many orders on contracts you are not viewing — open the contract, or wait half a minute")
         t0 = time.time()
         while not feed.live(body.token) and time.time() - t0 < 6.0:
             await asyncio.sleep(0.1)
-    try:
-        async with engine._lock:
-            db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
-            try:
-                o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
-                                       body.limit_price, body.trigger_price, body.leverage,
-                                       validity=body.validity or "DAY", product=body.product)
-            except EngineError as e:
-                raise HTTPException(400, str(e))
-    finally:
-        if held:
-            asyncio.get_event_loop().call_later(30, feed.unsubscribe, [body.token])
+    async with engine._lock:
+        db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
+        streams = feed._refcount.get(body.token, 0)
+        try:
+            o = engine.place_order(db, user, body.token, body.side, body.lots, body.order_type,
+                                   body.limit_price, body.trigger_price, body.leverage,
+                                   validity=body.validity or "DAY", product=body.product)
+        except EngineError as e:
+            # a refused order leaves nothing streaming for good (the engine starts a stream when it finds
+            # no price; the half-minute stream above already covers the retry)
+            extra = feed._refcount.get(body.token, 0) - streams
+            if extra > 0 and not db.query(Order).filter_by(token=body.token, status="OPEN").first() \
+                    and not db.query(Position).filter_by(token=body.token, is_closed=False).first():
+                feed.unsubscribe([body.token] * extra)
+            raise HTTPException(400, str(e))
     return {"order": engine.order_dict(o), "funds": engine.funds(db, user)}
 
 

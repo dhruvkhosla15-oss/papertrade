@@ -154,6 +154,8 @@ td:first-child,th:first-child{text-align:left}
 .dlgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dlgrid button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px}.dlgrid button span{font-weight:400;white-space:normal}
 #pfSeg button{padding:8px 4px;white-space:nowrap}#ledTbl td.ledE{white-space:normal;text-align:left;word-break:break-word}#ledTbl td.ledE b{font-weight:600}#ledTbl td.num{vertical-align:top;white-space:nowrap}
 .fchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:8px;scrollbar-width:none}.fchips::-webkit-scrollbar{display:none}.fchip{flex:0 0 auto;background:var(--bg);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}.fchip small{font-weight:500;opacity:.8;margin-left:4px}.fchip.active{color:var(--acc);border-color:var(--acc);background:rgba(154,209,60,.14)}.frow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.frow select{flex:1 1 90px;width:auto;min-width:0;padding:8px}.frow input[type=date]{flex:1 1 130px}.frow input{flex:2 1 150px;min-width:0;padding:8px 10px}
+.wkrow{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.wkrow:last-child{border-bottom:0}
+.cfbox{margin-top:10px;padding:9px 11px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:12px}.cfh{color:var(--acc);font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:5px}.cfr{display:flex;justify-content:space-between;gap:10px;padding:2px 0}.cfr span{color:var(--mut)}.cfr.tot{border-top:1px solid var(--line);margin-top:4px;padding-top:5px;font-weight:700}.cfr.tot span{color:var(--txt)}
 .plrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 2px;font-size:15px}.plrow span{color:var(--mut)}.plrow b{font-weight:600}.plrow.tot span{color:var(--txt);font-weight:600}.plrow.tot b{font-size:17px;font-weight:700}.plrow.sep{border-top:1px solid var(--line)}
 .perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -360,6 +362,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
     <h3 style="margin-top:0">My P&amp;L</h3>
     <div class="fchips dbar" id="df_pnl"></div><div class="frow hidden" id="dfc_pnl"><input type="date" id="dff_pnl"><input type="date" id="dft_pnl"></div>
     <div class="card"><div id="pnlCards"></div><div class="small mut" id="perfMeta" style="margin-top:8px"></div></div>
+    <div id="wkList"></div>
     </div>
     <div id="pfLedger" class="hidden">
     <h3 style="margin-top:0">Coin Ledger</h3>
@@ -793,7 +796,8 @@ function onPrices(ticks){
   for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty*(p.value_factor||1);unreal+=u;
-    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(u/state.usdinr):fmt2(u));l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);}
+    const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(u/state.usdinr):fmt2(u));l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);
+    if(p.carried_week){const w=document.getElementById('pw'+p.id),t=document.getElementById('pt'+p.id),tot=(p.settled_earlier||0)+u;if(w){w.textContent=pmoney(p,u);w.className='num '+pnlCls(u);}if(t){t.textContent=pmoney(p,tot);t.className='num '+pnlCls(tot);}}}
   if(touched&&state.funds){const f={...state.funds,unrealised:unreal};hdrPnl(state.funds.realised_today||0,unreal);$('#fUnreal').textContent=(unreal>=0?'+':'')+inr(unreal);$('#fUnreal').className='big num '+pnlCls(unreal);const rt=state.funds.realised_today||0;$('#fTot').textContent=((rt+unreal)>=0?'+':'')+inr(rt+unreal);$('#fTot').className='big num '+pnlCls(rt+unreal);}
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
@@ -939,11 +943,18 @@ let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{co
 
 // ---------- positions / orders ----------
 $('#exitAll').onclick=async()=>{if(!state.positions.length)return;if(!confirm(`Exit all ${state.positions.length} position(s) at market?`))return;for(const p of state.positions){try{await api(`/positions/${p.id}/close`,{method:'POST'});}catch(e){toast(p.symbol+': '+e.message,1)}}refreshAll();};
+function pmoney(p,v){return (v>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(v/state.usdinr):fmt2(v));}
 function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positions.length>0);$('#exitAll').classList.toggle('hidden',!state.positions.length);
   $('#posList').innerHTML=state.positions.map(p=>`<div class="card pos">
     <div class="row" style="justify-content:space-between"><div><span class="sym">${dsym(p.exchange,p.symbol)}</span><div class="small mut">${(GNAME[p.symbol]?'Global · '+GNAME[p.symbol]:({CRYPTO:'Crypto',FOREX:'Forex',CDS:'Currency'}[p.exchange]||p.exchange))} · <span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'} ${Math.abs(p.lots)} lot (${Math.abs(p.qty)})</span>${p.leverage?' · <b>'+p.leverage+'×</b>':''} · ${p.expiry?'exp '+p.expiry:(GNAME[p.symbol]?'no expiry':'perpetual')}${['CRYPTO','FOREX'].includes(p.exchange)?'':(p.product==='MIS'?' · <b style="color:var(--acc)">Intraday</b>':' · <b>Overnight</b>')}</div></div>
-      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${usdOn(p.exchange)?'$'+fmt2(p.unrealised/state.usdinr):fmt2(p.unrealised)}</div><div class="small mut">unrealised</div></div></div>
-    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.avg_price)}</span> &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="big num ${pnlCls(p.unrealised)}" id="pl${p.id}">${p.unrealised>=0?'+':''}${usdOn(p.exchange)?'$'+fmt2(p.unrealised/state.usdinr):fmt2(p.unrealised)}</div><div class="small mut">${p.carried_week?'unrealised this week':'unrealised'}</div></div></div>
+    ${p.carried_week?`<div class="cfbox"><div class="cfh">Carried forward from last week</div>
+      <div class="cfr"><span>Original avg price</span><b class="num">${cpx(p.exchange,p.entry_avg)}</b></div>
+      <div class="cfr"><span>Carried-forward price (week close)</span><b class="num">${cpx(p.exchange,p.avg_price)}</b></div>
+      <div class="cfr"><span>Settled in earlier weeks</span><b class="num ${pnlCls(p.settled_earlier)}">${pmoney(p,p.settled_earlier)}</b></div>
+      <div class="cfr"><span>This week so far</span><b class="num ${pnlCls(p.unrealised)}" id="pw${p.id}">${pmoney(p,p.unrealised)}</b></div>
+      <div class="cfr tot"><span>Total since entry</span><b class="num ${pnlCls(p.total_since_entry)}" id="pt${p.id}">${pmoney(p,p.total_since_entry)}</b></div></div>`:''}
+    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.carried_week?p.entry_avg:p.avg_price)}</span>${p.carried_week?` &nbsp; <span class="mut">Carried at</span> <b class="num">${cpx(p.exchange,p.avg_price)}</b>`:''} &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
       <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});}
@@ -960,10 +971,10 @@ function renderOrders(){const all=(dateF.orders.p!=='all'&&state.ordView)?state.
   <td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.qty}</td><td>${o.order_type}<div class="small mut">${o.product==='MIS'?'Intraday':'Overnight'}${o.order_type!=='MARKET'?' · '+(o.validity||'DAY'):''}${o.leverage?' · '+o.leverage+'×':''}</div></td>
   <td class="num">${o.fill_price!=null?cpx(o.exchange,o.fill_price):(o.limit_price?cpx(o.exchange,o.limit_price):o.trigger_price?'trg '+cpx(o.exchange,o.trigger_price):'MKT')}</td>
   <td><span class="pill ${o.status}">${o.status}</span>${/^(Auto square-off|Liquidated)/.test(o.reason||'')?' <span class="pill REJECTED">LIQUIDATED</span>':''}${o.reason?`<div class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason}</div>`:''}</td>
-  <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>`).join('')||`<tr><td colspan=7 class="mut">${all.length?'No orders match these filters':'No orders yet'}</td></tr>`;
+  <td>${o.status==='OPEN'?`<button class="ghost small" data-cxl="${o.id}" style="padding:6px 10px">Cancel</button>`:''}</td></tr>${o.carry_note?`<tr><td colspan="7" style="padding-top:0;border-top:0;white-space:normal"><div class="small" style="padding:6px 9px;border-radius:8px;background:var(--bg);border:1px solid var(--line);color:var(--acc);max-width:390px">${o.carry_note}</div></td></tr>`:''}`).join('')||`<tr><td colspan=7 class="mut">${all.length?'No orders match these filters':'No orders yet'}</td></tr>`;
   $$('[data-cxl]').forEach(b=>b.onclick=async()=>{try{await api('/orders/'+b.dataset.cxl,{method:'DELETE'});refreshAll();}catch(e){toast(e.message,1)}});}
 async function loadTrades(){const q=dateQS('orders');const t=await api('/trades'+(q?q.qs:''));$('#trdTbl tbody').innerHTML=t.map(x=>`<tr><td class="small">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td><td class="sym">${dsym(x.exchange,x.symbol)}</td><td class="${x.side==='BUY'?'up':'dn'}">${x.side}</td><td class="num">${x.qty}</td><td class="num">${cpx(x.exchange,x.price)}</td><td class="num mut">${x.commission?'-'+fmt2(x.commission):'—'}</td><td class="num ${pnlCls(x.realised_pnl)}">${x.realised_pnl?fmt2(x.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades yet</td></tr>';}
-async function loadLedger(){const q=dateQS('ledger');const l=await api('/ledger'+(q?q.qs:''));$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="ledE"><b>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission',LIQUIDATION:'Margin call — positions liquidated'})[/^Auto square-off charge/.test(x.note||'')?'_':x.kind]||(/^Auto square-off charge/.test(x.note||'')?'Auto square-off charge':x.kind)}</b><div class="small mut">${(x.note||'').replace('->','→')}</div><div class="small mut">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt2(x.amount)}</td><td class="num">${fmt2(x.balance_after)}</td></tr>`).join('')||'<tr><td colspan=3 class="mut">No entries in these dates</td></tr>';}
+async function loadLedger(){const q=dateQS('ledger');const l=await api('/ledger'+(q?q.qs:''));$('#ledTbl tbody').innerHTML=l.map(x=>`<tr><td class="ledE"><b>${({ADMIN_CREDIT:'Coins added by master',ADMIN_DEBIT:'Coins removed by master',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission',LIQUIDATION:'Margin call — positions liquidated',WEEKLY_VALUATION:'Weekly valuation — open position carried forward',WEEKLY_SETTLEMENT:'Weekly settlement — coins back to allocated'})[/^Auto square-off charge/.test(x.note||'')?'_':x.kind]||(/^Auto square-off charge/.test(x.note||'')?'Auto square-off charge':x.kind)}</b><div class="small mut">${(x.note||'').replace('->','→')}</div><div class="small mut">${new Date(x.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div></td><td class="num ${pnlCls(x.amount)}">${x.amount>=0?'+':''}${fmt2(x.amount)}</td><td class="num">${fmt2(x.balance_after)}</td></tr>`).join('')||'<tr><td colspan=3 class="mut">No entries in these dates</td></tr>';}
 
 // ---------- Pulse (home) ----------
 let pulseP='today',pulseK='all',pulseTimer=null;
@@ -1018,7 +1029,7 @@ $('#tfaDisable').onclick=async()=>{try{await api('/2fa/disable',{method:'POST',b
 const istDay=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
 const dateF={orders:{p:'all'},pnl:{p:'all'},ledger:{p:'all'}};
 function dateQS(k){const f=dateF[k];let a='',b='';if(f.p==='custom'){a=$('#dff_'+k).value;b=$('#dft_'+k).value;}else if(f.p!=='all'){[a,b]=perfRange(f.p);}return a||b?{from:a,to:b,qs:'?'+(a?'from='+a:'')+(a&&b?'&':'')+(b?'to='+b:'')}:null;}
-function dateBar(k,reload){$('#df_'+k).innerHTML=[['all','All Time'],['today','Today'],['week','This Week'],['month','This Month'],['custom','Custom Dates']].map(([v,l])=>`<button class="fchip${dateF[k].p===v?' active':''}" data-p="${v}">${l}</button>`).join('');
+function dateBar(k,reload){$('#df_'+k).innerHTML=[['all','All Time'],['today','Today'],['week','This Week'],['month','This Month'],['custom','Custom Dates']].map(([v,l])=>`<button class="fchip${dateF[k].p===v?' active':''}" data-p="${v}">${k==='pnl'&&v==='all'?'Overview':l}</button>`).join('');
   $('#dfc_'+k).classList.toggle('hidden',dateF[k].p!=='custom');
   $$('#df_'+k+' .fchip').forEach(b=>b.onclick=()=>{dateF[k].p=b.dataset.p;dateBar(k,reload);if(b.dataset.p!=='custom'||($('#dff_'+k).value&&$('#dft_'+k).value))reload();});
   $('#dff_'+k).onchange=$('#dft_'+k).onchange=()=>{if($('#dff_'+k).value&&$('#dft_'+k).value)reload();};}
@@ -1027,12 +1038,27 @@ function perfRange(p){const t=new Date(Date.now()+330*60000),d=istDay();if(p==='
 async function loadPerf(){try{const d=istDay(),q=dateQS('pnl');
   const r=await api(`/report?from=${(q&&q.from)||'2024-01-01'}&to=${(q&&q.to)||d}`);const a=r.users[0]||{},f=state.funds||{};
   const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';let rows;
-  if(!q){const un=f.unrealised||0,comm=a.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=pl-un;
-    rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L',sg(net),c(net)],['Net Balance',inr(eq),'']];}
-  else{const real=(a.gross_profit||0)+(a.gross_loss||0),comm=a.commission||0,net=a.net_pnl||0;
-    rows=[['Realised',sg(real),c(real)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L',sg(net),c(net)]];}
-  $('#pnlCards').innerHTML=rows.map(([k,x,cl],i)=>`<div class="plrow${['P&L','Net P&L','Net Balance'].includes(k)?' tot':''}${i&&['Unrealised','Commission','Net Balance'].includes(k)?' sep':''}"><span>${k}</span><b class="num ${cl}">${x}</b></div>`).join('');
+  let wk=null;try{wk=await api('/weekly');}catch(e){}
+  if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=pl-un;
+    rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L (This Week)',sg(net),c(net)],['Net Balance',inr(eq),'']];
+    if(wk&&wk.weeks&&wk.weeks.length){const all=a.overall_pnl!=null?a.overall_pnl:net;rows.push(['Net P&L (All Time, with finished weeks)',sg(all),c(all)]);}}
+  else{const real=(a.gross_profit||0)+(a.gross_loss||0),val=a.valuation||0,comm=a.commission||0,net=(a.net_pnl||0)+val;
+    rows=[['Realised (Closed Trades)',sg(real),c(real)]].concat(val?[['Open Positions At Week Close',sg(val),c(val)]]:[],[['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L',sg(net),c(net)]]);}
+  renderWeeks(wk);
+  $('#pnlCards').innerHTML=rows.map(([k,x,cl],i)=>`<div class="plrow${(['P&L','Net Balance'].includes(k)||k.startsWith('Net P&L'))?' tot':''}${i&&['Unrealised','Commission','Net Balance'].includes(k)?' sep':''}"><span>${k}</span><b class="num ${cl}">${x}</b></div>`).join('');
   $('#perfMeta').textContent=a.closing_trades?`${a.closing_trades} Closed Trades · ${a.win_rate}% Winners · Best ${inr(a.best)} · Worst ${inr(a.worst)}`:(q?'No closed trades in these dates':'');}catch(e){}}
+/* weekly settlement: the running week and every finished week, each with its own Excel */
+let wkCache={};
+async function renderWeeks(wk){const el=$('#wkList');if(!el||!wk)return;
+  const lab=w=>{const b=new Date(w+'T00:00:00Z'),a=new Date(b);a.setUTCDate(b.getUTCDate()-6);const f=(x,o)=>x.toLocaleDateString('en-IN',{timeZone:'UTC',...o});return f(a,{day:'numeric',month:'short'})+' – '+f(b,{day:'numeric',month:'short'});};
+  const sg=x=>(x>0?'+':x<0?'-':'')+inr(Math.abs(x)),c=x=>x>0?'up':x<0?'dn':'';
+  const start=w=>{const b=new Date(w+'T00:00:00Z');b.setUTCDate(b.getUTCDate()-6);return b.toISOString().slice(0,10);};
+  for(const w of wk.weeks){if(!wkCache[w]){try{const r=await api('/weekly?week_end='+w);wkCache[w]=r.row;}catch(e){}}}
+  const line=(w,r,fin)=>r?`<div class="wkrow"><div style="flex:1;min-width:0"><b>${lab(w)}</b> <span class="pill ${fin?'FILLED':'OPEN'}">${fin?'FINAL':'RUNNING'}</span>
+      <div class="small mut" style="margin-top:3px">Closed trades ${sg(r.closed)} · Open positions ${fin?'at week close':'now'} ${sg(r.valuation)} · Commission ${r.commission?'-'+inr(r.commission):inr(0)}</div></div>
+      <div style="text-align:right;flex:0 0 auto"><b class="num ${c(r.result)}" style="font-size:16px">${sg(r.result)}</b><div><a class="small" style="color:var(--acc)" href="/api/export.xlsx?from=${start(w)}&to=${w}">⬇ Excel</a></div></div></div>`:'';
+  el.innerHTML='<h3 style="margin:16px 0 8px">Weekly Settlement</h3><div class="small mut" style="margin-bottom:8px">A week runs Monday to Sunday. At Sunday 11:59 pm open positions are valued at the closing price and carried forward at it, the week is settled, and your coins go back to the allocated amount.</div>'
+    +'<div class="card" style="padding:4px 12px">'+line(wk.week_end,wk.row,false)+wk.weeks.map(w=>line(w,wkCache[w],true)).join('')+'</div>';}
 let dlPreset='month';
 function dlRange(p){const t=new Date(Date.now()+330*60000),d=istDay();
   if(p==='lastmonth'){const f=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth()-1,1)),l=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),0));return[f.toISOString().slice(0,10),l.toISOString().slice(0,10)];}

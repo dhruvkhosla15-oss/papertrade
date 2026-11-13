@@ -148,7 +148,7 @@ a{color:var(--acc)}
   </div>
   </div>
 
-  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="perf">Performance</button><button data-nav="shadow">Shadow Book</button><button data-nav="settings">Settings</button></div>
+  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="weekly">Weekly Settlement</button><button data-nav="perf">Performance</button><button data-nav="shadow">Shadow Book</button><button data-nav="settings">Settings</button></div>
 
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
@@ -160,7 +160,7 @@ a{color:var(--acc)}
   <div class="grid g6" style="margin-top:8px">
     <div class="stat"><span class="mut small" title="Commission users paid us">Commission</span><b id="hComm" class="num">—</b></div><div class="stat"><span class="mut small" title="P&amp;L + Commission">Net P&amp;L</span><b id="hNet" class="num">—</b></div><div class="stat"><span class="mut small">Net Balance</span><b id="sEquity" class="num">—</b></div><div class="stat"><span class="mut small">Open Pos</span><b id="sPos">—</b></div><div class="stat"><span class="mut small">Trades</span><b id="sTrades">—</b></div>
   </div>
-  <div class="recon"><span></span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600">⬇ Download summary (Excel)</a></div>
+  <div class="recon"><span class="small mut" id="pdNote" style="line-height:1.5"></span><a id="sumXls" href="/api/admin/summary.xlsx" style="font-weight:600;white-space:nowrap">⬇ Download summary (Excel)</a></div>
   </div>
 
   <div class="card">
@@ -181,7 +181,7 @@ a{color:var(--acc)}
 
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Live Positions <span class="small mut" id="lpCount"></span></h2><span class="small mut" id="lpTot"></span></div>
-    <table id="lpTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th class="sort" data-k="symbol">Contract</th><th>Side</th><th class="sort" data-k="lots">Lots</th><th>Avg Price</th><th>Now</th><th class="sort" data-k="unrealised" title="If closed right now at the live exit price">Unrealised</th><th class="sort" data-k="margin">Margin</th><th>Type</th><th class="sort" data-k="opened_at">Opened</th></tr></thead><tbody></tbody></table>
+    <table id="lpTbl"><thead><tr><th class="sort" data-k="display_name">User</th><th class="sort" data-k="symbol">Contract</th><th>Side</th><th class="sort" data-k="lots">Lots</th><th title="For a position carried over a weekly cut-off: the week-close price it is carried at, with the user's original average under it">Avg / Carried At</th><th>Now</th><th class="sort" data-k="unrealised" title="If closed right now at the live exit price. For a carried position: since the week-close price">Unrealised (This Week)</th><th class="sort" data-k="settled_earlier" title="What earlier weekly settlements already booked on the lots still open">Settled Earlier</th><th class="sort" data-k="total_since_entry" title="Settled Earlier + This Week">Total Since Entry</th><th class="sort" data-k="margin">Margin</th><th>Type</th><th class="sort" data-k="opened_at">Opened</th></tr></thead><tbody></tbody></table>
   </div>
   </section>
 
@@ -218,6 +218,19 @@ a{color:var(--acc)}
   </section>
 
   <!-- ===== Settings ===== -->
+  <section id="nav-weekly" class="hidden">
+  <div class="card">
+    <div class="bar" style="justify-content:space-between">
+      <div><h2 style="margin:0">Weekly Settlement <span class="pill" id="wkPill"></span></h2><p class="small mut" id="wkSub" style="margin:6px 0 0"></p></div>
+      <div class="bar" style="flex:0 0 auto"><select id="wkSel" style="width:auto;padding:7px 10px;min-width:210px"></select><button class="ghost" id="wkXls">⬇ Excel</button></div>
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow:auto">
+    <table id="wkTbl"><thead><tr><th>User</th><th title="Booked on trades closed in the week">Closed Trades</th><th title="Open positions valued at the week-close price. They stay open and are carried forward at that price.">Open Positions At Week Close</th><th>Commission</th><th title="Closed Trades + Open Positions At Week Close − Commission">Week Result</th><th title="After the cut-off the coins go back to the allocated amount">Coins After Settlement</th><th>Positions Carried Forward</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card"><p class="small mut" style="margin:0;line-height:1.6"><b>How it works:</b> a week runs Monday to Sunday. At Sunday 11:59 pm every open position is valued at the closing price and carried forward at that price; nothing is squared off. The week's result is settled and each user's coins go back to the allocated amount, so the next week starts from zero. Click a user to see the split between crypto and all other markets. During the week the figures are provisional and value open positions right now.</p></div>
+  </section>
+
   <section id="nav-shadow" class="hidden">
   <div class="card">
     <div class="bar" style="justify-content:space-between">
@@ -374,7 +387,7 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=t=>String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';const sgn=n=>(n>0?'+':'')+inr(n);
-const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'};
+const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission',LIQUIDATION:'Margin call',WEEKLY_VALUATION:'Weekly valuation',WEEKLY_SETTLEMENT:'Weekly settlement'};
 let users=[],detail=null,dtab='positions',sortK='pnl',sortDir=-1,filterQ='';
 async function api(p,o={}){const r=await fetch('/api'+p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined});
   if(r.status===401&&!p.startsWith('/login')){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');throw new Error('Please log in');}
@@ -396,7 +409,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -512,10 +525,10 @@ function renderLive(){const l=[...livePos];l.sort((a,b)=>{const x=a[lpK],y=b[lpK
   $('#lpTot').innerHTML=l.length?'Unrealised <b class="'+cls(tu)+'">'+sgn(tu)+'</b> · Margin '+inr(tm):'';
   $$('#lpTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===lpK?(lpDir>0?' ▲':' ▼'):''));
   $('#lpTbl tbody').innerHTML=l.map(p=>{const t=p.opened_at?new Date(p.opened_at):null;const when=t?t.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}):'';
-    return `<tr class="clickable" data-uid="${p.user_id}"><td><b>${p.display_name}</b><div class="small mut">${p.username}</div></td><td><b>${p.symbol}</b><div class="small mut">${p.exchange==='FOREX'?(p.segment==='GLOBAL-SPOT'?'Global':'Forex'):p.exchange==='CRYPTO'?'Crypto':p.exchange}${p.leverage?' · '+p.leverage+'x':''}</div></td><td><span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'}</span></td><td class="num">${Math.abs(p.lots)}<div class="small mut">${Math.abs(p.qty)} qty</div></td><td class="num">${lpPx(p.avg_price)}</td><td class="num">${lpPx(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}"><b>${sgn(p.unrealised)}</b></td><td class="num">${inr(p.margin)}</td><td>${p.product==='MIS'?'Intraday':'Overnight'}</td><td class="small mut">${when}</td></tr>`}).join('')||'<tr><td colspan=10 class="mut">No one is holding a position right now</td></tr>';
+    return `<tr class="clickable" data-uid="${p.user_id}"><td><b>${p.display_name}</b><div class="small mut">${p.username}</div></td><td><b>${p.symbol}</b><div class="small mut">${p.exchange==='FOREX'?(p.segment==='GLOBAL-SPOT'?'Global':'Forex'):p.exchange==='CRYPTO'?'Crypto':p.exchange}${p.leverage?' · '+p.leverage+'x':''}</div></td><td><span class="${p.qty>0?'up':'dn'}">${p.qty>0?'LONG':'SHORT'}</span></td><td class="num">${Math.abs(p.lots)}<div class="small mut">${Math.abs(p.qty)} qty</div></td><td class="num">${lpPx(p.avg_price)}${p.carried_week?`<div class="small mut" title="Original average price">orig ${lpPx(p.entry_avg)}</div>`:''}</td><td class="num">${lpPx(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}"><b>${sgn(p.unrealised)}</b></td><td class="num ${p.carried_week?cls(p.settled_earlier):'mut'}">${p.carried_week?sgn(p.settled_earlier):'—'}</td><td class="num ${cls(p.total_since_entry)}">${sgn(p.total_since_entry)}</td><td class="num">${inr(p.margin)}</td><td>${p.product==='MIS'?'Intraday':'Overnight'}</td><td class="small mut">${when}</td></tr>`}).join('')||'<tr><td colspan=12 class="mut">No one is holding a position right now</td></tr>';
   $$('#lpTbl tr.clickable').forEach(r=>r.onclick=()=>openDetail(+r.dataset.uid));}
 async function loadLive(){try{livePos=await api('/admin/positions');renderLive();}catch(e){}}
-const PD={mode:'all',off:0,data:null,key:'',at:0};
+const PD={mode:'week',off:0,data:null,key:'',at:0};
 function pdRange(){if(PD.mode==='all')return null;const now=new Date(Date.now()+330*60000);const iso=d=>d.toISOString().slice(0,10);
   let a=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate())),b;
   if(PD.mode==='day'){a.setUTCDate(a.getUTCDate()+PD.off);b=new Date(a);}
@@ -525,10 +538,10 @@ function pdRange(){if(PD.mode==='all')return null;const now=new Date(Date.now()+
   const label=PD.mode==='day'?f(a,{weekday:'short',day:'numeric',month:'short',year:'numeric'}):PD.mode==='week'?f(a,{weekday:'short',day:'numeric',month:'short'})+' – '+f(b,{weekday:'short',day:'numeric',month:'short'}):f(a,{month:'long',year:'numeric'});
   return {from:iso(a),to:iso(b),label,current:PD.off===0};}
 async function loadPeriod(force){const r=pdRange();if(!r){PD.data=null;PD.key='';return;}const key=r.from+r.to;if(!force&&PD.key===key&&Date.now()-PD.at<15000)return;
-  try{const rep=await api(`/admin/report?from=${r.from}&to=${r.to}`);const m={};for(const u of rep.users)m[u.id]={real:(u.gross_profit||0)+(u.gross_loss||0),comm:u.commission||0,trades:u.trades||0};PD.data=m;PD.key=key;PD.at=Date.now();}catch(e){}}
+  try{const rep=await api(`/admin/report?from=${r.from}&to=${r.to}`);const m={};for(const u of rep.users)m[u.id]={real:(u.gross_profit||0)+(u.gross_loss||0)+(u.valuation||0),comm:u.commission||0,trades:u.trades||0};PD.data=m;PD.key=key;PD.at=Date.now();}catch(e){}}
 function pdRow(u){const x={...u};const r=pdRange();
   if(r&&PD.data&&PD.key===r.from+r.to){const p=PD.data[u.id]||{real:0,comm:0,trades:0};x.realised_all=p.real;x.commission_total=p.comm;x.trades=p.trades;x.unrealised=r.current?(u.unrealised||0):0;}   // open positions show in the current day/week/month; a past period is closed trades only
-  else{x.realised_all=u.balance-u.total_credited+(u.commission_total||0);x.commission_total=u.commission_total||0;x.unrealised=u.unrealised||0;}
+  else{x.realised_all=u.balance-u.total_credited+(u.commission_total||0)+(u.settled_total||0);x.commission_total=u.commission_total||0;x.unrealised=u.unrealised||0;}   // all time: every finished week (settled_total) plus the running one
   x.pl_total=x.unrealised+x.realised_all;x.pnl=x.pl_total-x.commission_total;return x;}
 function pdBars(){const r=pdRange();const h=[['all','All Time'],['day','Daily'],['week','Weekly'],['month','Monthly']].map(([k,l])=>`<button class="fchip${PD.mode===k?' active':''}" data-pm="${k}">${l}</button>`).join('')+(r?`<button class="pdn" data-pn="-1" title="Earlier">‹</button><span class="pdl">${r.label}</span><button class="pdn" data-pn="1" title="Later"${r.current?' disabled':''}>›</button>`:'');
   for(const id of ['#pdBar','#pdBar2']){const el=$(id);if(!el)continue;el.innerHTML=h;
@@ -538,6 +551,7 @@ function paintUsers(){const L=users.map(pdRow);const S=k=>L.reduce((a,u)=>a+(u[k
   const tc=S('total_credited'),te=S('equity');
   $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(S('available'));$('#sTrades').textContent=S('trades');$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(S('used_margin'));$('#sPos').textContent=S('open_positions');
   const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-S('realised_all'));set('#hOpen',-S('unrealised'));set('#hGross',-S('pl_total'));set('#hComm',S('commission_total'));set('#hNet',-S('pnl'));
+  {const st=users.reduce((x,u)=>x+(u.settled_total||0),0),el=$('#pdNote');if(el)el.innerHTML=PD.mode==='all'&&Math.abs(st)>=0.5?`All Time adds every finished week to the running one. Finished weeks are already settled (users ${sgn(st)}, our side ${sgn(-st)}), so Net Balance = Allocated + this week's Net P&amp;L only.`:'';}
   renderUsers();}
 async function loadUsers(){loadLive();users=await api('/admin/users');await loadPeriod();
   const sel=$('#pUser');const cur=sel.value;sel.innerHTML='<option value="">All users</option>'+users.map(u=>`<option value="${u.id}">${u.display_name}</option>`).join('');sel.value=cur;
@@ -584,6 +598,24 @@ function styleChart(){const light=document.documentElement.getAttribute('data-th
 const chartDay=t=>typeof t==='number'?new Date(t*1000):typeof t==='string'?new Date(t+'T00:00:00Z'):new Date(Date.UTC(t.year,t.month-1,t.day));
 function ensureChart(){if(chart)return;chart=LightweightCharts.createChart($('#dailyChart'),{height:220,rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false,tickMarkFormatter:t=>chartDay(t).toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'UTC'})},localization:{timeFormatter:t=>chartDay(t).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})},handleScroll:false,handleScale:false});
   series=chart.addHistogramSeries({priceFormat:{type:'volume'}});styleChart();new ResizeObserver(()=>chart.applyOptions({width:$('#dailyChart').clientWidth})).observe($('#dailyChart'));}
+let wkOpen=new Set();
+async function loadWeekly(){
+  const sel=$('#wkSel');const want=sel.value||'';
+  const d=await api('/admin/weekly'+(want?'?week_end='+want:''));
+  const lab=w=>{const b=new Date(w+'T00:00:00Z'),a=new Date(b);a.setUTCDate(b.getUTCDate()-6);const f=(x,o)=>x.toLocaleDateString('en-IN',{timeZone:'UTC',...o});return f(a,{day:'numeric',month:'short'})+' – '+f(b,{day:'numeric',month:'short',year:'numeric'});};
+  sel.innerHTML='<option value="">This week (running)</option>'+d.weeks.map(w=>`<option value="${w}">${lab(w)}</option>`).join('');sel.value=want;
+  $('#wkPill').textContent=d.final?'FINAL':'WEEK IN PROGRESS · PROVISIONAL';$('#wkPill').className='pill '+(d.final?'FILLED':'OPEN');
+  $('#wkSub').textContent=lab(d.week_end)+(d.final?' · closed at '+d.cutoff+(d.exact?'':' (the cut-off ran late)'):' · open positions valued right now · becomes final at '+d.cutoff);
+  const cell=(v,b)=>`<td class="num ${cls(v)}">${b?'<b>':''}${sgn(v)}${b?'</b>':''}</td>`;
+  const body=d.rows.map(r=>{const cr=r.closed_crypto+r.valuation_crypto-r.commission_crypto,open=wkOpen.has(r.user_id);
+    return `<tr class="clickable" data-wu="${r.user_id}"><td><b>${esc(r.display_name)}</b> <span class="small mut">${esc(r.username)}</span>${r.unpriced?` <span class="pill REJECTED" title="No price was available for ${r.unpriced} position(s); left as they were">${r.unpriced} no price</span>`:''}${r.other?` <span class="pill REJECTED" title="Coins moved by something other than trades, valuation and commission">other ${sgn(r.other)}</span>`:''}</td>${cell(r.closed)}${cell(r.valuation)}<td class="num ${r.commission?'dn':'mut'}">${r.commission?'-'+inr(r.commission):inr(0)}</td>${cell(r.result,1)}<td class="num">${inr(r.coins_after)}</td><td class="num">${r.carried}</td></tr>`
+      +(open?`<tr class="wksplit"><td class="small mut" style="padding-left:28px">All other markets</td><td class="num small mut">${sgn(r.closed-r.closed_crypto)}</td><td class="num small mut">${sgn(r.valuation-r.valuation_crypto)}</td><td class="num small mut">-${inr(r.commission-r.commission_crypto)}</td><td class="num small mut">${sgn(r.result-cr)}</td><td></td><td></td></tr><tr class="wksplit"><td class="small mut" style="padding-left:28px">Crypto</td><td class="num small mut">${sgn(r.closed_crypto)}</td><td class="num small mut">${sgn(r.valuation_crypto)}</td><td class="num small mut">-${inr(r.commission_crypto)}</td><td class="num small mut">${sgn(cr)}</td><td></td><td></td></tr>`:'');}).join('');
+  const t=d.total;
+  $('#wkTbl tbody').innerHTML=(body||`<tr><td colspan=7 class="mut">No settlement recorded for this week</td></tr>`)+(d.rows.length?`<tr style="font-weight:700"><td>All users</td>${cell(t.closed)}${cell(t.valuation)}<td class="num dn">${t.commission?'-'+inr(t.commission):inr(0)}</td>${cell(t.result,1)}<td class="num">${inr(t.allocated)}</td><td class="num">${t.carried}</td></tr><tr style="font-weight:700"><td>Our side</td>${cell(-t.closed)}${cell(-t.valuation)}<td class="num up">${t.commission?'+'+inr(t.commission):inr(0)}</td>${cell(-t.result,1)}<td></td><td></td></tr>`:'');
+  $$('#wkTbl tr.clickable').forEach(tr=>tr.onclick=()=>{const id=+tr.dataset.wu;wkOpen.has(id)?wkOpen.delete(id):wkOpen.add(id);loadWeekly();});
+  $('#wkXls').onclick=()=>{location.href=`/api/admin/export.xlsx?from=${d.week_start}&to=${d.week_end}`;};
+}
+$('#wkSel').onchange=()=>loadWeekly();
 let shP='all';
 function shRange(){const n=new Date(Date.now()+5.5*3600e3);const iso=d=>d.toISOString().slice(0,10);const today=iso(n);
   if(shP==='today')return{from:today};if(shP==='week'){const d=new Date(n);d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return{from:iso(d)};}
@@ -642,16 +674,16 @@ function doApply(list){const s=$('#doSide').value,t=$('#doType').value,m=$('#doM
 ['doSide','doType','doMkt'].forEach(i=>$('#'+i).onchange=()=>{refreshDetail();});$('#doQ').oninput=()=>{refreshDetail();};
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
   $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
-  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);let realised=f.balance-cred+comm,commV=comm,unr=f.unrealised||0,netV=f.equity-cred;
+  const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);const uu=users.find(x=>x.id===u.id)||{};const settled=uu.settled_total||0;let realised=f.balance-cred+(uu.commission_total??comm)+settled,commV=(uu.commission_total??comm),unr=f.unrealised||0,netV=f.equity-cred+settled;
   {const r=pdRange();if(r&&PD.data&&PD.key===r.from+r.to){const pp=PD.data[u.id]||{real:0,comm:0};realised=pp.real;commV=pp.comm;unr=r.current?unr:0;netV=unr+realised-commV;}}
   {const pl=unr+realised;const PN=new Set(['Unrealised','Realised','P&L','Net P&L']);
   $('#dFunds').innerHTML=[['Allocated',cred],['Available Balance',f.available],['Margin Used',f.used_margin],['Unrealised',unr],['Realised',realised],['P&L',pl],['Commission',-commV],['Net P&L',netV],['Net Balance',f.equity]].map(([k,v])=>`<div class="stat"><span class="mut small">${k}</span><b class="num ${PN.has(k)?cls(v):k==='Commission'&&v?'mut':''}">${PN.has(k)?sgn(v):inr(v)}</b></div>`).join('');}
   const T=$('#dTbl');$('#doWrap').classList.toggle('hidden',dtab!=='orders');
   const lotTxt=(qty,lot)=>{const l=lot?qty/lot:qty;const n=Math.abs(l);return `${l>0?'+':'−'}${n%1?n.toFixed(2):n} lot${n===1?'':'s'}<div class="small mut">${Math.abs(qty)} units</div>`;};
   if(dtab==='positions'){T.tHead.innerHTML='<tr><th>Contract</th><th>Lots</th><th>Avg</th><th title="Price the user could exit at right now (bid for a long, ask for a short) — unrealised P&L is marked to this, same as the user screen">Exit px</th><th>Unrealised</th><th>Margin</th><th>Expiry</th></tr>';
-    T.tBodies[0].innerHTML=d.positions.map(p=>`<tr><td>${p.symbol}${['CRYPTO','FOREX'].includes(p.exchange)?'':(p.product==='MIS'?' <span class="small" style="color:var(--acc)">Intraday</span>':' <span class="small mut">Overnight</span>')}</td><td class="num ${p.qty>0?'up':'dn'}">${lotTxt(p.qty,p.lot_size)}</td><td class="num">${fmt(p.avg_price)}</td><td class="num">${fmt(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}">${fmt(p.unrealised)}</td><td class="num">${inr(p.margin)}</td><td>${p.expiry}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No open positions</td></tr>';}
+    T.tBodies[0].innerHTML=d.positions.map(p=>`<tr><td>${p.symbol}${['CRYPTO','FOREX'].includes(p.exchange)?'':(p.product==='MIS'?' <span class="small" style="color:var(--acc)">Intraday</span>':' <span class="small mut">Overnight</span>')}</td><td class="num ${p.qty>0?'up':'dn'}">${lotTxt(p.qty,p.lot_size)}</td><td class="num">${fmt(p.avg_price)}${p.carried_week?`<div class="small mut">carried · orig ${fmt(p.entry_avg)}</div>`:''}</td><td class="num">${fmt(p.mark??p.ltp)}</td><td class="num ${cls(p.unrealised)}">${fmt(p.unrealised)}${p.carried_week?`<div class="small mut">settled earlier ${sgn(p.settled_earlier)} · total ${sgn(p.total_since_entry)}</div>`:''}</td><td class="num">${inr(p.margin)}</td><td>${p.expiry}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No open positions</td></tr>';}
   if(dtab==='orders'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Lots</th><th>Type</th><th>Price</th><th>Status</th></tr>';
-    T.tBodies[0].innerHTML=doApply(d.orders).map(o=>`<tr><td class="small">${ordWhen(o,true)}</td><td>${o.symbol}</td><td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.lots}<div class="small mut">${o.qty} units</div></td><td>${o.order_type}</td><td class="num">${o.fill_price!=null?fmt(o.fill_price):fmt(o.limit_price||o.trigger_price)}</td><td><span class="pill ${o.status}">${o.status}</span>${/^(Auto square-off|Liquidated)/.test(o.reason||'')?' <span class="pill REJECTED">LIQUIDATED</span>':''} <span class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason||''}</span></td></tr>`).join('')||`<tr><td colspan=7 class="mut">${d.orders.length?'No orders match these filters':'No orders'}</td></tr>`;}
+    T.tBodies[0].innerHTML=doApply(d.orders).map(o=>`<tr><td class="small">${ordWhen(o,true)}</td><td>${o.symbol}</td><td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td class="num">${o.lots}<div class="small mut">${o.qty} units</div></td><td>${o.order_type}</td><td class="num">${o.fill_price!=null?fmt(o.fill_price):fmt(o.limit_price||o.trigger_price)}</td><td><span class="pill ${o.status}">${o.status}</span>${/^(Auto square-off|Liquidated)/.test(o.reason||'')?' <span class="pill REJECTED">LIQUIDATED</span>':''} <span class="small ${o.status==='FILLED'?'mut':'dn'}">${o.reason||''}</span>${o.carry_note?`<div class="small" style="color:var(--acc)">${esc(o.carry_note)}</div>`:''}</td></tr>`).join('')||`<tr><td colspan=7 class="mut">${d.orders.length?'No orders match these filters':'No orders'}</td></tr>`;}
   if(dtab==='trades'){T.tHead.innerHTML='<tr><th>Time</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Comm.</th><th>Realised</th></tr>';
     T.tBodies[0].innerHTML=d.trades.map(t=>`<tr><td class="small">${new Date(t.created_at).toLocaleString('en-IN')}</td><td>${t.symbol}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${t.qty}</td><td class="num">${fmt(t.price)}</td><td class="num mut">${t.commission?'-'+fmt(t.commission):'—'}</td><td class="num ${cls(t.realised_pnl)}">${t.realised_pnl?fmt(t.realised_pnl):'—'}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">No trades</td></tr>';}
   if(dtab==='ledger'){T.tHead.innerHTML='<tr><th>Time</th><th>Type</th><th>Note</th><th>Amount</th><th>Balance after</th></tr>';

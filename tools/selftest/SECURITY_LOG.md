@@ -132,3 +132,10 @@ Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
   could exceed it (margin is still required in full, so no free money expected).
 - A Forex / Global position force-closed while its rupee conversion rate is missing would book zero profit or loss.
 - Positions on a perpetual the crypto exchange suspends: now kept listed by the branch fix; re-check after it is live.
+
+## 13 Nov 2026 — weekly settlement (Sunday 23:59:59 IST)
+- New: `app/weekly.py`. Open positions are valued at the week-close price and carried forward at it (not squared off); the week's result is settled and coins go back to Allocated. Fills are held from 23:59:57 until the cut-off has run.
+- Month simulation `tools/selftest/weekly_sim.py` (16 accounts, 6 cut-offs, late cut-off with and without trades in between, missed week, unpriced position, liquidation, expiry): every week, screen figure and Excel total is checked against an independent own-price P&L. Must stay at 0 failures.
+- Daily live check (`_books`): finished weeks match the ledger; every finished week adds up; carried positions keep their original average; the cut-off has run for every finished week; every open position has a price for the valuation.
+- `POST /api/admin/weekly/test-close` exists only when `PT_WEEK_TEST=1` (private copy). Never set it on the live site.
+- The nightly hunt must not change `WEEKLY_VALUATION` / `WEEKLY_SETTLEMENT` ledger lines, `week_settlements` rows or a position's `entry_avg` / `carried_week`.

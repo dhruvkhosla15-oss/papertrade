@@ -130,10 +130,16 @@ def _split(db, user, start: Optional[datetime]) -> dict:
 
 
 # ---- the cut-off --------------------------------------------------------------------------------------
-def close_week(engine, db, week_end: date, exact: bool = True) -> dict:
+def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[datetime] = None) -> dict:
     """Run the weekly cut-off for the week ending on `week_end`. Call with the engine lock held.
-    Idempotent: an account that already has a row for this week is skipped."""
-    stamp = cutoff_utc(week_end)
+    Idempotent: an account that already has a row for this week is skipped.
+    `stamp` is the real time of a late run; see below for when it is used."""
+    nominal = cutoff_utc(week_end)
+    # Fills are held from the cut-off until it has run, so normally nothing is traded in between and the
+    # books are cut at Sunday 23:59:59 even when the cut-off runs late. Only if something did trade after
+    # that moment (the hold was released after repeated failures) is the real time used.
+    traded_after = stamp is not None and stamp > nominal and db.query(Trade).filter(Trade.created_at > nominal).first() is not None
+    stamp = stamp if traded_after else nominal
     we = week_end.isoformat()
     done = {r.user_id for r in db.query(WeekSettlement).filter_by(week_end=we).all()}
     summary = {"week_end": we, "accounts": 0, "carried": 0, "unpriced": 0, "result_total": 0.0}

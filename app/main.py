@@ -1060,8 +1060,14 @@ async def weekly_loop():
                             db.expire_all()
                             d = date.fromisoformat(closed) + timedelta(days=7)
                             while d <= target:
-                                results.append(_weekly.close_week(engine, db, d, exact=not late))
+                                results.append(_weekly.close_week(engine, db, d, exact=not late, stamp=datetime.utcnow() if late else None))
                                 d += timedelta(days=7)
+                            try:                      # the new day starts from the settled books
+                                alloc, equity = _book_totals(db)
+                                set_setting(db, "daystart", json.dumps({"day": now.date().isoformat(), "alloc": alloc, "equity": equity,
+                                                                        "exact": not late, "at": now.strftime("%H:%M")}))
+                            except Exception:
+                                log.exception("day-start snapshot after the weekly settlement failed")
                         engine.week_hold = False; failures = 0
                         for u in db.query(User).all():
                             engine._emit(u.id, {"type": "refresh"})
@@ -1162,6 +1168,22 @@ def admin_weekly(week_end: Optional[str] = None, admin: User = Depends(current_a
         return _weekly.report(engine, db, week_end)
     except ValueError:
         raise HTTPException(400, "week_end must look like 2026-11-15")
+
+
+if os.getenv("PT_WEEK_TEST") == "1":          # private test copy only: never set on the live site
+    @app.post("/api/admin/weekly/test-close")
+    async def weekly_test_close(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+        """Run the cut-off for the week now running, right away (to look at the screens after a cut-off)."""
+        async with engine._lock:
+            we = _weekly.week_end_of((datetime.utcnow() + IST).date())
+            out = _weekly.close_week(engine, db, we)
+            now = datetime.utcnow()                    # the real cut-off is stamped Sunday 23:59:59; here that is still ahead
+            for l in db.query(Ledger).filter(Ledger.kind.in_(_weekly.WEEK_KINDS), Ledger.created_at > now).all():
+                l.created_at = now
+            for r in db.query(_weekly.WeekSettlement).filter(_weekly.WeekSettlement.created_at > now).all():
+                r.created_at = now
+            db.commit()
+            return out
 
 
 @app.get("/api/weekly")
@@ -1815,9 +1837,10 @@ def leaderboard(admin: User = Depends(current_admin), db: Session = Depends(get_
         f = engine.funds(db, u)
         credited = sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                        .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
+        allp = f["equity"] - credited + _weekly.settled_total(db, u)       # all weeks, finished and running
         rows.append({"username": u.username, "display_name": u.display_name, "credited": round(credited, 2),
-                     "equity": f["equity"], "pnl": round(f["equity"] - credited, 2),
-                     "pnl_pct": round((f["equity"] - credited) / credited * 100, 2) if credited else 0})
+                     "equity": f["equity"], "pnl": round(allp, 2),
+                     "pnl_pct": round(allp / credited * 100, 2) if credited else 0})
     rows.sort(key=lambda r: -r["pnl"])
     return rows
 
@@ -1860,7 +1883,12 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
             all_days[d] = round(all_days.get(d, 0) + v, 2)
         credited = sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
         funds = engine.funds(db, u)
+        # open positions valued at a weekly cut-off inside this period (booked without a trade)
+        valuation = round(sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind == _weekly.VALUATION,
+                                                                        Ledger.created_at >= start, Ledger.created_at < end)), 2)
+        settled = _weekly.settled_total(db, u)          # sum of finished weeks' results
         out["users"].append({
+            "valuation": valuation, "settled_total": settled, "week_pnl": round(funds["equity"] - credited, 2),
             "id": u.id, "username": u.username, "display_name": u.display_name,
             "trades": len(trades), "closing_trades": len(closing), "wins": len(wins), "losses": len(losses),
             "win_rate": round(len(wins) / len(closing) * 100, 1) if closing else None,
@@ -1868,7 +1896,7 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
             "best": round(max(wins), 2) if wins else 0, "worst": round(min(losses), 2) if losses else 0,
             "avg_win": round(sum(wins) / len(wins), 2) if wins else 0, "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
             "profit_factor": round(sum(wins) / abs(sum(losses)), 2) if losses else None,
-            "allocated": round(credited, 2), "equity": funds["equity"], "overall_pnl": round(funds["equity"] - credited, 2),
+            "allocated": round(credited, 2), "equity": funds["equity"], "overall_pnl": round(funds["equity"] - credited + settled, 2),
             "daily": dict(sorted(daily.items())),
         })
     out["daily"] = dict(sorted(all_days.items()))
@@ -1888,6 +1916,74 @@ def admin_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[
 def my_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
     return build_report(db, [user], from_, to)
+
+
+def _weekly_rows(db, users, start=None, end=None) -> list:
+    """Finished weeks whose cut-off falls in [start, end) for these users, oldest first, then the running week
+    if the range reaches now. Each item: (week_end, final, row dict)."""
+    ids = {u.id: u for u in users}
+    out = []
+    q = db.query(_weekly.WeekSettlement).filter(_weekly.WeekSettlement.user_id.in_(list(ids) or [0]))
+    for r in q.order_by(_weekly.WeekSettlement.week_end, _weekly.WeekSettlement.user_id).all():
+        cut = _weekly.cutoff_utc(date.fromisoformat(r.week_end))      # the week's own Sunday, even if it was closed late
+        if (start is not None and cut < start) or (end is not None and cut >= end):
+            continue
+        out.append((r.week_end, True, _weekly.row_dict(db, r, ids[r.user_id])))
+    if end is None or end > datetime.utcnow():
+        for u in users:
+            row = _weekly.running_row(engine, db, u)
+            out.append((row["week_end"], False, row))
+    return out
+
+
+def _weekly_sheet(wb, db, users, start, end, many: bool):
+    """Sheet 'Weekly Settlement': one line per user per week. Week Result = Closed Trades + Open Positions At
+    Week Close - Commission; after the cut-off the coins are back to Allocated."""
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    ws = wb.create_sheet("Weekly Settlement")
+    ws.append(["limefx — Weekly Settlement"]); ws["A1"].font = Font(bold=True, size=14, color="365314")
+    ws.append(["Week = Monday to Sunday. Cut-off: Sunday 11:59 pm. Week Result = Closed Trades + Open Positions At Week Close − Commission. "
+               "Open positions are not squared off: they are valued at the week-close price and carried forward at it."]); ws["A2"].font = Font(color="6B7280")
+    ws.append([])
+    heads = ["Week", "Status"] + (["User"] if many else []) + ["Closed Trades", "Open Positions At Week Close", "Commission", "Week Result",
+                                                                 "Of Which Crypto", "Of Which Other Markets", "Coins After Settlement", "Positions Carried Forward", "Note"]
+    ws.append(heads)
+    for c in ws[4]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="365314"); c.alignment = Alignment(horizontal="center")
+    rows = _weekly_rows(db, users, start, end)
+    money = '#,##0.00;[Red]-#,##0.00'
+    cur = None; first = 5; tfill = PatternFill("solid", fgColor="ECFCCB")
+    def total_line(a, b, label):
+        r = ws.max_row + 1
+        ws.cell(r, 1, label); m0 = 3 + (1 if many else 0)
+        for col in range(m0, m0 + 6):
+            L = get_column_letter(col); ws.cell(r, col, f"=SUM({L}{a}:{L}{b})")
+        for c in ws[r]:
+            c.font = Font(bold=True); c.fill = tfill
+    for we, final, r in rows:
+        if many and cur is not None and we != cur:
+            total_line(first, ws.max_row, f"TOTAL {_weekly.week_label(date.fromisoformat(cur))}"); first = ws.max_row + 1
+        cur = we
+        crypto = round(r["closed_crypto"] + r["valuation_crypto"] - r["commission_crypto"], 2)
+        note = ("" if final else "week in progress: open positions valued right now") + ("" if r["exact"] else "cut-off ran late") \
+            + (f"{' · ' if not final or not r['exact'] else ''}{r['unpriced']} position(s) had no price and were left as they were" if r["unpriced"] else "") \
+            + (f" · other {r['other']:+,.2f}" if r["other"] else "")
+        ws.append([_weekly.week_label(date.fromisoformat(we)), "FINAL" if final else "PROVISIONAL"] + ([r["display_name"]] if many else [])
+                  + [r["closed"], r["valuation"], -r["commission"], r["result"], crypto, round(r["result"] - crypto, 2),
+                     r["allocated"], r["carried"], note])
+    if many and cur is not None:
+        total_line(first, ws.max_row, f"TOTAL {_weekly.week_label(date.fromisoformat(cur))}")
+    m0 = 3 + (1 if many else 0)
+    for row in ws.iter_rows(min_row=5, max_row=ws.max_row):
+        for c in row:
+            if m0 <= c.column <= m0 + 6:
+                c.number_format = money; c.alignment = Alignment(horizontal="right")
+    for i, h in enumerate(heads, 1):
+        ws.column_dimensions[get_column_letter(i)].width = max(14, min(46, len(h) + 4))
+    ws.column_dimensions[get_column_letter(len(heads))].width = 60
+    ws.freeze_panes = "A5"
+    return ws
 
 
 def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optional[str], only: Optional[str] = None) -> bytes:
@@ -1963,7 +2059,8 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         cnt = lambda st: sum(1 for o in orders if o.status == st)
         sheet("Order Book", ["Date", "Time (IST)"] + tcol + ["Contract", "Side", "Type", "Lots", "Qty", "Limit Price", "Trigger Price", "Fill Price", "Status", "Note"],
               [[_ist_date(o.created_at), (o.created_at + IST).strftime("%H:%M:%S")] + tval(o.user_id) + [o.symbol, o.side, o.order_type,
-                o.lots, o.qty, o.limit_price, o.trigger_price, o.fill_price, o.status, o.reason] for o in orders],
+                o.lots, o.qty, o.limit_price, o.trigger_price, o.fill_price, o.status,
+                " · ".join(x for x in (o.reason, o.carry_note) if x)] for o in orders],
               money_cols=(sh(8), sh(9), sh(10)), int_cols=(sh(6), sh(7)), statement="Order Book",
               summary=f"Orders {len(orders)}   ·   Filled {cnt('FILLED')}   ·   Open {cnt('OPEN')}   ·   Rejected {cnt('REJECTED')}   ·   Cancelled {cnt('CANCELLED')}")
     # ---- P&L Statement --------------------------------------------------------------------------
@@ -1973,25 +2070,40 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         real = round(sum(x.realised_pnl or 0 for x in trades), 2)
         net = round(real - cm, 2)
         # trades the system made itself (auto square-off / margin call) are marked as liquidated
-        liq_orders = {o.id for o in db.query(Order).filter(Order.id.in_([x.order_id for x in trades if x.order_id])).all()
-                      if (o.reason or "").startswith(("Auto square-off", "Liquidated"))} if trades else set()
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L (Closed Trades)", "Note"],
-              [[_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
-                x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2),
-                "Liquidated by system" if x.order_id in liq_orders else ""] for x in trades],
+        t_orders = {o.id: o for o in db.query(Order).filter(Order.id.in_([x.order_id for x in trades if x.order_id])).all()} if trades else {}
+        liq_orders = {i for i, o in t_orders.items() if (o.reason or "").startswith(("Auto square-off", "Liquidated"))}
+        def tnote(x):
+            o = t_orders.get(x.order_id)
+            return " · ".join(v for v in ("Liquidated by system" if x.order_id in liq_orders else "", (o.carry_note or "") if o else "") if v)
+        prow = [(x.created_at, x.id, [_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
+                 x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2),
+                 tnote(x)]) for x in trades]
+        # open positions valued at a weekly cut-off: booked without a trade, shown as their own lines
+        vals = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.kind == _weekly.VALUATION, Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at, Ledger.id).all()
+        val_total = round(sum(l.amount for l in vals), 2)
+        prow += [(l.created_at, 10 ** 12 + l.id, [_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [(l.note or "").split(" valued at")[0], "",
+                  "WEEK CLOSE", "", "", "", l.amount, 0, l.amount, "Open position valued at the week-close price and carried forward: " + (l.note or "")]) for l in vals]
+        prow.sort(key=lambda r: (r[0], r[1]))
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L", "Note"],
+              [r[2] for r in prow],
               money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), int_cols=(sh(6),), statement="P&L Statement",
-              summary=f"Trades {len(trades)}   ·   Realised {sg(real)}   ·   Commission {sg(-cm)}   ·   Net P&L (Closed Trades) {sg(net)}   (open positions not included)",
-              totals=["TOTAL"] + [""] * (sh(8) - 1) + [real, -cm, net])
+              summary=(f"Trades {len(trades)}   ·   Closed Trades {sg(real)}   ·   Open Positions At Week Close {sg(val_total)}   ·   Commission {sg(-cm)}   ·   Net P&L {sg(round(net + val_total, 2))}"
+                       "   (positions still open now are not included)"),
+              totals=["TOTAL"] + [""] * (sh(8) - 1) + [round(real + val_total, 2), -cm, round(net + val_total, 2)])
         # the same figures per user, in the order the screens use, then how the account stands now
-        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L (Closed Trades)", "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
-                          "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (All Time)"],
-              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), -u["commission"], u["net_pnl"], u["trades"], u["closing_trades"],
+        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L (Closed Trades)", "Open Positions At Week Close", "Period Result",
+                          "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
+                          "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (This Week)", "Net P&L (All Time)"],
+              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), -u["commission"], u["net_pnl"], u["valuation"], round(u["net_pnl"] + u["valuation"], 2),
+                u["trades"], u["closing_trades"],
                 u["wins"], u["losses"], u["win_rate"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"],
-                u["allocated"], u["equity"], u["overall_pnl"]] for u in rep["users"]],
-              money_cols=(3, 4, 5, 11, 12, 13, 14, 16, 17, 18), int_cols=(6, 7, 8, 9, 10, 15), statement="Summary",
-              summary="Realised, Commission, Net P&L (Closed Trades) and Trades are for the period and count closed trades only — open positions are not included. Allocated, Net Balance and Net P&L (All Time) are as of now and do include open positions.",
-              totals=(["TOTAL", "", real, -cm, net, len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
-                      round(sum(u["equity"] for u in rep["users"]), 2), round(sum(u["overall_pnl"] for u in rep["users"]), 2)]) if many else None)
+                u["allocated"], u["equity"], u["week_pnl"], u["overall_pnl"]] for u in rep["users"]],
+              money_cols=(3, 4, 5, 6, 7, 13, 14, 15, 16, 18, 19, 20, 21), int_cols=(8, 9, 10, 11, 12, 17), statement="Summary",
+              summary=("Realised, Commission, Net P&L (Closed Trades) and Trades are for the period and count closed trades only. Open Positions At Week Close is what the weekly cut-offs "
+                       "inside the period booked on positions carried forward; Period Result is the two together. Allocated, Net Balance and Net P&L (This Week) are as of now and include "
+                       "open positions; Net Balance = Allocated + Net P&L (This Week). Net P&L (All Time) adds every finished week."),
+              totals=(["TOTAL", "", real, -cm, net, val_total, round(net + val_total, 2), len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
+                      round(sum(u["equity"] for u in rep["users"]), 2), round(sum(u["week_pnl"] for u in rep["users"]), 2), round(sum(u["overall_pnl"] for u in rep["users"]), 2)]) if many else None)
         days = sorted({d for u in rep["users"] for d in u["daily"]})
         cum = 0; rows = []
         for d in days:
@@ -2001,11 +2113,27 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         sheet("Daily Net P&L", ["Date"] + ([u["display_name"] for u in rep["users"]] if many else []) + ["Net P&L (Closed Trades)", "Cumulative Net P&L (Closed Trades)"], rows,
               money_cols=tuple(range(2, ncol + 1)), statement="Daily Net P&L",
               summary="Net P&L per day = Realised − Commission on that day's closed trades. Open positions are not included — they land here on the day they close.")
+        _weekly_sheet(wb, db, users, start if from_ else None, end if to else None, many)
+        if end > datetime.utcnow():
+            prow = []
+            for p in db.query(Position).filter(Position.user_id.in_(ids), Position.is_closed == False).order_by(Position.user_id, Position.id).all():   # noqa: E712
+                if not p.qty:
+                    continue
+                d = engine.position_dict(p)
+                prow.append(tval(p.user_id) + [p.symbol, p.exchange, "BUY" if p.qty > 0 else "SELL", abs(d["lots"]), abs(p.qty),
+                                               d["entry_avg"] if d["carried_week"] else d["avg_price"], d["avg_price"] if d["carried_week"] else None,
+                                               d["carried_week"] or "", d["mark"], d["settled_earlier"], d["unrealised"], d["total_since_entry"], d["margin"]])
+            sheet("Open Positions", tcol + ["Contract", "Exchange", "Side", "Lots", "Qty", "Original Avg", "Carried At", "Carried From Week Ending", "Now",
+                                            "Settled Earlier", "This Week", "Total Since Entry", "Margin"], prow,
+                  money_cols=(sh(6), sh(7), sh(9), sh(10), sh(11), sh(12), sh(13)), int_cols=(sh(4), sh(5)), statement="Open Positions (As Of Now)",
+                  summary="A position carried over a weekly cut-off shows the price it is carried at, what earlier weeks already settled on it, this week so far, and the total since the original average. Settled Earlier + This Week = Total Since Entry.",
+                  totals=["TOTAL"] + [""] * (sh(9) - 1) + [round(sum(r[sh(10) - 1] or 0 for r in prow), 2), round(sum(r[sh(11) - 1] or 0 for r in prow), 2),
+                                                             round(sum(r[sh(12) - 1] or 0 for r in prow), 2), round(sum(r[sh(13) - 1] or 0 for r in prow), 2)])
     # ---- Ledger Statement -----------------------------------------------------------------------
     if only in (None, "ledger"):
         kinds = {"ADMIN_CREDIT": "Coins Added", "ADMIN_DEBIT": "Coins Removed", "REALISED_PNL": "Realised",
                  "EXPIRY_SETTLEMENT": "Expiry Settlement", "LOT_SIZE_CORRECTION": "Lot Size Correction", "COMMISSION": "Commission",
-                 "LIQUIDATION": "Margin Call"}
+                 "LIQUIDATION": "Margin Call", "WEEKLY_VALUATION": "Weekly Valuation", "WEEKLY_SETTLEMENT": "Weekly Settlement"}
         led = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at, Ledger.id).all()
         rows = []; opening = None
         if not many:
@@ -2016,10 +2144,12 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
                   "Auto Square-off Charge" if (l.note or "").startswith("Auto square-off charge") else "Auto Square-off" if (l.note or "").startswith("Auto square-off") else kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
-        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION")), 2)
+        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION", "WEEKLY_SETTLEMENT")), 2)
         cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
+        wset = round(sum(l.amount for l in led if l.kind == "WEEKLY_SETTLEMENT"), 2)
         closing = (led[-1].balance_after if led else opening) if not many else None
-        summ = f"Entries {len(led)}   ·   Coins Added {sg(cr)}   ·   Coins Removed {sg(dr)}   ·   Realised {sg(pnl)}   ·   Commission {sg(cmm)}   ·   Net P&L {sg(round(pnl + cmm, 2))}"
+        summ = (f"Entries {len(led)}   ·   Coins Added {sg(cr)}   ·   Coins Removed {sg(dr)}   ·   Realised {sg(pnl)}   ·   Commission {sg(cmm)}   ·   Net P&L {sg(round(pnl + cmm, 2))}"
+                + (f"   ·   Weekly Settlements {sg(wset)} (coins put back or taken out to return to Allocated)" if wset else ""))
         sheet("Ledger Statement", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance After", "Note"], rows, money_cols=(sh(4), sh(5)),
               statement="Ledger Statement", summary=summ,
               totals=(["", "", "Closing Balance", "", closing, ""] if not many else None))
@@ -2045,9 +2175,12 @@ def _admin_rows(db):
         f = engine.funds(db, u)
         led = db.query(Ledger).filter_by(user_id=u.id).all()
         alloc = sum(l.amount for l in led if l.kind in ("ADMIN_CREDIT", "ADMIN_DEBIT"))
-        comm = -sum(l.amount for l in led if l.kind == "COMMISSION")
+        # the week in progress: everything since the last weekly settlement brought the coins back to Allocated
+        cut = _weekly.last_cutoff(db, u)
+        comm = round(sum(t.commission or 0.0 for t in db.query(Trade).filter(Trade.user_id == u.id).filter(*([Trade.created_at > cut] if cut else []))), 2)
         realised = f["balance"] - alloc + comm
         rows.append({"name": u.display_name, "username": u.username, "status": "active" if u.is_active else "frozen",
+                     "settled_total": _weekly.settled_total(db, u),
                      "allocated": alloc, "exposure": f["used_margin"], "available": f["available"], "unrealised": f["unrealised"],
                      "realised": realised, "commission": comm, "net_balance": f["equity"], "net_pnl": f["equity"] - alloc,
                      "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
@@ -2077,7 +2210,9 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
         ws.row_dimensions[r].height = 22
 
     ws["A1"] = "limefx — Master Summary"; ws["A1"].font = Font(bold=True, size=14, color="365314")
-    ws["A2"] = f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   All Time   ·   {len(rows)} Users"; ws["A2"].font = Font(color="6B7280")
+    wk_end = _weekly.week_end_of(now.date())
+    ws["A2"] = (f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   This Week ({_weekly.week_label(wk_end)}, running)   ·   {len(rows)} Users"
+                "   ·   Earlier weeks are on the Weekly Settlement sheet"); ws["A2"].font = Font(color="6B7280")
     DASH_H, DASH_V, USERS_T, USERS_H = 4, 5, 7, 8
     first = USERS_H + 1; n = len(rows); last = first + n - 1; tot = last + 1
     # ---- users (their side) ----
@@ -2128,20 +2263,22 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
              ["Available Balance", "What the user can still trade with."],
              ["Margin Used", "Margin blocked by open positions and pending orders."],
              ["Unrealised", "Open positions valued at the price they could exit at right now."],
-             ["Realised", "Profit or loss booked on closed trades, before commission."],
+             ["Realised", "Profit or loss booked on trades closed this week, before commission. A position carried over from last week is measured from last week's closing price."],
              ["P&L", "Unrealised + Realised."],
              ["Commission", "Charged on every buy and sell: a percentage of the traded value (of the premium for options), plus the flat fee per order where one is set. Negative for the user, positive for us."],
              ["Net P&L", "P&L + Commission (commission is negative for the user)."],
              ["Net Balance", "Allocated + Net P&L. What the account is worth now."],
+             ["Weekly Settlement", "Every Sunday at 11:59 pm each open position is valued at the closing price and carried forward at that price, the week's result is settled, and coins go back to Allocated. So this sheet shows the week in progress; finished weeks are on the Weekly Settlement sheet."],
              ["", ""],
              ["Dashboard (Our Side)", "The TOTAL row with Unrealised, Realised, P&L, Commission and Net P&L turned round: what users lose, we gain."],
              ["Check (Should Be 0)", "Allocated + Net P&L − Net Balance for each user."]]
     for l in lines:
         w2.append(l)
     w2["A1"].font = Font(bold=True, size=13)
-    for i in range(3, 15):
+    for i in range(3, 16):
         w2.cell(i, 1).font = Font(bold=True)
     w2.column_dimensions["A"].width = 24; w2.column_dimensions["B"].width = 110
+    _weekly_sheet(wb, db, [u for u in _weekly.accounts(db) if not u.is_admin], None, None, many=True)
     buf = io.BytesIO(); wb.save(buf)
     return _xlsx_response(buf.getvalue(), f"limefx_master_summary_{now.strftime('%Y-%m-%d')}.xlsx")
 

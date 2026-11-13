@@ -753,6 +753,32 @@ class Probe:
                     bad_funds.append(f"{u.username} ({type(e).__name__})")
             self.ok(f"balance equals the last ledger line on all {len(users)} accounts", not bad_led, "; ".join(bad_led[:6]))
             self.ok("every account's funds can be computed", not bad_funds, "; ".join(bad_funds[:6]))
+            # Weekly settlement: the finished weeks, the ledger and the carried positions must tell one story.
+            from . import weekly as _wk
+            from .db import WeekSettlement
+            wk_led, wk_sum, wk_pos = [], [], []
+            for u in users:
+                rows = db.query(WeekSettlement).filter_by(user_id=u.id).all()
+                if abs(sum(r.result for r in rows) - _wk.settled_total(db, u)) > 0.05:
+                    wk_led.append(u.username)
+                wk_sum += [f"{u.username} {r.week_end} ({r.other:+,.2f})" for r in rows if abs(r.other or 0) >= 0.05]
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                if not p.qty or not p.carried_week:
+                    continue
+                d = self.engine.position_dict(p)
+                if not (p.entry_avg and p.entry_avg > 0) or (d.get("unrealised") is not None and d.get("total_since_entry") is not None
+                                                             and abs(d["settled_earlier"] + d["unrealised"] - d["total_since_entry"]) > 0.02):
+                    wk_pos.append(p.symbol)
+            self.ok("finished weeks in the weekly report match the ledger on every account", not wk_led, ", ".join(wk_led[:6]))
+            self.ok("every finished week adds up (closed trades + open positions at week close − commission)", not wk_sum, "; ".join(wk_sum[:6]))
+            self.ok("every carried position keeps its original average (settled earlier + this week = total since entry)", not wk_pos, ", ".join(sorted(set(wk_pos))[:8]))
+            nopx = sorted({p.symbol for p in db.query(Position).filter_by(is_closed=False).all() if p.qty and _wk.close_price(self.engine, p) is None})
+            self.ok("every open position has a price the weekly cut-off can value it at", not nopx, ", ".join(nopx[:8]))
+            now_i = _ist()
+            due = _wk.last_finished_week_end(now_i).isoformat()
+            closed = get_setting(db, "week_closed") or due
+            just = now_i.weekday() == 0 and now_i.hour == 0 and now_i.minute < 15
+            self.ok("the weekly cut-off has run for every finished week", closed >= due or just, f"last closed {closed}, due {due}")
             o_bad = [o.id for o in db.query(Order).filter_by(status="OPEN").all()
                      if o.margin_blocked is None or o.margin_blocked < 0 or (o.order_type == "LIMIT" and not (o.limit_price and o.limit_price > 0))
                      or (o.order_type == "SL" and not (o.trigger_price and o.trigger_price > 0)) or o.qty <= 0]

@@ -666,7 +666,9 @@ function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   const mtxt=f.margin_short?'<span><b>Margin shortfall</b> — your Available Balance is below zero. Positions are squared off automatically at market until it is back above zero.</span>':f.margin_warn?'<span><b>Margin low</b> — reduce positions or ask for more coins. If your Available Balance goes below zero, positions are squared off automatically.</span>':'';
   const mb=$('#marginBar');if(mb){mb.innerHTML=mtxt;mb.className=mtxt?'feedbar':'feedbar hidden';}
   const fm=$('#fMaint');if(fm){fm.innerHTML=mtxt?'<b class="dn">'+(f.margin_short?'Margin shortfall — positions are squared off automatically':'Margin low — reduce positions or ask for more coins')+'</b>':'';fm.style.display=mtxt?'':'none';}}
-async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);showAlerts(m.alerts);}catch(e){}}
+async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);
+  if(m.week_warning&&!window._wkWarn&&!document.querySelector('.mpop')){window._wkWarn=1;showAlerts([m.week_warning].concat((m.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))));}
+  else showAlerts(m.alerts);}catch(e){}}
 /* messages the system left for this user (e.g. "Position liquidated"): a pop-up that stays until OK is pressed */
 function showAlerts(list){if(!list||!list.length||document.querySelector('.mpop'))return;
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';

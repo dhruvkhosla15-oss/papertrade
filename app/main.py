@@ -468,7 +468,20 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     except Exception:
         log.exception("week grace")
     on, spread, stale = engine.liquidity_settings(db)
-    return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": _feed_status(),
+    funds = engine.funds(db, user)
+    week_warning = None          # short of margin after the weekly settlement: shown every time the app is opened, until fixed
+    try:
+        g = engine._week_grace_get(db, user.id)
+        if g and funds.get("margin_short") and engine.week_grace(db, user.id):
+            hard = datetime.fromisoformat(g["hard"])
+            when = hard.strftime("%A, %I:%M %p").replace(", 0", ", ")
+            week_warning = {"title": "Margin shortfall — reduce your positions",
+                            "text": (f"Your coins went back to the allocated amount at the weekly settlement and your open positions need more margin than that. "
+                                     f"Available Balance is {funds['available']:,.0f}.\n\nPlease reduce your positions before {when}. "
+                                     f"If Available Balance is still below zero then, positions are squared off automatically until it is back above zero.")}
+    except Exception:
+        log.exception("week warning")
+    return {"week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}

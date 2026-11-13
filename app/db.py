@@ -121,6 +121,20 @@ class Trade(Base):
     created_at = Column(DateTime, default=now)
 
 
+class ShadowFill(Base):
+    """Dry run only: the price the OPPOSITE order of a user fill would have got from the live order book
+    at that same instant. Nothing here is ever sent to a broker."""
+    __tablename__ = "shadow_fills"
+    id = Column(Integer, primary_key=True)
+    trade_id = Column(Integer, unique=True, index=True, nullable=False)   # no foreign key: trades of a deleted account go, this stays harmlessly
+    side = Column(String(4), nullable=False)          # our side (opposite of the user's)
+    price = Column(Float, nullable=False)             # volume-weighted price our order would have filled at
+    bid = Column(Float)
+    ask = Column(Float)
+    basis = Column(String(12), default="book")        # book = walked the live depth; quote = best bid/ask only
+    created_at = Column(DateTime, default=now)
+
+
 class Watch(Base):
     __tablename__ = "watchlist"
     id = Column(Integer, primary_key=True)

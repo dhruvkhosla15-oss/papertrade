@@ -662,9 +662,12 @@ class Engine:
             self._ledger(db, user, -comm, "COMMISSION",
                          f"{self.commission_label(db, ins)} on {order.side} {qty} {ins.symbol} @ {price} (₹{price * qty * vf:,.0f})")
         order.status = "FILLED"; order.fill_price = price
-        db.add(Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
-                     exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
-                     commission=comm))
+        tr = Trade(user_id=user.id, order_id=order.id, token=order.token, symbol=ins.symbol,
+                   exchange=ins.exchange, side=order.side, qty=qty, price=price, realised_pnl=round(realised, 2),
+                   commission=comm)
+        db.add(tr)
+        if not user.is_admin and not (user.username or "").startswith("zz-probe-"):
+            self._shadow_fill(db, tr, ins)
         self.feed.pin([order.token])
         if ins.instrument_type in ("CE", "PE"):
             # an option is margined and, at expiry, settled against its underlying: keep that price live
@@ -924,6 +927,35 @@ class Engine:
         when = (datetime.utcnow() + timedelta(hours=IST_OFFSET_HOURS)).strftime("%d %b, %I:%M %p")
         cur.append({"id": str(int(time.time() * 1000)), "title": title, "text": f"{when}\n{text}"})
         set_setting(db, key, json.dumps(cur[-10:]))
+
+    def _shadow_fill(self, db: Session, tr: Trade, ins):
+        """Dry-run record for the Master's Shadow Book: what the opposite MARKET order of the same size would
+        have been filled at from the live order book right now. Never sends anything; never blocks a fill."""
+        try:
+            if ins.exchange not in ("NFO", "BFO", "MCX"):
+                return
+            t = self.feed.prices.get(tr.token) or {}
+            ours = "SELL" if tr.side == "BUY" else "BUY"
+            levels = [l for l in (t.get("bids") if ours == "SELL" else t.get("asks")) or [] if l and l[0] and l[1]]
+            best = t.get("bid") if ours == "SELL" else t.get("ask")
+            if levels:
+                left, cost = tr.qty, 0.0
+                for l in levels:
+                    take = min(left, l[1]); cost += take * l[0]; left -= take
+                    if left <= 0:
+                        break
+                if left > 0:                      # visible depth ran out: the rest at the worst visible price
+                    cost += left * levels[-1][0]
+                px, basis = cost / tr.qty, "book"
+            elif best:
+                px, basis = float(best), "quote"
+            else:
+                return
+            db.flush()
+            from .db import ShadowFill
+            db.add(ShadowFill(trade_id=tr.id, side=ours, price=round(px, 4), bid=t.get("bid"), ask=t.get("ask"), basis=basis))
+        except Exception:
+            log.exception("shadow fill record failed (ignored)")
 
     def liq_charge_terms(self, db: Session) -> tuple:
         """(flat coins per order, % of position value on crypto) charged when the SYSTEM squares a position

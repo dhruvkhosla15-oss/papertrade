@@ -1,20 +1,18 @@
-13 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: a user could trade at an old, frozen price after the market had already moved, and pocket the difference.
+14 NOV 2026 (IST). LOOPHOLE FOUND AND FIXED: ONE USER COULD FILL THE LIVE-PRICE CONNECTION IN SECONDS, LEAVING EVERYONE ELSE WITHOUT PRICES. ONE MORE FIX WAITS FOR YOU.
 
-What I tried tonight
-1. Looked at a contract, stopped looking so its price froze, waited for the index to move, then traded at the old price. Worked: +24,564 coins in minutes on Nifty options, +14,831 on Sensex. Also on MCX, Currency and crypto options.
-2. Held an option to expiry while its underlying price was frozen: it was paid out on the old price.
-3. Traded a currency contract after 12:30 pm on its last day, when the real exchange has stopped it: accepted.
-4. Used an old login after the Master reset the password: still worked.
-5. Tried to gain from the new auto square-off: no gain.
+Tried tonight
+1. 1,600 nonsense orders on contracts nobody watches. Each made the site stream that contract for good; at 3,000 nobody can trade a new contract until a restart. Fixed.
+2. The same limit exit placed twice (like stop-loss and target together): both filled and the position flipped, in all seven markets. Fixed.
+3. Weekly settlement: a thin option bought at 3 whose last trade, days old, was 15 is valued at 15 when the book has no buyer (always so when the exchange is shut): 30,000 spent showed 120,000 profit (test with prices set by hand). Fix waiting.
+4. Weekly settlement: carried positions, adds, part exits, flips, opening more while short of margin: all correct.
+5. Crypto: mixed leverage when adding: no gain.
 
-Markets attacked: NSE, BSE, MCX, Currency, Crypto, Forex, Global (the last two were not open to it).
+Markets attacked: NSE, BSE, MCX, Currency, Forex, Global, Crypto.
 
-Live now: orders wait for a live price; options settle on a live price; currency contracts stop at 12:30 pm on their last day; a new password ends every older login. Honest trading is unchanged, no account was touched. Someone may already have used the frozen price: look for many quick, small, nearly always winning trades.
+Live now: one account can start only 25 unwatched contracts streaming, for half a minute each; a cancelled exit never fills. Honest trading unchanged, no account touched. Nobody could gain coins; a user with two exits may hold an unwanted opposite position.
 
-Added to the daily check: frozen price in every market, old login, option underlying live, currency 12:30 cut-off.
+Daily check: added double limit exit and price flood.
 
-Note: the new auto square-off also hits holders of bought options after a small dip. Tell me if you want that changed.
+Waiting for you: fix 3 changes how thin positions are valued at the weekly cut-off (first is this Sunday). Open Claude and say "put security-fix/2026-11-14 live".
 
-Waiting for you: nothing.
-
-Could not test: the Zerodha login return address.
+Could not test: the real feed after closing time.

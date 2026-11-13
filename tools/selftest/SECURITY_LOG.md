@@ -11,7 +11,22 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
+- `security-fix/2026-11-14` (pushed 14 Nov 2026): **weekly valuation at an old last trade.** At the cut-off a position
+  is valued at the exit side of the book (bid for a long, ask for a short); when nobody is quoting there, at the last
+  traded price, however old. Nobody is quoting whenever the exchange is shut, which for NSE, BSE, MCX and Currency is
+  always the case on Sunday midnight, and on a thin contract also during the day. A thin option bought at today's offer
+  of 3 whose last trade (days ago) was 15 is valued at 15: shown in-process (prices set by hand, the simulated feed never
+  has a one-sided book), 20 lots bought for 30,000 gave a week result of +119,994, both with a one-sided book and with
+  an empty one. The profit comes back as a loss in a later week (exit or expiry), so it moves result between weeks
+  rather than creating coins for good; it matters as soon as a single week's result is paid out or judged.
+  *Fix on the branch:* `weekly.close_price` uses the last exit-side quote seen (kept in `positions.last_mark` by
+  `remember_marks`, which no longer overwrites it with a bare last trade unless the contract has traded since), and
+  never values a long above the best offer or a short below the best bid. Same attack afterwards: −10,006 (the spread).
+  `weekly_sim.py` 3812 passed, full self-test 214 passed, one new `_books` check. NOT put live because it changes how an
+  honest holder's position is valued at the cut-off (closing quote instead of last trade; a tick or so on liquid
+  contracts) and because what the real feed shows after the close could not be checked from the private copy.
+  To deploy: open Claude and say "put security-fix/2026-11-14 live". Nothing in any account is rewritten by it.
+- (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
 
 ## Ideas already covered by the daily check
 - Nonsense numbers: zero / negative / fractional / NaN / Infinity lots, prices, triggers, leverage; junk side and order type
@@ -34,8 +49,43 @@ Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
   a fill at the planted price is the failure. Forex / Global: every contract is always streamed, so only a note.
 - Logins (13 Nov 2026): a login made before the password was changed stops working
 - Books (13 Nov 2026): the underlying of every open option position is being streamed (so it settles at a live price)
+- Double limit exit, in every market (14 Nov 2026): one lot bought, the same SELL LIMIT placed twice at the same instant
+  below the market; the position must end flat, never short
+- Price socket (14 Nov 2026): 40 junk orders (zero lots) on 40 unwatched far-month options from one test account; at most
+  25 may start streaming, and all are dropped again after half a minute
 
 ## Findings
+
+### 2026-11-14 (nightly review) — two fixes live tonight, one waiting on a branch
+- LOOPHOLE (breaks the site for others), FIXED, live: **one account could fill the price socket.** Since the frozen-price
+  fix an order on a contract nobody streams starts streaming it; that happened before the order was even looked at, so
+  nonsense orders (zero lots) did it too, and when the contract had no price in memory yet it was pinned for good. The
+  per-account limit of 1,200 streams only applied to the live socket. Proven: one account sent 1,600 refused orders on
+  1,600 different options in 15 s; streams went from 29 to 1,629 and were still there 40 s later. The live socket holds
+  3,000; beyond that nobody gets prices for a new contract (orders refused "No live price yet") until a restart.
+  *Fix (main.py):* a stream started for an order or a contract look-up is temporary (30 s) and counted per account, at
+  most 25 at a time (`ORDER_STREAM_LIMIT`); none is started when the socket is nearly full (2,980); a refused order no
+  longer leaves the engine's "retry" stream behind. The 26th order on an unwatched contract gets "Too many orders on
+  contracts you are not viewing" (HTTP 429). The app always streams the contract on the order screen, so an honest
+  order never needs one of these. After the fix: 1,573 of 1,600 refused, streams 35 -> 60 -> 35.
+  (This also closes the open idea "looking up a contract subscribes it for good".)
+- BUG / RULE BYPASS, FIXED, live: **a cancelled exit order filled anyway and flipped the position.** Two exit orders
+  on the same position that become fillable on the same price tick (the same limit exit placed twice, or stop-loss and
+  target together): the first closes the position and cancels the other, but the pass over the resting orders did not
+  look at the status again and filled the cancelled one too, opening a position the other way round. Proven in all
+  seven markets (long 1 lot -> short 1 lot). No coins gained (margin is checked, commission paid), but the rule "an exit
+  never opens a new position" was bypassed and an honest user with stop-loss and target could be left short.
+  *Fix (engine.py, `_process_pending`):* an order that is no longer OPEN is skipped.
+- Waiting on `security-fix/2026-11-14`: weekly valuation at an old last trade (see "Waiting for the owner").
+- Checked, no hole: weekly cut-off on the private copy (MCX, Currency, NSE option, BSE resting order, Forex, Global,
+  Crypto positions carried; partial exit, add, flip afterwards; own-price P&L of all trades = week result + change since,
+  to the paisa); an account short of margin after the cut-off cannot open, add, flip or rest anything during the grace
+  time and is not squared off; junk `week_end` values; crypto leverage mixing when adding (1x then 200x, then partial
+  exit); by hand in Forex / Global / Currency: round trips, limit far above the market, junk numbers, Exit x6.
+- Nothing in any account was changed. Nobody could gain coins from the two fixed items. A user who had two exits
+  resting may have been left with an opposite position he did not ask for (two exits of the same contract filled in the
+  same second, followed by an open position the other way).
+- Daily check: two new checks (see "Ideas already covered"); both fail on yesterday's code, pass twice on tonight's.
 
 ### 2026-11-13 (nightly review) — four fixes, all live tonight
 - LOOPHOLE, FIXED, live: **trading at a frozen price (free coins, every market except Forex / Global).** Prices arrive
@@ -105,6 +155,11 @@ Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Mixing leverage when adding to a crypto position (14 Nov 2026): margin is released in proportion, the average never
+  drops below the highest leverage the contract allows.
+- Opening more during the weekly-settlement grace time (14 Nov 2026): every opening, adding, flipping or resting order
+  is refused while Available Balance is below zero; only reducing is allowed.
+- Carried-position accounting after a cut-off (14 Nov 2026): partial exit, add and flip all keep the books exact.
 - Frozen-price attack on Forex and Global (13 Nov 2026): every contract there is streamed permanently, fills were
   always at the live price.
 - Using the new margin-shortfall square-off and its charge to gain (13 Nov 2026): it only ever costs the user.
@@ -124,8 +179,14 @@ Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
   USD pair (if the broker ever lists one) would be open to the frozen-price idea only through the daily check's note.
 - Short-option margin before the first fill uses the underlying's price in memory (may be frozen) or the strike.
   Margin only, no money; not attacked.
-- Looking up a contract that has no price yet subscribes it for good (until the next restart); thousands of look-ups
-  could fill the price connection like the socket trick. Simulated prices never have "no price", so not shown here.
+- An order on a contract that IS streamed but has had no tick for five minutes still makes the engine start one more
+  permanent stream; since 14 Nov a refused order gives it back, so it no longer adds up. Not reproducible on simulated
+  prices (every streamed contract ticks twice a second).
+- The position screen and the margin call still value a long with no bid at the last trade (`engine.mark_price`); only
+  the weekly valuation is changed on the branch. A stale high last trade overstates equity there (never Available
+  Balance, which ignores running profit).
+- 2FA "turn off" and "confirm" are not throttled; they need a full login first, so only someone already inside an
+  account could guess codes there.
 - The address used for login throttling is taken from a header the visitor may be able to set; whether the live
   hosting overwrites it could not be checked from here.
 - Exchange position limit is checked per order against the current position only; several resting orders together

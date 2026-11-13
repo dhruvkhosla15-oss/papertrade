@@ -69,6 +69,9 @@ Nothing. (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
   round trips on contracts nobody else trades.
 - Checked, no hole: Forex and Global against the frozen-price attack; the full daily check by hand on the private copy
   in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): 198 checks pass.
+- CHANGED 13 Nov (owner's decision): a BOUGHT option's running loss no longer counts against Available Balance (its
+  premium is already blocked), so bought options are not squared off for a dip; they are also the last positions the
+  shortfall square-off closes. Daily check "Bought option" covers it. The observation below is therefore resolved.
 - Observation for the owner (not a cheat, not changed): the new "Available Balance below zero" square-off also counts
   the running loss of a BOUGHT option, although its whole premium is already blocked. Someone who puts nearly all
   their coins into bought options is squared off (with the ₹50 charge) after a dip of a few percent in the premium.

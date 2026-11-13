@@ -185,6 +185,60 @@ class Probe:
         return bool(self.feed.connected)
 
     # ---- the attacks -----------------------------------------------------------------------
+    async def _bought_option(self, ua):
+        """A bought option's premium is fully paid up front, so a dip in its price must NOT get it squared
+        off. Buy one with almost every coin the account has, and expect it to be left alone."""
+        self.area = "Bought option"
+        today = _ist().strftime("%Y-%m-%d")
+        pick = None
+        for exchange, name in (("NFO", "NIFTY"), ("BFO", "SENSEX"), ("CRYPTO", "BTC")):
+            opts = [i for i in self.feed.instruments.values() if i.exchange == exchange and i.name == name
+                    and i.instrument_type == "CE" and i.expiry and i.expiry >= today]
+            st = self.feed.index_token_for(name)
+            spot = (self.feed.prices.get(st) or {}).get("ltp") if st else None
+            if not opts or not spot or not self._feed_up(opts[0]) or not self.engine.tradable_now(opts[0]):
+                continue
+            exps = sorted({i.expiry for i in opts})
+            exp = exps[1] if len(exps) > 1 and exps[0] == today else exps[0]
+            cand = sorted([i for i in opts if i.expiry == exp], key=lambda i: abs(i.strike - spot))[:6]
+            self.feed.subscribe([i.token for i in cand])
+            for _ in range(16):
+                await asyncio.sleep(0.25)
+                live = [i for i in cand if all(self._quote(i.token))]
+                if live:
+                    pick = live[0]; break
+            if pick:
+                break
+        if not pick:
+            self.note("not tested", "no option with a live two-sided price in an open market"); return
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            st, o, d = await self._order(ca, token=pick.token, side="BUY", lots=1)
+            o = await self._wait_order(ca, o["id"]) if st == 200 else None
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == pick.token]
+            if not (o and o.get("status") == "FILLED" and pos):
+                self.note("not tested", f"could not buy {pick.symbol} ({d or (o or {}).get('reason', '')})"[:150]); return
+            f = await self._funds(ca)
+            await self._set_balance(ua.id, round(f["used_margin"] + 1.0, 2))      # every coin is in the option
+            low, short = 0.0, False
+            for _ in range(16):                                                  # 8 s > two square-off passes
+                await asyncio.sleep(0.5)
+                f2 = await self._funds(ca)
+                low = min(low, f2["unrealised"]); short = short or bool(f2.get("margin_short")) or f2["available"] < 0
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == pick.token]
+            self.ok("a bought option is not squared off when its price dips (the premium is already paid)",
+                    bool(pos) and not short,
+                    f"{pick.symbol}: lowest running P&L ₹{low:,.0f}{'' if low < 0 else ' (no dip during the test)'}, "
+                    f"Available Balance ₹{f2['available']:,.2f}, position {'kept' if pos else 'CLOSED'}")
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await self._set_balance(ua.id, 1_000_000.0)
+            await ca.aclose()
+
     async def _shortfall(self, label, ins, ua):
         """Nobody may carry more than their coins cover. Open a position on the test account, then take its
         coins away so that its Available Balance is below zero, and expect the system to square it off."""
@@ -850,6 +904,11 @@ class Probe:
                         except Exception:
                             pass
                         await c.aclose()
+            try:
+                await self._bought_option(ua)
+            except Exception as e:
+                log.exception("probe bought-option check crashed")
+                self.area = "Bought option"; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
             for label, exchange, names in (("NSE", "NFO", ["NIFTY", "BANKNIFTY"]), ("BSE", "BFO", ["SENSEX", "BANKEX"]),
                                           ("MCX", "MCX", ["CRUDEOILM", "CRUDEOIL", "NATURALGAS", "NATGASMINI", "GOLDM", "GOLD", "SILVERM"]),
                                           ("Currency", "CDS", ["USDINR", "EURINR", "GBPINR"]), ("Crypto", "CRYPTO", ["BTC", "ETH"])):

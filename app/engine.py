@@ -338,10 +338,17 @@ class Engine:
         used = sum((p.margin_blocked or 0.0) for p in db.query(Position).filter_by(user_id=user.id, is_closed=False))
         used += sum((o.margin_blocked or 0.0) for o in db.query(Order).filter_by(user_id=user.id, status="OPEN"))
         unreal = 0.0
+        unreal_m = 0.0        # the part that counts against Available Balance
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             mk = self.mark_price(p.token, p.qty)
             if mk is not None:
-                unreal += (mk - p.avg_price) * p.qty * self.vf(self.feed.instruments.get(p.token))
+                ins = self.feed.instruments.get(p.token)
+                u = (mk - p.avg_price) * p.qty * self.vf(ins)
+                unreal += u
+                # A BOUGHT option's whole premium is already blocked as its margin, so it can never lose
+                # more than that: its running loss does not eat into Available Balance a second time.
+                if not (ins and ins.instrument_type in ("CE", "PE") and p.qty > 0):
+                    unreal_m += u
         # realised today (IST calendar day) net of commission, from the ledger
         from datetime import datetime, timedelta
         day_start = datetime.combine(ist_now().date(), datetime.min.time()) - timedelta(hours=5, minutes=30)
@@ -350,7 +357,7 @@ class Engine:
             Ledger.kind.in_(["REALISED_PNL", "COMMISSION", "EXPIRY_SETTLEMENT"])))
         maint = self.maintenance(db, user)
         from .config import MARGIN_WARN_SHARE
-        avail = round(user.balance + min(0.0, unreal) - used, 2)
+        avail = round(user.balance + min(0.0, unreal_m) - used, 2)
         return {"balance": round(user.balance, 2), "used_margin": round(used, 2),
                 "available": avail, "unrealised": round(unreal, 2),
                 "realised_today": round(realised_today, 2), "equity": round(user.balance + unreal, 2),
@@ -1005,7 +1012,8 @@ class Engine:
                 continue
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
-        rows.sort(key=lambda r: r[0])
+        # worst loser first; bought options last (their loss is prepaid, they are not what causes a shortfall)
+        rows.sort(key=lambda r: (r[2].instrument_type in ("CE", "PE") and r[1].qty > 0, r[0]))
         closed, detail, charged = [], [], 0.0
         for _, p, ins in rows:
             short = -self.funds(db, user)["available"]

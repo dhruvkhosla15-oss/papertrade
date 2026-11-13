@@ -1136,6 +1136,36 @@ def _shadow_cost(exchange: str, is_option: bool, our_side: str, value: float) ->
             "total": brok + tax + txn + sebi + stamp + gst}
 
 
+def _shadow_real_margin(book: dict) -> dict:
+    """The exchange margin a real account would need to hold the open mirror positions, from the broker's own
+    margin calculator (SPAN + exposure, with the benefit of positions that hedge each other). It only asks
+    the calculator a question: no order is placed and the broker account's own positions are not touched."""
+    kite = getattr(feed, "kite", None)
+    if kite is None or not getattr(feed, "is_authenticated", lambda: False)():
+        return {"error": "The broker connection is not logged in today, so the real margin cannot be fetched"}
+    basket = []
+    for (uid, token), pos in book.items():
+        if not pos["qty"]:
+            continue
+        ins = feed.instruments.get(token)
+        if not ins:
+            continue
+        lots_or_units = abs(pos["qty"]) // max(ins.lot_size, 1) if pos["exchange"] == "MCX" else abs(pos["qty"])   # the broker counts MCX in lots
+        basket.append({"exchange": pos["exchange"], "tradingsymbol": pos["symbol"], "transaction_type": "BUY" if pos["qty"] > 0 else "SELL",
+                       "variety": "regular", "product": "NRML", "order_type": "MARKET", "quantity": int(lots_or_units), "price": 0, "trigger_price": 0})
+    if not basket:
+        return {"total": 0.0, "span": 0.0, "exposure": 0.0, "premium": 0.0, "before_hedge": 0.0, "orders": []}
+    try:
+        r = kite.basket_order_margins(basket, consider_positions=False)
+        fin, ini = r.get("final") or {}, r.get("initial") or {}
+        return {"total": round(fin.get("total") or 0.0, 2), "span": round(fin.get("span") or 0.0, 2), "exposure": round(fin.get("exposure") or 0.0, 2),
+                "premium": round(fin.get("option_premium") or 0.0, 2), "before_hedge": round(ini.get("total") or 0.0, 2),
+                "orders": [{"symbol": o.get("tradingsymbol"), "total": round(o.get("total") or 0.0, 2)} for o in (r.get("orders") or [])]}
+    except Exception as e:
+        log.warning("shadow real margin failed: %s", e)
+        return {"error": f"The broker's margin calculator did not answer ({type(e).__name__}: {str(e)[:120]})"}
+
+
 @app.get("/api/admin/shadow")
 def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
                  admin: User = Depends(current_admin), db: Session = Depends(get_db)):
@@ -1225,6 +1255,7 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                               "ltp": mk, "unrealised": round(u, 2)})
         margin = sum((p.margin_blocked or 0.0) for p in db.query(Position).filter_by(is_closed=False).filter(Position.exchange.in_(SHADOW_EXCHANGES)).all()
                      if p.user_id in users and p.qty)
+    margin_real = _shadow_real_margin(book) if live else None
     realised = sum(r["realised"] for r in per.values()); unreal = sum(r["unrealised"] for r in per.values())
     for r in per.values():
         r["net"] = round(r["realised"] + r["unrealised"] - r["costs"], 2)
@@ -1234,7 +1265,7 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                         "realised": round(realised, 2), "unrealised": round(unreal, 2), "gross": round(realised + unreal, 2),
                         "slippage": round(sum(r["slippage"] for r in per.values()), 2), "basis": basis_n,
                         "costs": {k: round(v, 2) for k, v in costs.items()}, "net": round(realised + unreal - costs["total"], 2),
-                        "open_positions": len(positions), "margin_estimate": round(margin, 2)},
+                        "open_positions": len(positions), "margin_estimate": round(margin, 2), "margin_real": margin_real},
             "users": sorted(per.values(), key=lambda r: r["net"]), "positions": sorted(positions, key=lambda x: x["unrealised"]),
             "orders": orders[::-1][:300], "rates": SHADOW_RATES}
 

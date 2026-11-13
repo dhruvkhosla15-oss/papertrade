@@ -832,6 +832,14 @@ class Probe:
             self.ok("every carried position keeps its original average (settled earlier + this week = total since entry)", not wk_pos, ", ".join(sorted(set(wk_pos))[:8]))
             nopx = sorted({p.symbol for p in db.query(Position).filter_by(is_closed=False).all() if p.qty and _wk.close_price(self.engine, p) is None})
             self.ok("every open position has a price the weekly cut-off can value it at", not nopx, ", ".join(nopx[:8]))
+            over = []
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                v = _wk.close_price(self.engine, p) if p.qty else None
+                t = self.feed.prices.get(p.token) or {}
+                other = t.get("ask") if p.qty > 0 else t.get("bid")
+                if v is not None and other and ((p.qty > 0 and v > other * 1.0001) or (p.qty < 0 and v < other * 0.9999)):
+                    over.append(f"{p.symbol} valued {v:g}, book {other:g}")
+            self.ok("no open position is valued for the weekly cut-off above the best offer (long) or below the best bid (short)", not over, "; ".join(over[:6]))
             now_i = _ist()
             due = _wk.last_finished_week_end(now_i).isoformat()
             closed = get_setting(db, "week_closed") or due

@@ -82,15 +82,45 @@ def last_cutoff(db, user) -> Optional[datetime]:
     return row.created_at if row else None
 
 
+def _exit_quote(engine, p: Position) -> Optional[float]:
+    """The price on the side of the book this position would be closed at (bid for a long, ask for a short),
+    or None when nobody is quoting there right now."""
+    if not getattr(engine, "_mark_at_book", True):
+        return None
+    t = engine.feed.prices.get(p.token) or {}
+    q = t.get("bid") if p.qty > 0 else t.get("ask")
+    return q if isinstance(q, (int, float)) and math.isfinite(q) and q >= 0 else None
+
+
+def _trade_after_mark(engine, p: Position) -> bool:
+    """True when the contract has traded since the price kept in last_mark was seen."""
+    ltt = (engine.feed.prices.get(p.token) or {}).get("ltt")
+    if not ltt or not p.last_mark_at:
+        return False
+    return ltt > (p.last_mark_at - datetime(1970, 1, 1)).total_seconds()
+
+
 def close_price(engine, p: Position) -> Optional[float]:
     """Price an open position is valued at: what it could be closed at now (bid for a long, ask for a
-    short, last trade if that side of the book is empty); the last such price seen if the feed has
-    nothing (site restarted over the weekend with the exchange shut)."""
-    mk = engine.mark_price(p.token, p.qty)
+    short). When nobody is quoting on that side (a thin contract, or the exchange is shut at the cut-off)
+    the last such quote seen is used, unless the contract has traded since: then the last trade. A last
+    trade that is days old says nothing about today's value: a thin option bought at today's offer of 3
+    whose last trade was 15 would otherwise show five times its cost as the week's profit. For the same
+    reason a long is never valued above the best offer in the book, nor a short below the best bid.
+    The last price seen is also what is used if the feed has nothing (site restarted over the weekend
+    with the exchange shut)."""
+    mk = _exit_quote(engine, p)
     if mk is None:
-        mk = engine.feed.ltp(p.token)
-    if mk is None:
-        mk = p.last_mark
+        mk = engine.mark_price(p.token, p.qty)
+        if mk is None:
+            mk = engine.feed.ltp(p.token)
+        if p.last_mark is not None and (mk is None or not _trade_after_mark(engine, p)):
+            mk = p.last_mark
+        if mk is not None and getattr(engine, "_mark_at_book", True):
+            t = engine.feed.prices.get(p.token) or {}
+            other = t.get("ask") if p.qty > 0 else t.get("bid")
+            if isinstance(other, (int, float)) and math.isfinite(other) and other >= 0:
+                mk = min(mk, other) if p.qty > 0 else max(mk, other)
     if mk is None or not isinstance(mk, (int, float)) or not math.isfinite(mk) or mk < 0:
         return None
     return float(mk)
@@ -98,14 +128,21 @@ def close_price(engine, p: Position) -> Optional[float]:
 
 def remember_marks(engine, db) -> int:
     """Keep the last exit-side price of every open position in the database, so a weekly valuation can still
-    be done after a restart while that exchange is shut (the feed then has no price in memory)."""
+    be done after a restart while that exchange is shut (the feed then has no price in memory), and so that
+    a position nobody is quoting at the cut-off is valued at the last quote, not at an old last trade.
+    While nobody is quoting, the kept quote stays; it gives way to the last trade only if the contract has
+    traded since."""
     n = 0
     for p in db.query(Position).filter_by(is_closed=False).all():
         if not p.qty:
             continue
-        mk = engine.mark_price(p.token, p.qty)
+        mk = _exit_quote(engine, p)
         if mk is None:
-            mk = engine.feed.ltp(p.token)
+            if p.last_mark is not None and not _trade_after_mark(engine, p):
+                continue
+            mk = engine.mark_price(p.token, p.qty)
+            if mk is None:
+                mk = engine.feed.ltp(p.token)
         if mk is None or not math.isfinite(mk) or mk < 0:
             continue
         if p.last_mark != mk:

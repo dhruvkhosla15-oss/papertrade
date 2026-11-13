@@ -202,6 +202,30 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
                 engine._user_alert(db, user, f"Weekly settlement · {week_label(week_end)}", text)
             except Exception:
                 log.exception("weekly alert failed")
+    # The week's profit has left the coins. Anyone now holding more than the allocated coins cover is warned
+    # first and has until Monday 9:15 am to reduce; only then does the usual auto square-off apply.
+    import json as _json
+    until = datetime.combine(week_end + timedelta(days=1), dtime(9, 15))
+    if stamp > nominal:
+        until = max(until, stamp + IST + timedelta(hours=9))
+    hard = until + timedelta(hours=2, minutes=45)          # Monday noon
+    for user in accounts(db):
+        if user.id in done:
+            continue
+        try:
+            f = engine.funds(db, user)
+            if f.get("margin_short"):
+                set_setting(db, f"week_grace_{user.id}", _json.dumps({"monday": until.isoformat(), "hard": hard.isoformat(), "warned2": False, "seen": ""}))
+                summary["short"] = summary.get("short", 0) + 1
+                engine._user_alert(db, user, "Margin shortfall after weekly settlement",
+                                   f"Your coins are back to {allocated(db, user):,.0f} and your open positions need more margin than that: "
+                                   f"Available Balance is {f['available']:,.0f}.\n\nNothing is squared off tonight. Please reduce your positions. You will get a reminder on {until.strftime('%A at %I:%M %p').replace(' 0', ' ')}; "
+                                   "from the moment you open the app after that you have 30 minutes, and if Available Balance is still below zero then "
+                                   "(or by 12 noon if you do not open the app), positions are squared off automatically until it is back above zero.")
+            elif get_setting(db, f"week_grace_{user.id}", ""):
+                set_setting(db, f"week_grace_{user.id}", "")
+        except Exception:
+            log.exception("weekly shortfall warning failed for %s", user.username)
     set_setting(db, "week_closed", we)       # commits
     return summary
 

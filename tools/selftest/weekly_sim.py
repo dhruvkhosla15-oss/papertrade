@@ -194,7 +194,7 @@ def trade(name, token, side, lots, expect=True, **kw):
     try:
         o = engine.place_order(db, u, token, side, lots, kw.pop("order_type", "MARKET"), **kw)
         stamp()
-        if not expect:
+        if expect is False:
             ok(f"{name}: order should have been refused", False, f"{side} {lots} {feed.instruments[token].symbol}")
         return o
     except EngineError as e:
@@ -497,6 +497,48 @@ carry_notes = [o.carry_note for o in db.query(Order).filter(Order.carry_note != 
 ok("exits of carried positions carry a note", len(carry_notes) >= 8, str(len(carry_notes)))
 rest = db.query(Order).filter_by(user_id=users["resting"].id, status="OPEN").first()
 ok("a resting order survives the weekly cut-offs with its margin", rest is not None and (rest.margin_blocked or 0) > 0)
+
+# ---- a winner who is left short of margin by the settlement: warned Sunday, reminded Monday, then time, then squared off ----
+W7 = W6 + timedelta(days=7); W8 = W7 + timedelta(days=7)
+at(day(W7, 0, 10)); px(nifty=25000)
+for n in ("greedy", "absent", "fixer"):
+    mk_user(n, 400_000)
+    results[users[n].id] = 0.0
+    trade(n, F_NIFTY, "BUY", 1)
+at(day(W7, 2, 11)); px(nifty=30000)                       # a big win, booked
+for n in ("greedy", "absent", "fixer"):
+    trade(n, F_NIFTY, "SELL", 1)
+    for _ in range(2):
+        trade(n, F_NIFTY, "BUY", 1)                       # the booked profit is used to hold more than the allocated coins cover
+lots0 = {n: sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, is_closed=False)) for n in ("greedy", "absent", "fixer")}
+ok("shortfall: the paper profit bought more than the allocated coins cover", engine.funds(db, users["greedy"])["used_margin"] > 400_000, str(engine.funds(db, users["greedy"])))
+at(day(W7, 6, 20)); px(nifty=30000)
+s = close(SUN(W7))
+qty = lambda n: sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, is_closed=False))
+alerts = lambda n: D.get_setting(db, f"user_alerts_{users[n].id}", "[]")
+ok("shortfall: three users are short after the settlement and were warned", s.get("short") == 3 and "Margin shortfall after weekly settlement" in alerts("greedy"), str(s))
+ok("shortfall: Available Balance is below zero after the coins went back", engine.funds(db, users["greedy"])["available"] < 0)
+at(day(W8, 0, 0, 5)); run(engine._check_liquidations())
+ok("shortfall: nothing is squared off on Sunday night", all(qty(n) == lots0[n] for n in lots0))
+at(day(W8, 0, 9, 0)); run(engine._check_liquidations())
+ok("shortfall: nothing is squared off before the Monday reminder", all(qty(n) == lots0[n] for n in lots0) and "Reminder" not in alerts("greedy"))
+at(day(W8, 0, 9, 16)); run(engine._check_liquidations())
+ok("shortfall: Monday 9:15 reminder sent, still nothing squared off", all(qty(n) == lots0[n] for n in lots0) and "Reminder: margin shortfall" in alerts("greedy"))
+at(day(W8, 0, 9, 40)); engine.week_grace_seen(db, users["greedy"]); engine.week_grace_seen(db, users["fixer"])    # they open the app
+at(day(W8, 0, 9, 50)); run(engine._check_liquidations())
+ok("shortfall: inside the 30 minutes after opening the app nothing is squared off", all(qty(n) == lots0[n] for n in lots0))
+while engine.funds(db, users["fixer"])["available"] < 0:   # "fixer" reduces his position himself
+    trade("fixer", F_NIFTY, "SELL", 1)
+fixer_left = qty("fixer")
+at(day(W8, 0, 10, 11)); run(engine._check_liquidations())
+ok("shortfall: 30 minutes after opening the app the one who did nothing is squared off", qty("greedy") < lots0["greedy"] and engine.funds(db, users["greedy"])["available"] >= 0, f"{qty('greedy')} of {lots0['greedy']}")
+ok("shortfall: the one who reduced himself is left alone", qty("fixer") == fixer_left and fixer_left > 0)
+ok("shortfall: the one who has not opened the app is still waiting", qty("absent") == lots0["absent"])
+at(day(W8, 0, 12, 1)); run(engine._check_liquidations())
+ok("shortfall: at Monday noon the one who never opened the app is squared off", qty("absent") < lots0["absent"] and engine.funds(db, users["absent"])["available"] >= 0)
+ok("shortfall: only as much as needed was closed", qty("greedy") > 0 and qty("absent") > 0)
+check_running("after the shortfall square-offs")
+at(day(W8, 6, 20)); close(SUN(W8))
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

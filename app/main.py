@@ -463,6 +463,10 @@ def logout(response: Response):
 
 @app.get("/api/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    try:
+        engine.week_grace_seen(db, user)       # opened the app after the Monday shortfall reminder: 30 minutes start
+    except Exception:
+        log.exception("week grace")
     on, spread, stale = engine.liquidity_settings(db)
     return {"user": _user_dict(user), "funds": engine.funds(db, user), "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
@@ -495,6 +499,10 @@ def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admi
 @app.post("/api/alerts/ack")
 def ack_alerts(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """The user pressed OK on the pop-up: their pending alerts (e.g. 'Position liquidated') are cleared."""
+    try:
+        engine.week_grace_seen(db, user)
+    except Exception:
+        log.exception("week grace")
     if _user_alerts(db, user):
         set_setting(db, f"user_alerts_{user.id}", "[]"); db.commit()
     return {"ok": True}
@@ -1077,6 +1085,7 @@ async def weekly_loop():
                                    f"Users' result: {r['result_total']:+,.0f} (our side {-r['result_total']:+,.0f}).\n"
                                    f"{r['carried']} open position(s) carried forward at the week-close price."
                                    + (f"\n{r['unpriced']} position(s) had no price and were left as they were." if r["unpriced"] else "")
+                                   + (f"\n{r['short']} user(s) are short of margin after the settlement: warned, reminded again Monday 9:15 am, auto square-off 30 minutes after they open the app or at noon." if r.get("short") else "")
                                    + ("\nThe cut-off ran late (the site was down at Sunday midnight)." if late else ""))
                             asyncio.get_event_loop().run_in_executor(None, _probe._telegram, txt)
                         except Exception:

@@ -831,7 +831,7 @@ class Probe:
                 f = self.engine.funds(db, u)
                 since = self.engine._neg_since.get(u.id)
                 can = any(self.feed.instruments.get(p.token) and self.engine.tradable_now(self.feed.instruments[p.token]) for p in ps)
-                if f["available"] < -1 and can and since and time.time() - since > 90:
+                if f["available"] < -1 and can and since and time.time() - since > 90 and not self.engine.week_grace(db, u.id):
                     over.append(f"{u.username} ₹{f['available']:,.0f}")
             if strict:
                 self.ok("no account is carrying more than its coins cover (Available Balance not below zero)", not over, "; ".join(over[:6]))

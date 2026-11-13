@@ -839,9 +839,10 @@ class Engine:
                     try:
                         f = self.funds(db, user)
                         self._margin_notice(user, f, strict, strict_from)
+                        self.week_grace_tick(db, user, f)
                         if f["maintenance"] > 0 and f["equity"] < f["maintenance"]:
                             self._liquidate(db, user, f)
-                        elif strict and f["margin_short"]:
+                        elif strict and f["margin_short"] and not self.week_grace(db, uid):
                             self._square_off_shortfall(db, user, f)
                     except Exception:
                         # one broken account must never stop margin calls for everyone else
@@ -930,6 +931,65 @@ class Engine:
             v = (datetime.utcnow() + timedelta(minutes=STRICT_LIQ_GRACE_MIN)).isoformat()
             set_setting(db, "strict_liq_from", v); db.commit()
         return datetime.fromisoformat(v)
+
+    # ---- shortfall left by the weekly settlement: warn Sunday, warn Monday, give time, then square off ----
+    WEEK_GRACE_MINUTES = 30
+
+    def _week_grace_get(self, db: Session, uid: int) -> Optional[dict]:
+        raw = get_setting(db, f"week_grace_{uid}", "") or ""
+        if not raw:
+            return None
+        try:
+            g = json.loads(raw)
+            return g if isinstance(g, dict) and g.get("monday") and g.get("hard") else None
+        except Exception:
+            return None
+
+    def week_grace(self, db: Session, uid: int) -> bool:
+        """True while a user who was left short of margin by the weekly settlement (the week's profit went
+        out of the coins) may still fix it himself: no auto square-off for the shortfall
+          - before the Monday reminder (9:15 am),
+          - then until 30 minutes after he has opened the app and seen that reminder,
+          - and never past Monday noon, whether he opened the app or not.
+        The margin call on a deep loss is not affected."""
+        g = self._week_grace_get(db, uid)
+        if not g:
+            return False
+        now = ist_now()
+        if now < datetime.fromisoformat(g["monday"]):
+            return True
+        if now >= datetime.fromisoformat(g["hard"]):
+            return False
+        if g.get("seen"):
+            return now < datetime.fromisoformat(g["seen"]) + timedelta(minutes=self.WEEK_GRACE_MINUTES)
+        return True
+
+    def week_grace_tick(self, db: Session, user: User, f: dict):
+        """Called on every margin pass: send the Monday reminder once, and forget the whole thing as soon as
+        the account is no longer short."""
+        from .db import set_setting
+        g = self._week_grace_get(db, user.id)
+        if not g:
+            return
+        now = ist_now()
+        if not f.get("margin_short") or now >= datetime.fromisoformat(g["hard"]):
+            set_setting(db, f"week_grace_{user.id}", ""); return
+        if now >= datetime.fromisoformat(g["monday"]) and not g.get("warned2"):
+            g["warned2"] = True
+            set_setting(db, f"week_grace_{user.id}", json.dumps(g))
+            hard = datetime.fromisoformat(g["hard"]).strftime("%I:%M %p").lstrip("0")
+            self._user_alert(db, user, "Reminder: margin shortfall — reduce your positions now",
+                             f"Available Balance is {f['available']:,.0f}, below zero, because your coins went back to the allocated amount at the weekly settlement.\n\n"
+                             f"You have {self.WEEK_GRACE_MINUTES} minutes from now to reduce your positions yourself. If Available Balance is still below zero after that "
+                             f"(or at {hard} today if you do not open the app), positions are squared off automatically until it is back above zero.")
+
+    def week_grace_seen(self, db: Session, user: User):
+        """The user has opened the app after the Monday reminder: his 30 minutes start now."""
+        from .db import set_setting
+        g = self._week_grace_get(db, user.id)
+        if g and g.get("warned2") and not g.get("seen"):
+            g["seen"] = ist_now().isoformat()
+            set_setting(db, f"week_grace_{user.id}", json.dumps(g))
 
     def _user_alert(self, db: Session, user: User, title: str, text: str):
         """Keep a message for the user that is shown as a pop-up the next time they open the app (and

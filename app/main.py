@@ -1141,7 +1141,7 @@ def _shadow_real_margin(book: dict) -> dict:
     margin calculator (SPAN + exposure, with the benefit of positions that hedge each other). It only asks
     the calculator a question: no order is placed and the broker account's own positions are not touched."""
     kite = getattr(feed, "kite", None)
-    if kite is None or not getattr(feed, "is_authenticated", lambda: False)():
+    if kite is None or not getattr(feed, "access_token", None):
         return {"error": "The broker connection is not logged in today, so the real margin cannot be fetched"}
     basket = []
     for (uid, token), pos in book.items():

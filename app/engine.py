@@ -58,6 +58,7 @@ class Engine:
         # shadow book: paper fills consume depth until the live book changes
         # token -> {"sig": depth signature, "bids": {price: consumed_qty}, "asks": {price: consumed_qty}}
         self._consumed = {}
+        self.week_hold = False            # True for the few seconds of the weekly cut-off: nothing may fill
         self._margin_level = {}           # user id -> 0 fine / 1 warned (margin low) / 2 below zero
         self._neg_since = {}              # user id -> time the Available Balance was first seen below zero
         self._unsettled_warned = set()    # positions already reported as impossible to settle (contract not listed)
@@ -401,6 +402,8 @@ class Engine:
             if _v is not None and not math.isfinite(_v):
                 raise EngineError("Price and leverage must be ordinary numbers")
         side = side.upper(); order_type = order_type.upper()
+        if self.week_hold:
+            raise EngineError("Weekly settlement is running — please try again in a few seconds")
         if side not in ("BUY", "SELL"):
             raise EngineError("side must be BUY or SELL")
         if order_type not in ("MARKET", "LIMIT", "SL"):
@@ -623,10 +626,15 @@ class Engine:
             db.add(pos); db.flush()
         if cur == 0:
             pos.product = order.product or "NRML"
+            pos.entry_avg = None; pos.carried_week = None
 
         if cur == 0 or (cur > 0) == (signed > 0):
             # adding to position
             total = abs(cur) + qty
+            if pos.carried_week and pos.entry_avg is not None:
+                # a carried position: the user's own average blends the same way as the carried price,
+                # so what earlier weeks settled on it, (avg - entry) x qty, stays exactly the same
+                pos.entry_avg = (pos.entry_avg * abs(cur) + price * qty) / total
             pos.avg_price = (pos.avg_price * abs(cur) + price * qty) / total
             pos.qty = new
             pos.margin_blocked = round(pos.margin_blocked + need, 2)
@@ -635,6 +643,10 @@ class Engine:
             closing = min(abs(cur), qty)
             realised = (price - pos.avg_price) * closing * (1 if cur > 0 else -1) * vf
             pos.realised_pnl = round(pos.realised_pnl + realised, 2)
+            if pos.carried_week and pos.entry_avg is not None:
+                earlier = (pos.avg_price - pos.entry_avg) * closing * (1 if cur > 0 else -1) * vf
+                order.carry_note = (f"Exit of a carried position: carried at {pos.avg_price:,.2f} (week ending {pos.carried_week}), "
+                                    f"original avg {pos.entry_avg:,.2f}, this week {realised:+,.2f}, settled earlier {earlier:+,.2f}")
             # release margin proportionally
             released = pos.margin_blocked * closing / abs(cur)
             pos.margin_blocked = round(pos.margin_blocked - released, 2)
@@ -686,6 +698,8 @@ class Engine:
     async def _process_pending(self, token: int, ltp: float):
         async with self._lock:
             self._pending_scheduled.discard(token)
+            if self.week_hold:
+                return
             ltp = self.feed.ltp(token) or ltp   # use the freshest price by the time we run
             db = SessionLocal()
             try:
@@ -809,6 +823,8 @@ class Engine:
 
     async def _check_liquidations(self):
         async with self._lock:
+            if self.week_hold:
+                return
             db = SessionLocal()
             try:
                 uids = {p.user_id for p in db.query(Position).filter_by(is_closed=False).all()}
@@ -869,6 +885,8 @@ class Engine:
             return
         n = ist_now()
         async with self._lock:
+            if self.week_hold:
+                return
             db = SessionLocal()
             try:
                 for ex in ("NFO", "BFO", "MCX", "CDS"):
@@ -1147,6 +1165,8 @@ class Engine:
         today = n.date().isoformat()
         hm = n.strftime("%H:%M")
         async with self._lock:
+            if self.week_hold:
+                return
             db = SessionLocal()
             try:
                 # An option is settled against its underlying, so that price must be live when the moment
@@ -1227,7 +1247,7 @@ class Engine:
                 "order_type": o.order_type, "lots": o.lots, "qty": o.qty, "limit_price": o.limit_price,
                 "validity": o.validity or "DAY", "product": o.product or "NRML",
                 "trigger_price": o.trigger_price, "status": o.status, "fill_price": o.fill_price,
-                "reason": o.reason, "created_at": o.created_at.isoformat() + "Z",
+                "reason": o.reason, "carry_note": o.carry_note or "", "created_at": o.created_at.isoformat() + "Z",
                 "updated_at": (o.updated_at or o.created_at).isoformat() + "Z"}
 
     def position_dict(self, p: Position) -> dict:
@@ -1242,4 +1262,14 @@ class Engine:
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
                 "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed,
-                "product": p.product or "NRML"}
+                "product": p.product or "NRML", **self.carry_fields(p, unreal, vf)}
+
+    @staticmethod
+    def carry_fields(p: Position, unreal: float, vf: float) -> dict:
+        """For a position carried over a weekly cut-off: the user's own average, what earlier weeks already
+        settled on the lots still open, and the total since entry (settled earlier + this week)."""
+        if not (p.carried_week and p.entry_avg is not None and p.qty):
+            return {"carried_week": None, "entry_avg": None, "settled_earlier": 0.0, "total_since_entry": unreal}
+        earlier = round((p.avg_price - p.entry_avg) * p.qty * vf, 2)
+        return {"carried_week": p.carried_week, "entry_avg": round(p.entry_avg, 5), "settled_earlier": earlier,
+                "total_since_entry": round(earlier + unreal, 2)}

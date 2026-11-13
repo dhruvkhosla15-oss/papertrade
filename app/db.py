@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import (create_engine, Column, Integer, String, Float, Boolean,
+from sqlalchemy import (create_engine, Column, Integer, String, Float, Boolean, UniqueConstraint,
                         DateTime, ForeignKey, Text, event)
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from .config import DB_URL
@@ -77,6 +77,7 @@ class Order(Base):
     leverage = Column(Float)                                # chosen leverage (crypto/forex), None = contract max
     validity = Column(String(4), default="DAY")              # DAY (cancelled at session close) / GTT (good till triggered)
     product = Column(String(8), default="NRML")              # MIS (intraday, auto square-off) / NRML (overnight)
+    carry_note = Column(String(256), default="")             # set when this order closed lots of a position carried over a week
     created_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
 
@@ -97,6 +98,13 @@ class Position(Base):
     margin_blocked = Column(Float, default=0.0)
     expiry = Column(String(10))                             # YYYY-MM-DD
     product = Column(String(8), default="NRML")              # MIS / NRML
+    # Weekly settlement: at each Sunday cut-off avg_price becomes the week-close price ("carried at") and
+    # the P&L up to then is booked. entry_avg keeps the user's own average price for the lots still open,
+    # so (avg_price - entry_avg) * qty is exactly what earlier weeks already settled on this position.
+    entry_avg = Column(Float)                               # None = never carried (same as avg_price)
+    carried_week = Column(String(10))                       # week_end (Sunday, YYYY-MM-DD) of the last weekly valuation
+    last_mark = Column(Float)                               # last exit-side price seen, kept across restarts
+    last_mark_at = Column(DateTime)
     is_closed = Column(Boolean, default=False)
     opened_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
@@ -132,6 +140,30 @@ class ShadowFill(Base):
     bid = Column(Float)
     ask = Column(Float)
     basis = Column(String(12), default="book")        # book = walked the live depth; quote = best bid/ask only
+    created_at = Column(DateTime, default=now)
+
+
+class WeekSettlement(Base):
+    """One row per user per finished week (Mon 00:00 – Sun 23:59:59 IST). Written once at the cut-off and
+    never changed afterwards."""
+    __tablename__ = "week_settlements"
+    __table_args__ = (UniqueConstraint("week_end", "user_id", name="uq_week_user"),)
+    id = Column(Integer, primary_key=True)
+    week_end = Column(String(10), index=True, nullable=False)   # the Sunday, YYYY-MM-DD
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    closed = Column(Float, default=0.0)            # booked on trades closed in the week
+    valuation = Column(Float, default=0.0)         # open positions valued at the week-close price
+    commission = Column(Float, default=0.0)        # charged in the week (positive number)
+    other = Column(Float, default=0.0)             # anything else that moved coins (should be 0)
+    result = Column(Float, default=0.0)            # closed + valuation - commission + other
+    closed_crypto = Column(Float, default=0.0)
+    valuation_crypto = Column(Float, default=0.0)
+    commission_crypto = Column(Float, default=0.0)
+    allocated = Column(Float, default=0.0)         # coins the account goes back to
+    coins_before = Column(Float, default=0.0)      # coins just before the settlement line
+    carried = Column(Integer, default=0)           # open positions carried forward
+    unpriced = Column(Integer, default=0)          # open positions that had no price and were left as they were
+    exact = Column(Boolean, default=True)          # False = the cut-off ran late (site was down at Sunday midnight)
     created_at = Column(DateTime, default=now)
 
 
@@ -197,6 +229,17 @@ def init_db():
     if "product" not in pcols:
         with engine.begin() as con:
             con.execute(text("ALTER TABLE positions ADD COLUMN product VARCHAR(8) DEFAULT 'NRML'"))
+    pcols = {c["name"] for c in inspect(engine).get_columns("positions")}
+    with engine.begin() as con:
+        if "entry_avg" not in pcols:
+            con.execute(text("ALTER TABLE positions ADD COLUMN entry_avg FLOAT"))
+            con.execute(text("ALTER TABLE positions ADD COLUMN carried_week VARCHAR(10)"))
+            con.execute(text("ALTER TABLE positions ADD COLUMN last_mark FLOAT"))
+            con.execute(text("ALTER TABLE positions ADD COLUMN last_mark_at DATETIME"))
+    ocols = {c["name"] for c in inspect(engine).get_columns("orders")}
+    if "carry_note" not in ocols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE orders ADD COLUMN carry_note VARCHAR(256) DEFAULT ''"))
     tcols = {c["name"] for c in inspect(engine).get_columns("trades")}
     if "commission" not in tcols:
         with engine.begin() as con:

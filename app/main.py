@@ -35,6 +35,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print fu
 
 app = FastAPI(title="LimeFX")
 from . import probe as _probe
+from . import weekly as _weekly
 _PROBE = _probe.PREFIX
 
 
@@ -264,6 +265,7 @@ async def startup():
     asyncio.create_task(_probe.loop(app, engine, feed))
     asyncio.create_task(daystart_loop())
     asyncio.create_task(feed_watch_loop())
+    asyncio.create_task(weekly_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -1008,6 +1010,7 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                     "trades": db.query(Trade).filter_by(user_id=u.id).count(),
                     "total_credited": sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                                           .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
+                    "settled_total": _weekly.settled_total(db, u),      # sum of finished weeks' results
                     "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
 
@@ -1019,6 +1022,75 @@ def _book_totals(db) -> tuple:
         alloc += sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id).filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
         equity += engine.funds(db, u)["equity"]
     return round(alloc, 2), round(equity, 2)
+
+
+async def weekly_loop():
+    """Weekly settlement at Sunday 23:59:59 IST (see weekly.py). Fills are held for the last three seconds of
+    the week and until the cut-off has run, so no trade can fall between two weeks. If the site was down at
+    the cut-off it runs as soon as prices are back, and that week is marked as closed late."""
+    started = time.time()
+    ist = timedelta(hours=5, minutes=30)
+    db = SessionLocal()
+    try:
+        if not get_setting(db, "week_closed"):      # first start with this feature: begin with the week now running
+            set_setting(db, "week_closed", _weekly.last_finished_week_end(datetime.utcnow() + ist).isoformat())
+    finally:
+        db.close()
+    marks_at = 0.0; failures = 0; pause_until = 0.0
+    while True:
+        fast = False
+        try:
+            now = datetime.utcnow() + ist
+            last_seconds = now.weekday() == 6 and now.hour == 23 and now.minute == 59 and now.second >= 57
+            target = _weekly.last_finished_week_end(now)
+            db = SessionLocal()
+            try:
+                closed = get_setting(db, "week_closed") or target.isoformat()
+                due = closed < target.isoformat() and time.time() >= pause_until
+                fast = last_seconds or due
+                if fast:
+                    engine.week_hold = True
+                if due:
+                    late = (now - datetime.combine(target, datetime.max.time())).total_seconds() > 120
+                    if late and time.time() - started < float(os.getenv("PT_WEEK_LATE_WAIT", "150")):
+                        pass                           # just restarted: give the price feeds time to connect
+                    else:
+                        results = []
+                        async with engine._lock:
+                            db.expire_all()
+                            d = date.fromisoformat(closed) + timedelta(days=7)
+                            while d <= target:
+                                results.append(_weekly.close_week(engine, db, d, exact=not late))
+                                d += timedelta(days=7)
+                        engine.week_hold = False; failures = 0
+                        for u in db.query(User).all():
+                            engine._emit(u.id, {"type": "refresh"})
+                        try:
+                            r = results[-1]
+                            txt = (f"limefx weekly settlement · week {_weekly.week_label(date.fromisoformat(r['week_end']))}\n"
+                                   f"Users' result: {r['result_total']:+,.0f} (our side {-r['result_total']:+,.0f}).\n"
+                                   f"{r['carried']} open position(s) carried forward at the week-close price."
+                                   + (f"\n{r['unpriced']} position(s) had no price and were left as they were." if r["unpriced"] else "")
+                                   + ("\nThe cut-off ran late (the site was down at Sunday midnight)." if late else ""))
+                            asyncio.get_event_loop().run_in_executor(None, _probe._telegram, txt)
+                        except Exception:
+                            log.exception("weekly settlement report failed")
+                elif not last_seconds:
+                    engine.week_hold = False
+                if not engine.week_hold and time.time() - marks_at > 60:
+                    _weekly.remember_marks(engine, db); marks_at = time.time()
+            finally:
+                db.close()
+        except Exception:
+            log.exception("weekly settlement failed")
+            failures += 1
+            if failures >= 3:                       # never leave trading blocked: back off and tell the owner
+                engine.week_hold = False; pause_until = time.time() + 900; failures = 0
+                try:
+                    asyncio.get_event_loop().run_in_executor(None, _probe._telegram, "limefx: the weekly settlement failed 3 times; trading continues, it will be retried in 15 minutes.")
+                except Exception:
+                    pass
+        await asyncio.sleep(0.4 if fast else 5)
 
 
 async def feed_watch_loop():
@@ -1081,6 +1153,29 @@ async def daystart_loop():
         except Exception:
             log.exception("day-start snapshot failed")
         await asyncio.sleep(45)
+
+
+@app.get("/api/admin/weekly")
+def admin_weekly(week_end: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Weekly settlement table for all users. No week_end = the week in progress (provisional)."""
+    try:
+        return _weekly.report(engine, db, week_end)
+    except ValueError:
+        raise HTTPException(400, "week_end must look like 2026-11-15")
+
+
+@app.get("/api/weekly")
+def my_weekly(week_end: Optional[str] = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The user's own weekly settlement: the running week, or a finished one."""
+    try:
+        rep = _weekly.report(engine, db, week_end, user_ids=[user.id], include_admin=True)
+    except ValueError:
+        raise HTTPException(400, "week_end must look like 2026-11-15")
+    rep["weeks"] = [w for (w,) in db.query(_weekly.WeekSettlement.week_end).filter_by(user_id=user.id)
+                    .order_by(_weekly.WeekSettlement.week_end.desc()).all()]
+    rep["row"] = rep["rows"][0] if rep["rows"] else None
+    rep["positions"] = [engine.position_dict(p) for p in db.query(Position).filter_by(user_id=user.id, is_closed=False) if p.qty] if not week_end else []
+    return rep
 
 
 @app.get("/api/admin/daystart")

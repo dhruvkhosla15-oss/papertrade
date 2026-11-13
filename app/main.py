@@ -1085,7 +1085,7 @@ async def weekly_loop():
                                    f"Users' result: {r['result_total']:+,.0f} (our side {-r['result_total']:+,.0f}).\n"
                                    f"{r['carried']} open position(s) carried forward at the week-close price."
                                    + (f"\n{r['unpriced']} position(s) had no price and were left as they were." if r["unpriced"] else "")
-                                   + (f"\n{r['short']} user(s) are short of margin after the settlement: warned, reminded again Monday 9:15 am, auto square-off 30 minutes after they open the app or at noon." if r.get("short") else "")
+                                   + (f"\n{r['short']} user(s) are short of margin after the settlement: warned, reminded again Monday 9:15 am, auto square-off at Monday 12 noon if still short." if r.get("short") else "")
                                    + ("\nThe cut-off ran late (the site was down at Sunday midnight)." if late else ""))
                             asyncio.get_event_loop().run_in_executor(None, _probe._telegram, txt)
                         except Exception:

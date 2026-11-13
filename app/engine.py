@@ -948,9 +948,7 @@ class Engine:
     def week_grace(self, db: Session, uid: int) -> bool:
         """True while a user who was left short of margin by the weekly settlement (the week's profit went
         out of the coins) may still fix it himself: no auto square-off for the shortfall
-          - before the Monday reminder (9:15 am),
-          - then until 30 minutes after he has opened the app and seen that reminder,
-          - and never past Monday noon, whether he opened the app or not.
+        until Monday 12 noon (warning Sunday night, reminder Monday 9:15 am).
         The margin call on a deep loss is not affected."""
         g = self._week_grace_get(db, uid)
         if not g:
@@ -958,11 +956,7 @@ class Engine:
         now = ist_now()
         if now < datetime.fromisoformat(g["monday"]):
             return True
-        if now >= datetime.fromisoformat(g["hard"]):
-            return False
-        if g.get("seen"):
-            return now < datetime.fromisoformat(g["seen"]) + timedelta(minutes=self.WEEK_GRACE_MINUTES)
-        return True
+        return now < datetime.fromisoformat(g["hard"])
 
     def week_grace_tick(self, db: Session, user: User, f: dict):
         """Called on every margin pass: send the Monday reminder once, and forget the whole thing as soon as
@@ -980,8 +974,8 @@ class Engine:
             hard = datetime.fromisoformat(g["hard"]).strftime("%I:%M %p").lstrip("0")
             self._user_alert(db, user, "Reminder: margin shortfall — reduce your positions now",
                              f"Available Balance is {f['available']:,.0f}, below zero, because your coins went back to the allocated amount at the weekly settlement.\n\n"
-                             f"You have {self.WEEK_GRACE_MINUTES} minutes from now to reduce your positions yourself. If Available Balance is still below zero after that "
-                             f"(or at {hard} today if you do not open the app), positions are squared off automatically until it is back above zero.")
+                             f"You have until {hard} today to reduce your positions yourself. If Available Balance is still below zero at {hard}, "
+                             "positions are squared off automatically until it is back above zero.")
 
     def week_grace_seen(self, db: Session, user: User):
         """The user has opened the app after the Monday reminder: his 30 minutes start now."""

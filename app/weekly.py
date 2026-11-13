@@ -219,9 +219,9 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
                 summary["short"] = summary.get("short", 0) + 1
                 engine._user_alert(db, user, "Margin shortfall after weekly settlement",
                                    f"Your coins are back to {allocated(db, user):,.0f} and your open positions need more margin than that: "
-                                   f"Available Balance is {f['available']:,.0f}.\n\nNothing is squared off tonight. Please reduce your positions. You will get a reminder on {until.strftime('%A at %I:%M %p').replace(' 0', ' ')}; "
-                                   "from the moment you open the app after that you have 30 minutes, and if Available Balance is still below zero then "
-                                   "(or by 12 noon if you do not open the app), positions are squared off automatically until it is back above zero.")
+                                   f"Available Balance is {f['available']:,.0f}.\n\nNothing is squared off tonight. Please reduce your positions. You have until {hard.strftime('%A %I:%M %p').replace(' 0', ' ')} to do it yourself "
+                                   f"(a reminder comes at {until.strftime('%I:%M %p').lstrip('0')}). If Available Balance is still below zero then, "
+                                   "positions are squared off automatically until it is back above zero.")
             elif get_setting(db, f"week_grace_{user.id}", ""):
                 set_setting(db, f"week_grace_{user.id}", "")
         except Exception:

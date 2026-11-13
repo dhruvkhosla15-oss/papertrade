@@ -148,7 +148,7 @@ a{color:var(--acc)}
   </div>
   </div>
 
-  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="perf">Performance</button><button data-nav="settings">Settings</button></div>
+  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="perf">Performance</button><button data-nav="shadow">Shadow Book</button><button data-nav="settings">Settings</button></div>
 
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
@@ -218,6 +218,25 @@ a{color:var(--acc)}
   </section>
 
   <!-- ===== Settings ===== -->
+  <section id="nav-shadow" class="hidden">
+  <div class="card">
+    <div class="bar" style="justify-content:space-between">
+      <div><h2 style="margin:0">Shadow Book <span class="pill" style="margin-left:6px">DRY RUN</span></h2>
+        <p class="small mut" style="margin:6px 0 0;max-width:760px;line-height:1.5">What would have happened if, for every user order on NSE, BSE and MCX, the opposite order of the same size had been placed with a real broker at the same price. <b>No order is sent anywhere</b> — this is arithmetic on trades already in the books.</p></div>
+      <div class="seg" id="shPresets"><button data-sp="today">Today</button><button data-sp="week">This week</button><button data-sp="month">This month</button><button data-sp="all" class="active">All time</button></div>
+    </div>
+  </div>
+  <div class="card"><div id="shStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"></div>
+    <p class="small mut" id="shCosts" style="margin:10px 0 0;line-height:1.6"></p></div>
+  <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">By User</h2></div>
+    <table id="shUsers"><thead><tr><th>User</th><th>Orders Mirrored</th><th>Turnover</th><th>Realised</th><th>Unrealised</th><th>Real Costs</th><th>Net P&L</th></tr></thead><tbody></tbody></table></div>
+  <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Open Mirror Positions</h2></div>
+    <table id="shPos"><thead><tr><th>User</th><th>Contract</th><th>Our Side</th><th>Lots</th><th>Avg Price</th><th>Now</th><th>Unrealised</th></tr></thead><tbody></tbody></table></div>
+  <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Mirror Orders</h2></div>
+    <table id="shOrders"><thead><tr><th>Time</th><th>User</th><th>Contract</th><th>User Did</th><th>We Would</th><th>Qty</th><th>Price</th><th>Value</th><th>Realised</th><th>Real Costs</th></tr></thead><tbody></tbody></table></div>
+  <div class="card"><p class="small mut" style="margin:0;line-height:1.6"><b>What this leaves out:</b> a real order would not fill at exactly the user's price (slippage); the real exchange margin and the cost of funding it; and exchange taxes on options held to expiry. Real costs use Zerodha's published charges as read on 13 Nov 2026. Treat the result as an estimate, a little better than reality.</p></div>
+  </section>
+
   <section id="nav-settings" class="hidden">
   <div class="card">
     <h2>Margin % of contract value</h2><p class="small mut" style="margin-bottom:10px">Applies to futures and short options. Long options block the full premium. Stock F&O uses its own (higher) percentage, like real exchange margins.</p>
@@ -352,6 +371,7 @@ a{color:var(--acc)}
 
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=t=>String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
 const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);const cls=n=>n>0?'up':n<0?'dn':'';const sgn=n=>(n>0?'+':'')+inr(n);
 const KINDS={ADMIN_CREDIT:'Coins added',ADMIN_DEBIT:'Coins removed',REALISED_PNL:'Realised P&L',EXPIRY_SETTLEMENT:'Expiry settlement',LOT_SIZE_CORRECTION:'Lot size correction',COMMISSION:'Commission'};
@@ -376,7 +396,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -564,6 +584,23 @@ function styleChart(){const light=document.documentElement.getAttribute('data-th
 const chartDay=t=>typeof t==='number'?new Date(t*1000):typeof t==='string'?new Date(t+'T00:00:00Z'):new Date(Date.UTC(t.year,t.month-1,t.day));
 function ensureChart(){if(chart)return;chart=LightweightCharts.createChart($('#dailyChart'),{height:220,rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false,tickMarkFormatter:t=>chartDay(t).toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'UTC'})},localization:{timeFormatter:t=>chartDay(t).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'})},handleScroll:false,handleScale:false});
   series=chart.addHistogramSeries({priceFormat:{type:'volume'}});styleChart();new ResizeObserver(()=>chart.applyOptions({width:$('#dailyChart').clientWidth})).observe($('#dailyChart'));}
+let shP='all';
+function shRange(){const n=new Date(Date.now()+5.5*3600e3);const iso=d=>d.toISOString().slice(0,10);const today=iso(n);
+  if(shP==='today')return{from:today};if(shP==='week'){const d=new Date(n);d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return{from:iso(d)};}
+  if(shP==='month')return{from:today.slice(0,8)+'01'};return{};}
+async function loadShadow(){
+  const r=shRange();const d=await api('/admin/shadow'+(r.from?'?from='+r.from:''));const m=d.summary,c=m.costs;
+  const st=(l,v,k,t)=>`<div class="stat"${t?` title="${t}"`:''}><span class="mut small">${l}</span><b class="${k||''}">${v}</b></div>`;
+  $('#shStats').innerHTML=st('Orders Mirrored',fmt(m.orders,0))+st('Turnover',inr(m.turnover))+st('Realised',sgn(m.realised),cls(m.realised),'Opposite of what users booked on closed trades')
+    +st('Unrealised',sgn(m.unrealised),cls(m.unrealised),'Opposite of users\' running P&L on open positions, at the last traded price')+st('P&L Before Costs',sgn(m.gross),cls(m.gross))
+    +st('Real Costs',m.costs.total?'-'+inr(c.total):inr(0),c.total?'dn':'')+st('Net P&L',sgn(m.net),cls(m.net))+st('Open Positions',fmt(m.open_positions,0))
+    +st('Margin Needed (Rough)',inr(m.margin_estimate),'','The margin limefx blocks on the users\' side of these positions; the real exchange margin will differ');
+  $('#shCosts').innerHTML=`<b>Real costs:</b> brokerage ${inr(c.brokerage)} · STT / CTT ${inr(c.tax)} · exchange charges ${inr(c.txn)} · SEBI ${inr(c.sebi)} · stamp duty ${inr(c.stamp)} · GST ${inr(c.gst)}`;
+  $('#shUsers tbody').innerHTML=d.users.map(u=>`<tr><td><b>${esc(u.user)}</b><div class="small mut">${esc(u.username)}</div></td><td class="num">${u.orders}</td><td class="num">${inr(u.turnover)}</td><td class="num ${cls(u.realised)}">${sgn(u.realised)}</td><td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num dn">${u.costs?'-'+inr(u.costs):inr(0)}</td><td class="num ${cls(u.net)}"><b>${sgn(u.net)}</b></td></tr>`).join('')||'<tr><td colspan=7 class="mut">No user orders on NSE, BSE or MCX in this period</td></tr>';
+  $('#shPos tbody').innerHTML=d.positions.map(p=>`<tr><td>${esc(p.user)}</td><td><b>${esc(p.symbol)}</b> <span class="small mut">${p.exchange}</span></td><td class="${p.our_side==='BUY'?'up':'dn'}">${p.our_side}</td><td class="num">${p.lots}</td><td class="num">${fmt(p.avg_price,2)}</td><td class="num">${p.ltp==null?'—':fmt(p.ltp,2)}</td><td class="num ${cls(p.unrealised)}">${sgn(p.unrealised)}</td></tr>`).join('')||`<tr><td colspan=7 class="mut">${d.live?'No open positions':'Open positions are shown only for a period that reaches today'}</td></tr>`;
+  $('#shOrders tbody').innerHTML=d.orders.map(o=>`<tr><td class="small">${new Date(o.at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'})}</td><td>${esc(o.user)}</td><td><b>${esc(o.symbol)}</b></td><td class="${o.user_side==='BUY'?'up':o.user_side==='SELL'?'dn':'mut'}">${o.user_side}</td><td class="${o.our_side==='BUY'?'up':o.our_side==='SELL'?'dn':'mut'}"><b>${o.our_side}</b></td><td class="num">${o.qty||'—'}</td><td class="num">${o.price?fmt(o.price,2):'—'}</td><td class="num">${o.value?inr(o.value):'—'}</td><td class="num ${cls(o.realised)}">${o.realised?sgn(o.realised):'—'}</td><td class="num">${o.cost?'-'+inr(o.cost):'—'}</td></tr>`).join('')||'<tr><td colspan=10 class="mut">Nothing in this period</td></tr>';
+}
+$$('[data-sp]').forEach(b=>b.onclick=()=>{shP=b.dataset.sp;$$('[data-sp]').forEach(x=>x.classList.toggle('active',x===b));loadShadow();});
 async function loadPerf(){
   let r;try{r=await api('/admin/report?'+qs());}catch(e){return toast(e.message,1)}
   const days=Object.entries(r.daily);const net=days.reduce((a,[,v])=>a+v,0);

@@ -1109,6 +1109,103 @@ def admin_positions(admin: User = Depends(current_admin), db: Session = Depends(
     return out
 
 
+# ---- shadow book (dry run: no order is sent anywhere) -----------------------------------------------
+# What would have happened if, for every user fill on NSE / BSE / MCX, the opposite order of the same size
+# had been placed with a real broker at the same price. Pure arithmetic on trades already in the books.
+SHADOW_EXCHANGES = ("NFO", "BFO", "MCX")
+# Real-broker cost schedule (Zerodha's published charges, read 13 Nov 2026). % figures are of traded value
+# (premium value for options). Editable only here for now.
+SHADOW_RATES = {
+    "eq_fut": {"brok_pct": 0.03, "brok_cap": 20.0, "tax_sell_pct": 0.05, "txn_pct": {"NFO": 0.00183, "BFO": 0.0}, "stamp_buy_pct": 0.002},
+    "eq_opt": {"brok_flat": 20.0, "tax_sell_pct": 0.15, "txn_pct": {"NFO": 0.03553, "BFO": 0.0325}, "stamp_buy_pct": 0.003},
+    "mcx_fut": {"brok_pct": 0.03, "brok_cap": 20.0, "tax_sell_pct": 0.01, "txn_pct": {"MCX": 0.0021}, "stamp_buy_pct": 0.002},
+    "mcx_opt": {"brok_flat": 20.0, "tax_sell_pct": 0.05, "txn_pct": {"MCX": 0.0418}, "stamp_buy_pct": 0.003},
+    "sebi_per_crore": 10.0, "gst_pct": 18.0,
+}
+
+
+def _shadow_cost(exchange: str, is_option: bool, our_side: str, value: float) -> dict:
+    r = SHADOW_RATES[("mcx_" if exchange == "MCX" else "eq_") + ("opt" if is_option else "fut")]
+    brok = r["brok_flat"] if "brok_flat" in r else min(r["brok_cap"], value * r["brok_pct"] / 100.0)
+    tax = value * r["tax_sell_pct"] / 100.0 if our_side == "SELL" else 0.0
+    txn = value * r["txn_pct"].get(exchange, 0.0) / 100.0
+    sebi = value * SHADOW_RATES["sebi_per_crore"] / 1e7
+    stamp = value * r["stamp_buy_pct"] / 100.0 if our_side == "BUY" else 0.0
+    gst = (brok + txn + sebi) * SHADOW_RATES["gst_pct"] / 100.0
+    return {"brokerage": brok, "tax": tax, "txn": txn, "sebi": sebi, "stamp": stamp, "gst": gst,
+            "total": brok + tax + txn + sebi + stamp + gst}
+
+
+@app.get("/api/admin/shadow")
+def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
+                 admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    users = {u.id: u for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()}
+    try:
+        d0 = datetime.strptime(from_, "%Y-%m-%d") - IST if from_ else None
+        d1 = datetime.strptime(to, "%Y-%m-%d") + timedelta(days=1) - IST if to else None
+    except ValueError:
+        raise HTTPException(400, "Dates must look like 2026-11-13")
+    live = d1 is None or d1 > datetime.utcnow()                 # running P&L only makes sense for a period that reaches now
+    q = db.query(Trade).filter(Trade.exchange.in_(SHADOW_EXCHANGES), Trade.user_id.in_(list(users) or [0]))
+    if d0: q = q.filter(Trade.created_at >= d0)
+    if d1: q = q.filter(Trade.created_at < d1)
+    keys = ("brokerage", "tax", "txn", "sebi", "stamp", "gst", "total")
+    costs = dict.fromkeys(keys, 0.0)
+    per = {}
+    def row(uid):
+        u = users[uid]
+        return per.setdefault(uid, {"user": u.display_name or u.username, "username": u.username, "orders": 0,
+                                    "turnover": 0.0, "realised": 0.0, "unrealised": 0.0, "costs": 0.0})
+    orders = []
+    for t in q.order_by(Trade.created_at, Trade.id).all():
+        ins = feed.instruments.get(t.token)
+        is_opt = (ins.instrument_type in ("CE", "PE")) if ins else t.symbol.endswith(("CE", "PE"))
+        value = t.price * t.qty * (engine.vf(ins) if ins else 1.0)
+        ours = "SELL" if t.side == "BUY" else "BUY"
+        c = _shadow_cost(t.exchange, is_opt, ours, value)
+        for k in keys: costs[k] += c[k]
+        r = row(t.user_id)
+        r["orders"] += 1; r["turnover"] += value; r["realised"] -= (t.realised_pnl or 0.0); r["costs"] += c["total"]
+        orders.append({"at": t.created_at.isoformat() + "Z", "user": r["user"], "symbol": t.symbol, "exchange": t.exchange,
+                       "user_side": t.side, "our_side": ours, "qty": t.qty, "price": t.price, "value": round(value, 2),
+                       "realised": round(-(t.realised_pnl or 0.0), 2) + 0.0, "cost": round(c["total"], 2)})
+    # contracts held to expiry are settled without a trade: the mirror books the opposite of the user's result
+    lq = db.query(Ledger).filter(Ledger.kind == "EXPIRY_SETTLEMENT", Ledger.user_id.in_(list(users) or [0]))
+    if d0: lq = lq.filter(Ledger.created_at >= d0)
+    if d1: lq = lq.filter(Ledger.created_at < d1)
+    for l in lq.all():
+        sym = (l.note or "").split(" settled")[0]
+        pos = db.query(Position).filter_by(user_id=l.user_id, symbol=sym).first()
+        if pos and pos.exchange in SHADOW_EXCHANGES:
+            r = row(l.user_id); r["realised"] -= l.amount
+            orders.append({"at": l.created_at.isoformat() + "Z", "user": r["user"], "symbol": sym, "exchange": pos.exchange,
+                           "user_side": "EXPIRY", "our_side": "EXPIRY", "qty": 0, "price": 0, "value": 0,
+                           "realised": round(-l.amount, 2), "cost": 0.0})
+    positions = []; margin = 0.0
+    if live:
+        for p in db.query(Position).filter_by(is_closed=False).filter(Position.exchange.in_(SHADOW_EXCHANGES)).all():
+            if p.user_id not in users or not p.qty:
+                continue
+            ins = feed.instruments.get(p.token)
+            ltp = feed.ltp(p.token)
+            u = -(ltp - p.avg_price) * p.qty * (engine.vf(ins) if ins else 1.0) if ltp is not None else 0.0
+            r = row(p.user_id); r["unrealised"] += u; margin += (p.margin_blocked or 0.0)
+            positions.append({"user": r["user"], "symbol": p.symbol, "exchange": p.exchange, "our_side": "SELL" if p.qty > 0 else "BUY",
+                              "lots": abs(p.qty) // p.lot_size if p.lot_size else 0, "qty": abs(p.qty), "avg_price": round(p.avg_price, 4),
+                              "ltp": ltp, "unrealised": round(u, 2)})
+    realised = sum(r["realised"] for r in per.values()); unreal = sum(r["unrealised"] for r in per.values())
+    for r in per.values():
+        r["net"] = round(r["realised"] + r["unrealised"] - r["costs"], 2)
+        for k in ("turnover", "realised", "unrealised", "costs"): r[k] = round(r[k], 2)
+    return {"live": live, "exchanges": ["NSE", "BSE", "MCX"],
+            "summary": {"orders": sum(r["orders"] for r in per.values()), "turnover": round(sum(r["turnover"] for r in per.values()), 2),
+                        "realised": round(realised, 2), "unrealised": round(unreal, 2), "gross": round(realised + unreal, 2),
+                        "costs": {k: round(v, 2) for k, v in costs.items()}, "net": round(realised + unreal - costs["total"], 2),
+                        "open_positions": len(positions), "margin_estimate": round(margin, 2)},
+            "users": sorted(per.values(), key=lambda r: r["net"]), "positions": sorted(positions, key=lambda x: x["unrealised"]),
+            "orders": orders[::-1][:300], "rates": SHADOW_RATES}
+
+
 # ---- scheduled maintenance notice --------------------------------------------------------------------
 class MaintIn(BaseModel):
     at: str                 # "HH:MM" today (IST)

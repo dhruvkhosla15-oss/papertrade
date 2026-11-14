@@ -289,6 +289,7 @@ def check_reports(week_end: date, label="", late=False):
             continue        # trades slipped in before a late cut-off: that week holds them, the calendar range does not
         w = M.build_report(db, [u], mon, we)["users"][0]
         ok(f"{tag}: period report for the week = week result", near(w["net_pnl"] + w["valuation"], r.result, 0.03), f"{w['net_pnl']} + {w['valuation']} vs {r.result}")
+        ok(f"{tag}: Performance tab Net P&L for the week = week result", near(w["total_pnl"], r.result, 0.03) and near(w["open_pnl"], r.valuation, 0.03), f"{w['total_pnl']} vs {r.result}")
         wb = load_workbook(io.BytesIO(M.build_xlsx(db, [u], mon, we)))
         _, prow = _sheet(wb, "P&L Statement")
         tot = next(x for x in prow if x[0] == "TOTAL")
@@ -351,6 +352,11 @@ def check_running(tag):
         ok(f"{tag} {name}: coins equal the last ledger line", near(u.balance, last.balance_after))
         check_positions(name, f"{tag} {name}")
         a = M.build_report(db, [u], None, "2031-01-01")["users"][0]
+        ok(f"{tag} {name}: Performance tab all time = own-price P&L", near(a["total_pnl"], truth_total(u.id), 0.5), f"{a['total_pnl']} vs {truth_total(u.id):.2f}")
+        _mon = (W.week_end_of(T.date()) - timedelta(days=6)).isoformat()
+        _wk = M.build_report(db, [u], _mon, W.week_end_of(T.date()).isoformat())["users"][0]
+        if (D.get_setting(db, "week_closed") or "") < W.week_end_of(T.date()).isoformat():      # the week the clock is in is still running
+            ok(f"{tag} {name}: Performance tab this week = running week result", near(_wk["total_pnl"], run_row["result"], 0.05), f"{_wk['total_pnl']} vs {run_row['result']}")
         ok(f"{tag} {name}: screens: Net P&L (This Week) and (All Time)", near(a["week_pnl"], run_row["result"], 0.02) and near(a["overall_pnl"], truth_total(u.id), 0.5),
            f"{a['week_pnl']} vs {run_row['result']}; {a['overall_pnl']} vs {truth_total(u.id):.2f}")
     for row in M._admin_rows(db):

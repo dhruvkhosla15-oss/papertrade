@@ -201,7 +201,9 @@ a{color:var(--acc)}
     <p class="small mut" id="pRangeTxt" style="margin-top:8px"></p>
   </div>
   <div class="card grid">
-    <div class="stat"><span class="mut small" title="Realised − Commission on trades closed in this period. Open positions are not included.">Net P&L (Closed Trades)</span><b id="pNet" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Closed trades + open positions − commission for this period. Users' side; our side is the opposite.">Net P&L (With Open Positions)</span><b id="pTot" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Realised − Commission on trades closed in this period.">Closed Trades</span><b id="pNet" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="Open positions: valued at the live price, or at the closing price while the market is shut. For a finished week: valued at the week close.">Open Positions</span><b id="pOpen" class="num">—</b></div>
     <div class="stat"><span class="mut small">Trades</span><b id="pTrades" class="num">—</b></div>
     <div class="stat"><span class="mut small">Win Rate</span><b id="pWin" class="num">—</b></div>
     <div class="stat"><span class="mut small">Profit Factor</span><b id="pPF" class="num">—</b></div>
@@ -211,7 +213,7 @@ a{color:var(--acc)}
   <div class="card"><h2>Daily Net P&L (Closed Trades)</h2><div id="dailyChart"></div></div>
   <div class="card" style="padding:0;overflow:auto">
     <div style="padding:10px 12px"><h2 style="margin:0">User Ranking</h2></div>
-    <table id="pTbl"><thead><tr><th>#</th><th>User</th><th>Trades</th><th>Closing Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th title="Booked P&L on trades closed in this period, before commission">Realised</th><th>Commission</th><th title="Realised − Commission. Open positions are not included.">Net P&L (Closed Trades)</th><th>Best Trade</th><th>Worst Trade</th><th>Profit Factor</th><th title="Allocated + Net P&L (All Time), as of now — includes open positions">Net Balance</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="pTbl"><thead><tr><th>#</th><th>User</th><th>Trades</th><th>Closing Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th title="Booked P&L on trades closed in this period, before commission">Realised</th><th>Commission</th><th title="Realised − Commission on trades closed in this period.">Closed Trades (Net)</th><th title="Open positions in this period: live or closing price now; week-close price for a finished week">Open Positions</th><th title="Closed Trades + Open Positions: the result of the period">Net P&L</th><th>Best Trade</th><th>Worst Trade</th><th>Profit Factor</th><th title="Allocated + Net P&L (All Time), as of now — includes open positions">Net Balance</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   <div class="card" style="padding:0;overflow:auto">
     <div style="padding:10px 12px"><h2 style="margin:0">Day By Day</h2></div>
@@ -651,6 +653,7 @@ async function loadPerf(){
   const closed=r.users.reduce((a,u)=>a+u.closing_trades,0),wins=r.users.reduce((a,u)=>a+u.wins,0),gp=r.users.reduce((a,u)=>a+u.gross_profit,0),gl=r.users.reduce((a,u)=>a+u.gross_loss,0);
   $('#pRangeTxt').textContent=`${r.from===r.to?r.from:r.from+' → '+r.to} · ${r.users.length} user${r.users.length===1?'':'s'} · ${days.length} trading day${days.length===1?'':'s'}`;
   $('#pNet').textContent=sgn(net);$('#pNet').className='num '+cls(net);
+  {const tot=r.users.reduce((a,u)=>a+(u.total_pnl||0),0),op=r.users.reduce((a,u)=>a+(u.open_pnl||0),0);$('#pTot').textContent=sgn(tot);$('#pTot').className='num '+cls(tot);$('#pOpen').textContent=sgn(op);$('#pOpen').className='num '+cls(op);}
   $('#pTrades').textContent=r.users.reduce((a,u)=>a+u.trades,0);
   $('#pWin').textContent=closed?fmt(wins/closed*100,1)+'%':'—';
   $('#pPF').textContent=gl?fmt(gp/Math.abs(gl)):(gp?'∞':'—');
@@ -659,12 +662,12 @@ async function loadPerf(){
   $('#pWorstDay').innerHTML=worst?`<span class="${cls(worst[1])}">${sgn(worst[1])}</span> <span class="small mut">${worst[0]}</span>`:'—';
   ensureChart();const up=getComputedStyle(document.documentElement).getPropertyValue('--up').trim(),dn=getComputedStyle(document.documentElement).getPropertyValue('--dn').trim();
   series.setData(days.map(([d,v])=>({time:d,value:v,color:v>=0?up:dn})));const W=$('#dailyChart').clientWidth||800;chart.timeScale().applyOptions({barSpacing:Math.max(6,Math.min(48,W/(days.length+3))),rightOffset:1});chart.timeScale().scrollToPosition(1,false);
-  const ranked=[...r.users].sort((a,b)=>b.net_pnl-a.net_pnl);
+  const ranked=[...r.users].sort((a,b)=>(b.total_pnl??b.net_pnl)-(a.total_pnl??a.net_pnl));
   $('#pTbl tbody').innerHTML=ranked.map((u,i)=>`<tr class="clickable" data-id="${u.id}"><td>${i+1}</td><td style="text-align:left"><b>${u.display_name}</b><div class="small mut">${u.username}</div></td>
     <td class="num">${u.trades}</td><td class="num">${u.closing_trades}</td><td class="num up">${u.wins}</td><td class="num dn">${u.losses}</td><td class="num">${u.win_rate==null?'—':fmt(u.win_rate,1)+'%'}</td>
-    <td class="num ${cls(u.gross_profit+u.gross_loss)}">${sgn(u.gross_profit+u.gross_loss)}</td><td class="num mut">${u.commission?'-'+inr(u.commission):'—'}</td><td class="num ${cls(u.net_pnl)}"><b>${sgn(u.net_pnl)}</b></td>
+    <td class="num ${cls(u.gross_profit+u.gross_loss)}">${sgn(u.gross_profit+u.gross_loss)}</td><td class="num mut">${u.commission?'-'+inr(u.commission):'—'}</td><td class="num ${cls(u.net_pnl)}">${sgn(u.net_pnl)}</td><td class="num ${cls(u.open_pnl)}">${sgn(u.open_pnl||0)}</td><td class="num ${cls(u.total_pnl)}"><b>${sgn(u.total_pnl||0)}</b></td>
     <td class="num ${cls(u.best)}">${u.best?inr(u.best):'—'}</td><td class="num ${cls(u.worst)}">${u.worst?inr(u.worst):'—'}</td><td class="num">${u.profit_factor==null?(u.gross_profit?'∞':'—'):fmt(u.profit_factor)}</td><td class="num">${inr(u.equity)}</td>
-    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=15 class="mut">No trades in this period</td></tr>';
+    <td><a class="small" href="/api/admin/export.xlsx?${qs().replace(/&user_id=\d+/,'')}&user_id=${u.id}" onclick="event.stopPropagation()">⬇ Excel</a></td></tr>`).join('')||'<tr><td colspan=17 class="mut">No trades in this period</td></tr>';
   $$('#pTbl tr.clickable').forEach(x=>x.onclick=()=>openDetail(+x.dataset.id));
   let cum=0;const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   $('#dTblDaily tbody').innerHTML=days.map(([d,v])=>{cum+=v;return`<tr><td>${d}</td><td style="text-align:left" class="mut">${DN[new Date(d+'T00:00:00Z').getUTCDay()]}</td><td class="num ${cls(v)}">${sgn(v)}</td><td class="num ${cls(cum)}">${sgn(cum)}</td></tr>`;}).reverse().join('')||'<tr><td colspan=4 class="mut">No trading days in this period</td></tr>';

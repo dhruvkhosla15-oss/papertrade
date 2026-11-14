@@ -2095,7 +2095,21 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
         valuation = round(sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind == _weekly.VALUATION,
                                                                         Ledger.created_at >= start, Ledger.created_at < end)), 2)
         settled = _weekly.settled_total(db, u)          # sum of finished weeks' results
+        overall = round(funds["equity"] - credited + settled, 2)
+        from .engine import ist_now as _inow
+        pp = _period_pnl(db, u, f, t, overall) if from_ else None
+        # Result of the period WITH open positions: exact from the day-start records where they exist; all
+        # time = everything since the start; otherwise closed trades + positions valued at a week close in
+        # the period + what is open right now (exact for a week, since every week starts from zero).
+        _today = _inow().date()
+        _settled = (get_setting(db, "week_closed") or "") >= _weekly.week_end_of(_today).isoformat()   # this week's cut-off has already run
+        if from_ and f == _today - timedelta(days=_today.weekday()) and t >= _today and not _settled:
+            total = round(funds["equity"] - credited, 2)        # the running week: exactly the week's result so far
+        else:
+            total = pp if pp is not None else (overall if not from_ else
+                                               round(pnl + valuation + (funds["unrealised"] if t >= _today else 0.0), 2))
         out["users"].append({
+            "total_pnl": total, "open_pnl": round(total - pnl, 2),
             "valuation": valuation, "settled_total": settled, "week_pnl": round(funds["equity"] - credited, 2),
             "id": u.id, "username": u.username, "display_name": u.display_name,
             "trades": len(trades), "closing_trades": len(closing), "wins": len(wins), "losses": len(losses),

@@ -77,6 +77,9 @@ feed.load_instruments([
     Instrument(I_NIFTY, "NIFTY", "NIFTY", "NSE", "INDICES", "EQ", "", 0, 1, 0.05),
     Instrument(F_NIFTY, "NIFTY27DECFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", FAR, 0, 75, 0.05),
     Instrument(F_THIN, "MENTHAOIL27JANFUT", "MENTHAOIL", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 360, 0.1),
+    Instrument(11, "NIFTY27JANFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", THIN_EXP, 0, 75, 0.05),
+    Instrument(12, "USDINR27JANFUT", "USDINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
+    Instrument(13, "EURINR27JANFUT", "EURINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
     Instrument(F_SILVER, "SILVER27DECFUT", "SILVER", "MCX", "MCX-FUT", "FUT", FAR, 0, 30, 1.0),
     Instrument(F_SILVERM, "SILVERM27DECFUT", "SILVERM", "MCX", "MCX-FUT", "FUT", FAR, 0, 5, 1.0),
     Instrument(O_CE, "NIFTY27DEC26000CE", "NIFTY", "NFO", "NFO-OPT", "CE", FAR, 26000, 75, 0.05),
@@ -601,20 +604,50 @@ for n, u in users.items():
         ok(f"daily {n}: the two days add up to the two-day result", near(pp(u, tue, tue) + pp(u, wed, wed), pp(u, tue, wed), 0.02))
 ok("daily: a day with no day-start record is reported as unknown, never guessed", pp(users["hold"], day(W10, 0, 0, 0), day(W10, 0, 0, 0)) is None)
 
-# ---- expiry of a thin future: settled at what it could be closed at, not at an old last trade ----
+# ---- expiry: index and currency futures settle against the underlying, a commodity future at the book ----
+F_NIFTY_X, F_USDINR_X, F_EURINR_X = 11, 12, 13
 assert iso(thu) == THIN_EXP, iso(thu)
+last_trade = lambda n, tok: db.query(Trade).filter_by(user_id=users[n].id, token=tok).order_by(Trade.id.desc()).first()
+flat = lambda n, tok: db.query(Position).filter_by(user_id=users[n].id, token=tok, is_closed=False).count() == 0
+
+
+class _FX:                                                # stand-in for the forex feed's spot rates
+    connected = True; items = {}
+    rates = {"USD": 95.50, "EUR": 9.9}                    # EUR deliberately absurd (wrong unit): must be ignored
+    def _quote_to_inr_live(self, q):
+        return self.rates.get(q)
+
+
+feed.forex = _FX()
+at(day(W10, 3, 11, 50)); coins("idle", 1_500_000, "more coins for the expiry tests"); coins("hold", 1_500_000, "more coins for the expiry tests")
+at(day(W10, 3, 12)); feed.set(F_USDINR_X, 95.40, spread=0.02); feed.set(F_EURINR_X, 104.00, spread=0.04)
+feed.prices[F_USDINR_X]["ltp"] = 97.0                     # an old last trade, far from the book and from the spot rate
+trade("idle", F_USDINR_X, "BUY", 1); trade("hold", F_USDINR_X, "SELL", 1); trade("idle", F_EURINR_X, "BUY", 1)
+W.remember_marks(engine, db)
+at(day(W10, 3, 12, 31)); run(engine._settle_expired()); db.expire_all()
+for n in ("idle", "hold"):
+    ok(f"expiry {n}: a currency future settles at the spot rate (not its last trade, not the book)", flat(n, F_USDINR_X) and near(last_trade(n, F_USDINR_X).price, 95.50, 0.0001), str(last_trade(n, F_USDINR_X).price))
+ok("expiry: a spot rate that is nowhere near the contract is ignored and the book is used", flat("idle", F_EURINR_X) and near(last_trade("idle", F_EURINR_X).price, 103.98, 0.0001), str(last_trade("idle", F_EURINR_X).price))
+
 at(day(W10, 3, 14)); feed.set(F_THIN, 900.0, spread=2.0)                 # book: bid 899 / ask 901
 feed.prices[F_THIN]["ltp"] = 960.0; feed.prices[F_THIN]["ltt"] = time.time() - 6 * 3600   # last trade hours ago, far above the book
-bal0 = {n: db.get(User, users[n].id).balance for n in ("idle", "hold")}; db.expire_all()
 trade("idle", F_THIN, "BUY", 1)                           # buys at the ask, hoping to be settled at the old 960
 trade("hold", F_THIN, "SELL", 1)                          # and the other way round
+at(day(W10, 3, 15)); feed.set(I_NIFTY, 30100); feed.set(F_NIFTY_X, 30140, spread=2.0)
+feed.prices[F_NIFTY_X]["ltp"] = 30400                     # stale last trade on the future
+trade("idle", F_NIFTY_X, "BUY", 1); trade("hold", F_NIFTY_X, "SELL", 1)
 W.remember_marks(engine, db)
+at(day(W10, 3, 15, 41)); feed.set(I_NIFTY, 30110); run(engine._settle_expired()); db.expire_all()
+for n in ("idle", "hold"):
+    ok(f"expiry {n}: an index future settles at the index's closing value", flat(n, F_NIFTY_X) and near(last_trade(n, F_NIFTY_X).price, 30110, 0.001), str(last_trade(n, F_NIFTY_X).price))
+ok("expiry: the commodity future is still open until its own session ends", not flat("idle", F_THIN))
 at(day(W10, 3, 23, 58)); run(engine._settle_expired()); db.expire_all()
 for n, side, want in (("idle", "SELL", 899.0), ("hold", "BUY", 901.0)):
-    tr = db.query(Trade).filter_by(user_id=users[n].id, token=F_THIN).order_by(Trade.id.desc()).first()
-    ok(f"expiry {n}: a thin future is settled at the exit side of the book, not at the old last trade", tr.side == side and near(tr.price, want, 0.001), f"{tr.side} @ {tr.price}")
+    tr = last_trade(n, F_THIN)
+    ok(f"expiry {n}: a thin commodity future is settled at the exit side of the book, not at the old last trade", tr.side == side and near(tr.price, want, 0.001), f"{tr.side} @ {tr.price}")
     ok(f"expiry {n}: nothing can be made from the gap between last trade and book", tr.realised_pnl <= 0, str(tr.realised_pnl))
-    ok(f"expiry {n}: position closed and margin released", db.query(Position).filter_by(user_id=users[n].id, token=F_THIN, is_closed=False).count() == 0)
+    ok(f"expiry {n}: position closed and margin released", flat(n, F_THIN))
+check_running("after the expiries")
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

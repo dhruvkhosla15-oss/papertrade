@@ -1241,6 +1241,56 @@ class Engine:
                 log.exception("session-end pass failed")
             await asyncio.sleep(60)
 
+    def _settle_underlying(self, ins, p, need_spot: bool):
+        """(price, wait) of the underlying an expiring contract is settled against.
+        price None = no usable underlying (the caller falls back to the order book for a future).
+        wait True  = the underlying is not streaming yet; it has been asked for, try again on a later pass.
+        need_spot  = a future must be settled against a real underlying market (index, stock cash price,
+                     currency spot); the 'nearest future' stand-in used for options would be the contract itself."""
+        if ins.exchange == "CDS":
+            # currency: the spot rate (the exchange uses the day's reference rate), quoted like the contract
+            fx = getattr(self.feed, "forex", None)
+            base = (ins.name or "")[:3].upper()
+            try:
+                r = fx._quote_to_inr_live(base) if (fx and fx.connected and base and (ins.name or "").upper().endswith("INR")) else None
+            except Exception:
+                r = None
+            if r and r > 0:
+                r = r * 100 if base == "JPY" else r                  # JPYINR is quoted per 100 yen
+                ref = self.value_price(p) or self.feed.ltp(p.token) if not ins.strike else self.feed.ltp(self.feed.index_token_for(ins.name) or -1)
+                if not ref or abs(r - ref) / ref <= 0.03:             # a rate that is not near the contract is not this pair's rate
+                    return round(r, 4), False
+            if need_spot:
+                return None, False
+        ut = self.feed.index_token_for(ins.name) or -1
+        ui = self.feed.instruments.get(ut)
+        if need_spot and (ui is None or ui.segment != "INDICES"):
+            return None, False
+        if ui is not None and not self.feed.live(ut):
+            # The underlying is not being streamed, so its price in memory is frozen (minutes or days
+            # old) — settling against it pays the wrong amount, and a user could arrange which old price
+            # that is. Start the stream and settle on a later pass; after three minutes without a new
+            # price, settle on the last known one rather than leave the position open for ever.
+            first = self._und_wait.setdefault(ut, time.time())
+            if time.time() - first < 180:
+                if ut not in self._und_pinned:
+                    self._und_pinned.add(ut); self.feed.pin([ut])
+                return None, True
+        else:
+            self._und_wait.pop(ut, None)
+        und = self.feed.ltp(ut)
+        if ui is not None and ui.instrument_type == "FUT":
+            # the underlying is itself a future (commodities): the middle of its order book, not its last
+            # trade, which on a thin contract can be old and far from where it can be dealt
+            t = self.feed.prices.get(ut) or {}
+            if t.get("bid") and t.get("ask") and t["ask"] >= t["bid"] > 0:
+                und = (t["bid"] + t["ask"]) / 2
+        if und is not None and need_spot:
+            ref = self.value_price(p) or self.feed.ltp(p.token)
+            if ref and abs(und - ref) / ref > 0.05:                   # a spot print that far from the future is a bad tick
+                return None, False
+        return und, False
+
     async def _settle_expired(self):
         n = ist_now()
         today = n.date().isoformat()
@@ -1277,25 +1327,20 @@ class Engine:
                                 log.error("cannot settle %s for user %s: contract no longer listed by the feed", p.symbol, p.user_id)
                             continue
                         ltp = None
-                        if ins and ins.instrument_type in ("CE", "PE"):
-                            # options settle at intrinsic value vs the underlying (exchange rule), never at a stale LTP
-                            ut = self.feed.index_token_for(ins.name) or -1
-                            und = self.feed.ltp(ut)
-                            if ut in self.feed.instruments and not self.feed.live(ut):
-                                # The underlying is not being streamed, so its price in memory is frozen
-                                # (minutes or days old) — settling against it pays the wrong amount, and a
-                                # user could arrange which old price that is. Start the stream and settle
-                                # on a later pass; after three minutes without a new price, settle on the
-                                # last known one as before rather than leave the position open for ever.
-                                first = self._und_wait.setdefault(ut, time.time())
-                                if time.time() - first < 180:
-                                    if ut not in self._und_pinned:
-                                        self._und_pinned.add(ut); self.feed.pin([ut])
-                                    continue
-                            else:
-                                self._und_wait.pop(ut, None)
+                        is_opt = bool(ins and ins.instrument_type in ("CE", "PE"))
+                        is_fut = bool(ins and ins.instrument_type == "FUT")
+                        if is_opt or (is_fut and ins.exchange in ("NFO", "BFO", "CDS")):
+                            # Exchange rule: the contract is settled against its underlying market, never at
+                            # its own last trade. Options: intrinsic value. Index, stock and currency futures:
+                            # the underlying's price itself.
+                            und, wait = self._settle_underlying(ins, p, need_spot=is_fut)
+                            if wait:
+                                continue
                             if und is not None:
-                                ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
+                                if is_opt:
+                                    ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
+                                else:
+                                    ltp = und
                         if ltp is None and not (ins and ins.instrument_type in ("CE", "PE")):
                             # A future (or anything that is not an option) settles at the price the position
                             # could last be closed at: the exit side of the order book at the close (bid for

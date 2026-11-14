@@ -10,7 +10,7 @@ DATA="${PT_SELFTEST_DIR:-/tmp/lfx-selftest}"; [ "${PT_SELFTEST_FRESH:-1}" = "1" 
 pkill -f "uvicorn app.main:app --port 8001" 2>/dev/null; pkill -f fake_crypto_feed.py 2>/dev/null; pkill -f fake_forex_feed.py 2>/dev/null; sleep 1
 (python3 "$HERE/fake_crypto_feed.py" >/dev/null 2>&1 &)
 (python3 "$HERE/fake_forex_feed.py" >/dev/null 2>&1 &)
-(PT_FEED=mock PT_DATA_DIR="$DATA" PT_CANONICAL_HOST=www.limefx.in PT_PROBE_AT=99:99 PT_WEEK_TEST=1 PT_STRICT_LIQ_GRACE_MIN=0 \
+(PT_FEED=mock PT_DATA_DIR="$DATA" PT_CANONICAL_HOST=www.limefx.in PT_PROBE_AT=99:99 PT_WEEK_TEST=1 PT_ACCESS_ALL=1 PT_STRICT_LIQ_GRACE_MIN=0 \
  PT_DELTA_REST=http://localhost:8765 PT_DELTA_WS=ws://localhost:8765 PT_CTRADER_WS=ws://localhost:8766 \
  PT_CTRADER_CLIENT_ID=cid PT_CTRADER_CLIENT_SECRET=csec PT_CTRADER_ACCOUNT=10135462 PT_CTRADER_TOKEN=tok-ok \
  python3 -m uvicorn app.main:app --port 8001 >"$DATA/server.log" 2>&1 &)

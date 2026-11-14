@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import date
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 import io
 import os
 from datetime import datetime, timedelta
@@ -36,6 +36,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print fu
 app = FastAPI(title="LimeFX")
 from . import probe as _probe
 from . import weekly as _weekly
+from . import access as _access
 _PROBE = _probe.PREFIX
 
 
@@ -481,7 +482,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
                                      f"If Available Balance is still below zero then, positions are squared off automatically until it is back above zero.")}
     except Exception:
         log.exception("week warning")
-    return {"week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status(),
+    return {"access": {"rows": [{"name": n, "fut": f, "opt": o} for n, f, o in _access.ROWS], "on": _access.effective(db, user)},
+            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}
@@ -492,6 +494,78 @@ def _user_alerts(db, user) -> list:
         return json.loads(get_setting(db, f"user_alerts_{user.id}", "[]") or "[]")
     except Exception:
         return []
+
+
+def _access_tick(db):
+    """Once: accounts that already hold options when the switches arrive keep options on. Then, every minute:
+    such an account goes back to the default for options as soon as it holds none (the Master is told)."""
+    accs = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()
+    if (get_setting(db, "access_init", "") or "") != "1":
+        kept = [u.username for u in accs if _access.keep_options_while_held(engine, db, u)]
+        set_setting(db, "access_init", "1"); db.commit()
+        log.info("trading access switched on; options kept on while held for: %s", ", ".join(kept) or "nobody")
+        return
+    for u in accs:
+        if _access.options_flat_check(engine, db, u):
+            n = _access.cancel_resting(engine, db, u)
+            log.info("trading access: %s holds no options any more, options back to default (%d resting orders cancelled)", u.username, n)
+            try:
+                if _tg_ready():
+                    asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
+                        f"limefx · trading access\n{u.display_name} ({u.username}) holds no option positions any more. Options are back to the default for this user; activate them from Master if needed.")
+            except Exception:
+                pass
+
+
+def _access_view(db, u=None) -> dict:
+    out = {"rows": [{"name": n, "fut": f, "opt": o} for n, f, o in _access.ROWS], "default": _access.default(db)}
+    if u is not None:
+        out["overrides"] = _access.overrides(db, u.id)
+        out["effective"] = _access.effective(db, u)
+        out["until_flat"] = (get_setting(db, f"access_optflat_{u.id}", "") or "") == "1"
+    return out
+
+
+class AccessIn(BaseModel):
+    values: Optional[Dict[str, bool]] = None
+
+
+@app.get("/api/admin/access")
+def admin_access(uid: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    u = db.get(User, uid) if uid else None
+    if uid and (not u or u.is_admin):
+        raise HTTPException(404, "User not found")
+    return _access_view(db, u)
+
+
+@app.post("/api/admin/access/default")
+def admin_access_default(body: AccessIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Change the default table. Everyone follows it except for the switches the Master set on a user himself."""
+    _access.set_default(db, body.values or {})
+    n = sum(_access.cancel_resting(engine, db, u) for u in db.query(User).filter_by(is_admin=False).all())
+    return {**_access_view(db), "cancelled": n}
+
+
+@app.post("/api/admin/access/reset-all")
+def admin_access_reset_all(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Every user back to the default table."""
+    n = 0
+    for u in db.query(User).filter_by(is_admin=False).all():
+        _access.set_user(db, u.id, None)
+        n += _access.cancel_resting(engine, db, u)
+    return {**_access_view(db), "cancelled": n}
+
+
+@app.post("/api/admin/users/{uid}/access")
+def admin_user_access(uid: int, body: AccessIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Set one user's switches (values = the full table as shown), or send no values to go back to the default."""
+    u = db.get(User, uid)
+    if not u or u.is_admin:
+        raise HTTPException(404, "User not found")
+    _access.set_user(db, uid, body.values)
+    n = _access.cancel_resting(engine, db, u)
+    engine._emit(u.id, {"type": "refresh"})
+    return {**_access_view(db, u), "cancelled": n}
 
 
 class AlertIn(BaseModel):
@@ -1144,6 +1218,10 @@ async def weekly_loop():
                     engine.week_hold = False
                 if not engine.week_hold and time.time() - marks_at > 60:
                     _weekly.remember_marks(engine, db); marks_at = time.time()
+                    try:
+                        _access_tick(db)
+                    except Exception:
+                        log.exception("trading access tick failed")
             finally:
                 db.close()
         except Exception:

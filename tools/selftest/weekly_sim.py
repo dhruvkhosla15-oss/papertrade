@@ -19,7 +19,7 @@ from datetime import datetime, date, timedelta
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TMP = tempfile.mkdtemp(prefix="lfx-weeksim-")
-os.environ.update(PT_DATA_DIR=TMP, PT_FEED="mock", PT_ENFORCE_MARKET_HOURS="false", PT_STRICT_LIQ_GRACE_MIN="0",
+os.environ.update(PT_ACCESS_ALL="1", PT_DATA_DIR=TMP, PT_FEED="mock", PT_ENFORCE_MARKET_HOURS="false", PT_STRICT_LIQ_GRACE_MIN="0",
                   PT_TELEGRAM_TOKEN="", PT_TELEGRAM_CHAT="")
 sys.path.insert(0, ROOT)
 
@@ -648,6 +648,66 @@ for n, side, want in (("idle", "SELL", 899.0), ("hold", "BUY", 901.0)):
     ok(f"expiry {n}: nothing can be made from the gap between last trade and book", tr.realised_pnl <= 0, str(tr.realised_pnl))
     ok(f"expiry {n}: position closed and margin released", flat(n, F_THIN))
 check_running("after the expiries")
+
+# ---- trading access: a segment that is not activated takes no new trades; exits always go through ----
+from app import access as A                               # noqa: E402
+at(day(W10, 4, 10)); px(nifty=30200, ce=4300, btc=90000)
+REAL = {k: k in ("IDX_FUT", "STK_FUT", "MCX_FUT", "CDS_FUT") for k in A.KEYS}
+
+
+def refused(name, tok, side, lots=1, **kw):
+    engine._consumed.clear()
+    try:
+        engine.place_order(db, users[name], tok, side, lots, kw.pop("order_type", "MARKET"), **kw); stamp()
+        return None
+    except EngineError as e:
+        db.rollback(); stamp()
+        return str(e)
+
+
+for n in ("idle", "hold", "crypto"):
+    coins(n, 3_000_000, "coins for the access tests")
+trade("hold", O_CE, "BUY", 1)                             # holds an option before the switches arrive
+trade("crypto", F_BTC, "BUY", 2)
+btc_before = sum(p.qty for p in db.query(Position).filter_by(user_id=users["crypto"].id, token=F_BTC, is_closed=False))
+A.set_default(db, REAL)                                   # the real defaults: futures on in the Indian segments, the rest off
+ok("access: accounts that already hold options keep options on", A.keep_options_while_held(engine, db, users["hold"]) and not A.keep_options_while_held(engine, db, users["idle"]))
+ok("access: futures are on by default", refused("idle", F_NIFTY, "BUY") is None)
+m = refused("idle", O_CE, "BUY")
+ok("access: options are off by default, with a clear message", bool(m) and "Options on Indices are not activated" in m, str(m))
+m = refused("idle", F_BTC, "BUY")
+ok("access: crypto is off by default", bool(m) and "Crypto is not activated" in m, str(m))
+ok("access: selling an option short is refused as well", bool(refused("idle", O_CE, "SELL")))
+ok("access: the option holder can still add or hedge with options", refused("hold", O_CE, "BUY") is None)
+ok("access: the option holder gets nothing else (crypto stays off)", bool(refused("hold", F_BTC, "BUY")))
+ok("access: adding to a position in a segment that is off is refused", bool(refused("crypto", F_BTC, "BUY" if btc_before > 0 else "SELL")))
+ok("access: reducing a position in a segment that is off is allowed", refused("crypto", F_BTC, "SELL" if btc_before > 0 else "BUY", 1) is None)
+ok("access: an exit bigger than the position (a flip) is refused", bool(refused("crypto", F_BTC, "SELL" if btc_before > 0 else "BUY", 50)))
+hq = sum(p.qty for p in db.query(Position).filter_by(user_id=users["hold"].id, token=O_CE, is_closed=False)) // 75
+ok("access: the option holder can exit his options", refused("hold", O_CE, "SELL", hq) is None)
+ok("access: once he holds no option, options go back to the default by themselves", A.options_flat_check(engine, db, users["hold"]) and bool(refused("hold", O_CE, "BUY")))
+eff = A.effective(db, users["idle"]); eff["IDX_OPT"] = True
+A.set_user(db, users["idle"].id, eff)
+ok("access: the Master activates options for one user", refused("idle", O_CE, "BUY") is None and bool(refused("hold", O_CE, "BUY")))
+ok("access: only the switch that differs from the default is stored", A.overrides(db, users["idle"].id) == {"IDX_OPT": True})
+o = engine.place_order(db, users["idle"], O_CE, "BUY", 1, "LIMIT", limit_price=100.0); stamp()
+ok("access: a resting order waits", o.status == "OPEN")
+A.set_user(db, users["idle"].id, None)
+ok("access: switching a segment off cancels the resting orders that would open a position there", A.cancel_resting(engine, db, users["idle"]) == 1 and db.get(Order, o.id).status == "CANCELLED")
+ok("access: but he can still exit the option he bought", refused("idle", O_CE, "SELL") is None)
+A.set_default(db, {"CRYPTO_FUT": True})
+ok("access: the Master switches crypto on for everybody through the default", refused("idle", F_BTC, "BUY") is None)
+
+
+class _P:                                                 # the daily safety check's own accounts trade every market
+    is_admin = False; username = "zz-probe-a"; id = 0
+
+
+ok("access: the daily safety check's accounts are not restricted", all(A.effective(db, _P).values()))
+run(engine._check_liquidations())
+ok("access: the auto square-off is not stopped by a switch", True)
+A.set_default(db, {k: True for k in A.KEYS})
+check_running("after the access tests")
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

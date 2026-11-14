@@ -449,6 +449,16 @@ class Engine:
         max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
         if lots < 1 or lots > max_lots:
             raise EngineError(f"lots must be 1..{max_lots}")
+        # Trading access: a segment that is not activated on the account takes no NEW exposure. Reducing or
+        # closing what is already held is always allowed (the auto square-off and expiry never come here).
+        from . import access as _access
+        _cur = pcur.qty if pcur else 0
+        _signed = lots * ins.lot_size * (1 if side == "BUY" else -1)
+        if not (_cur and (_cur > 0) != (_signed > 0) and abs(_signed) <= abs(_cur)):
+            _access.options_flat_check(self, db, user)
+            _no = _access.refusal(db, user, ins)
+            if _no:
+                raise EngineError(_no)
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
         if self.expired(ins):

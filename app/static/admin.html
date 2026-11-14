@@ -76,7 +76,9 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .recon{font-size:12px;color:var(--mut);margin-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
 .tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#0f1115;background:var(--acc);border-color:var(--acc)}
 .nav{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:14px;width:max-content;max-width:100%}
-.nav button{background:none;color:var(--mut);padding:8px 18px;border-radius:7px}.nav button.active{background:var(--acc);color:#0f1115}
+.nav{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.nav::-webkit-scrollbar{display:none}
+.nav button{background:none;color:var(--mut);padding:8px 18px;border-radius:7px;flex:0 0 auto;white-space:nowrap}
+@media(max-width:760px){.nav{width:100%;display:grid;grid-template-columns:repeat(3,1fr);overflow:visible}.nav button{padding:9px 6px;white-space:normal;font-size:13px;line-height:1.2}}.nav button.active{background:var(--acc);color:#0f1115}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{background:none;color:var(--mut);border-radius:0;padding:7px 12px;font-weight:500}.seg button.active{background:var(--acc);color:#0f1115;font-weight:600}
 #dailyChart{height:220px;width:100%}

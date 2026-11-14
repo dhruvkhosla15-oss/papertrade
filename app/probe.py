@@ -622,11 +622,16 @@ class Probe:
                 done = [await self._wait_order(cb, i) for i in ids]
                 after = await self._positions(cb)
                 short = [p for p in after or [] if p["token"] == T and p["qty"] < 0]
-                if len(ids) == 2 and any(x and x["status"] == "FILLED" for x in done):
+                # Only a fair test if both exits were resting together. If the first had already filled before
+                # the second was even accepted (a price tick came in between), the second is simply a new
+                # sell order on a flat account, which is allowed like any other new order.
+                together = len(ids) == 2 and all(done) and all(
+                    x["updated_at"] >= max(y["created_at"] for y in done) for x in done if x["status"] == "FILLED")
+                if together and any(x["status"] == "FILLED" for x in done):
                     self.ok("the same limit exit resting twice closes the position once — never flips it the other way", not short,
                             f"now holding {short[0]['qty']}" if short else f"{sum(1 for x in done if x and x['status'] == 'FILLED')} filled")
                 else:
-                    self.note("double limit exit inconclusive", "the exits were not both accepted, or no price tick arrived within 7 s")
+                    self.note("double limit exit inconclusive", "the exits were not both resting at the same moment, or no price tick arrived within 7 s")
                 await self._flatten(cb)
             left = ((await self._positions(ca)) or []) + ((await self._positions(cb)) or [])
             if left:

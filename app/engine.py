@@ -332,10 +332,20 @@ class Engine:
         price, or, when the feed has nothing at all for the contract (site restarted while that exchange is
         shut: night, weekend, feed not logged in), the last price that was seen for it. Without this a
         restart over the weekend would show every open position at zero P&L."""
+        if p.last_mark is not None and self.at_close_price(p):
+            return p.last_mark
         mk = self.mark_price(p.token, p.qty)
         if mk is None and p.last_mark is not None and not self.feed.prices.get(p.token):
             return p.last_mark
         return mk
+
+    def at_close_price(self, p: Position) -> bool:
+        """True while the contract's market is shut. From the close until it reopens a position is valued at
+        ONE price everywhere (screens, Available Balance, reports, the weekly settlement): the price it was
+        valued at when the market closed. So the P&L at the close is the P&L all night and all weekend,
+        restart or not, whatever stray quotes arrive while the exchange is shut."""
+        ins = self.feed.instruments.get(p.token)
+        return ins is not None and not self.tradable_now(ins)
 
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
@@ -1331,7 +1341,7 @@ class Engine:
             lev = round(abs(p.qty) * mk * vf / p.margin_blocked)      # effective leverage of the position
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf, "leverage": lev,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
-                "ltp": ltp, "mark": mk, "unrealised": unreal, "realised": round(p.realised_pnl, 2),
+                "ltp": ltp, "mark": mk, "at_close": bool(p.last_mark is not None and self.at_close_price(p)), "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed,
                 "product": p.product or "NRML", **self.carry_fields(p, unreal, vf)}
 

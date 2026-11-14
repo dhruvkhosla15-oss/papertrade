@@ -109,6 +109,8 @@ def close_price(engine, p: Position) -> Optional[float]:
     reason a long is never valued above the best offer in the book, nor a short below the best bid.
     The last price seen is also what is used if the feed has nothing (site restarted over the weekend
     with the exchange shut)."""
+    if p.last_mark is not None and engine.at_close_price(p):
+        return p.last_mark if math.isfinite(p.last_mark) and p.last_mark >= 0 else None     # the same closing price the screens show
     mk = _exit_quote(engine, p)
     if mk is None:
         mk = engine.mark_price(p.token, p.qty)
@@ -136,6 +138,8 @@ def remember_marks(engine, db) -> int:
     for p in db.query(Position).filter_by(is_closed=False).all():
         if not p.qty:
             continue
+        if p.last_mark is not None and engine.at_close_price(p):
+            continue                      # market shut: the closing price stays as it is until it reopens
         mk = _exit_quote(engine, p)
         if mk is None:
             if p.last_mark is not None and not _trade_after_mark(engine, p):

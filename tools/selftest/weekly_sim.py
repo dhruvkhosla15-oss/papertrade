@@ -541,6 +541,42 @@ ok("shortfall: only as much as needed was closed", qty("greedy") > 0 and qty("ab
 check_running("after the shortfall square-offs")
 at(day(W8, 6, 20)); close(SUN(W8))
 
+# ---- one closing price: the P&L at the close is the P&L all night and all weekend, restart or not ----
+W9 = W8 + timedelta(days=7)
+at(day(W9, 4, 15, 29)); px(nifty=30420)                   # Friday, the last price before the close
+fx_u = users["fixer"]
+pos_f = db.query(Position).filter_by(user_id=fx_u.id, is_closed=False).first()
+f_close = engine.funds(db, fx_u); d_close = engine.position_dict(pos_f)
+_open = engine.tradable_now
+engine.tradable_now = lambda ins: False                   # the exchange shuts
+try:
+    same = lambda tag: ok(f"closing price: {tag}", near(engine.funds(db, fx_u)["unrealised"], f_close["unrealised"], 0.005)
+                          and near(engine.funds(db, fx_u)["available"], f_close["available"], 0.005)
+                          and near(engine.position_dict(pos_f)["unrealised"], d_close["unrealised"], 0.005)
+                          and engine.position_dict(pos_f)["mark"] == d_close["mark"],
+                          f"{engine.funds(db, fx_u)['unrealised']} vs {f_close['unrealised']}")
+    same("P&L right after the close = P&L at the close")
+    at(day(W9, 4, 18)); feed.set(F_NIFTY, 29000); feed.set(I_NIFTY, 29000); W.remember_marks(engine, db); db.expire_all()
+    pos_f = db.query(Position).filter_by(user_id=fx_u.id, is_closed=False).first()
+    same("a stray quote after the close changes nothing")
+    saved = dict(feed.prices); feed.prices.clear()        # the site restarts on Saturday: nothing in memory
+    at(day(W9, 5, 10)); W.remember_marks(engine, db); db.expire_all()
+    pos_f = db.query(Position).filter_by(user_id=fx_u.id, is_closed=False).first()
+    same("after a restart on Saturday the P&L is still the P&L at the close")
+    rr = W.running_row(engine, db, fx_u)
+    ok("closing price: the weekly report shows the same open-position figure", near(rr["valuation"], f_close["unrealised"], 0.02), f"{rr['valuation']} vs {f_close['unrealised']}")
+    a_row = next(r for r in M._admin_rows(db) if r["username"] == "fixer")
+    ok("closing price: the Master row shows the same unrealised", near(a_row["unrealised"], f_close["unrealised"], 0.02))
+    at(day(W9, 6, 20)); close(SUN(W9))                     # Sunday cut-off, still nothing in memory
+    r9 = db.query(WeekSettlement).filter_by(week_end=SUN(W9).isoformat(), user_id=fx_u.id).first()
+    ok("closing price: Sunday's settlement books exactly the Friday-close figure", near(r9.valuation, f_close["unrealised"], 0.02) and r9.unpriced == 0, f"{r9.valuation} vs {f_close['unrealised']}")
+    feed.prices.update(saved)
+finally:
+    engine.tradable_now = _open
+at(day(W9 + timedelta(days=7), 0, 9, 16)); px(nifty=30500); db.expire_all()   # Monday: live again
+pos_f = db.query(Position).filter_by(user_id=fx_u.id, is_closed=False).first()
+ok("closing price: on Monday the live price is used again", abs(engine.position_dict(pos_f)["mark"] - 30500) < 1 and not engine.position_dict(pos_f)["at_close"], str(engine.position_dict(pos_f)["mark"]))
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

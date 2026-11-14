@@ -345,7 +345,9 @@ class Engine:
         valued at when the market closed. So the P&L at the close is the P&L all night and all weekend,
         restart or not, whatever stray quotes arrive while the exchange is shut."""
         ins = self.feed.instruments.get(p.token)
-        return ins is not None and not self.tradable_now(ins)
+        if ins is None:                    # contract list not loaded (feed not logged in): go by the exchange's hours
+            return not self.market_open(p.exchange)
+        return not self.tradable_now(ins)
 
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)

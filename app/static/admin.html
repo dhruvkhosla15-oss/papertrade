@@ -684,8 +684,9 @@ async function loadPerf(){
 const ACC={def:null,usr:null};
 function accSw(k,on,scope){return `<label class="accsw"><input type="checkbox" data-acc="${scope}" data-k="${k}"${on?' checked':''}><span></span></label>`;}
 function accTable(v,scope){const per=scope!=='def',d=v.default,e=per?v.effective:d,ov=v.overrides||{};
-  const tag=(r)=>{if(!per)return '';const ks=[r.fut,r.opt].filter(Boolean).filter(k=>k in ov);if(!ks.length)return '<span class="pill OPEN">DEFAULT</span>';
-    return ks.map(k=>`<span class="pill ${ov[k]?'FILLED':'CANCELLED'}">${(r.opt?(k===r.opt?'OPTIONS ':'FUTURES '):'')+(ov[k]?'ACTIVATED':'DEACTIVATED')}</span>`).join(' ');};
+  const tag=(r)=>{if(!per)return '';const set=[r.fut,r.opt].filter(Boolean).some(k=>k in ov),f=!!e[r.fut],o=r.opt?!!e[r.opt]:f;
+    const txt=f&&o?'ACTIVATED':!f&&!o?'DEACTIVATED':f?'FUTURES ONLY':'OPTIONS ONLY';
+    return `<span class="pill ${f||o?'FILLED':'CANCELLED'}" style="white-space:nowrap" title="${set?'Set for this user':'Same as default'}">${txt}</span>`;};
   return `<table><thead><tr><th style="text-align:left">Segment</th><th>Futures</th><th>Options</th>${per?'<th style="text-align:left">Status</th>':''}</tr></thead><tbody>`+
     v.rows.map(r=>`<tr><td style="text-align:left"><b>${r.name}</b></td>`+(r.opt?`<td>${accSw(r.fut,e[r.fut],scope)}</td><td>${accSw(r.opt,e[r.opt],scope)}</td>`:`<td colspan="2">${accSw(r.fut,e[r.fut],scope)}</td>`)+(per?`<td style="text-align:left">${tag(r)}</td>`:'')+`</tr>`).join('')+`</tbody></table>`;}
 function accRead(scope){const o={};$$(`input[data-acc="${scope}"]`).forEach(i=>o[i.dataset.k]=i.checked);return o;}
@@ -696,7 +697,7 @@ function accFillUsers(){const el=$('#accUserSel');if(!el)return;const cur=el.val
 $('#accUserSel').onchange=()=>loadAccOne();
 async function loadAccOne(){const uid=+$('#accUserSel').value,box=$('#accOne');if(!uid){box.innerHTML='';return;}
   try{const v=await api('/admin/access?uid='+uid);const n=Object.keys(v.overrides||{}).length;
-    box.innerHTML=`<div class="small mut" style="margin-bottom:4px">${n?`${n} switch${n===1?'':'es'} set for this user`:'This user is on the default'}</div>`+accTable(v,'one')+`<div class="row" style="justify-content:flex-end;margin-top:8px;gap:8px"><button class="ghost" id="accOneDef">Same as default</button><button id="accOneSave">Save for this user</button></div>`;
+    box.innerHTML=`<div class="small mut" style="margin-bottom:4px">${n?`${n} switch${n===1?'':'es'} set for this user`:'This user is on the default'}</div>`+`<div style="overflow-x:auto">`+accTable(v,'one')+`</div>`+`<div class="row" style="justify-content:flex-end;margin-top:8px;gap:8px"><button class="ghost" id="accOneDef">Same as default</button><button id="accOneSave">Save for this user</button></div>`;
     $('#accOneSave').onclick=async()=>{try{const r=await api(`/admin/users/${uid}/access`,{method:'POST',body:{values:accRead('one')}});toast('Trading access saved for this user'+(r.cancelled?` · ${r.cancelled} pending order(s) cancelled`:''));loadAccOne();if(detail===uid)loadAccUser();}catch(e){toast(e.message,1);}};
     $('#accOneDef').onclick=async()=>{try{await api(`/admin/users/${uid}/access`,{method:'POST',body:{}});toast('This user is on the default now');loadAccOne();if(detail===uid)loadAccUser();}catch(e){toast(e.message,1);}};}catch(e){toast(e.message,1);}}
 async function loadAccUser(){if(!detail)return;try{const v=await api('/admin/access?uid='+detail);ACC.usr=v;const n=Object.keys(v.overrides||{}).length;

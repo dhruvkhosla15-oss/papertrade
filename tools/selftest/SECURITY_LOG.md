@@ -11,22 +11,8 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-- `security-fix/2026-11-14` (pushed 14 Nov 2026): **weekly valuation at an old last trade.** At the cut-off a position
-  is valued at the exit side of the book (bid for a long, ask for a short); when nobody is quoting there, at the last
-  traded price, however old. Nobody is quoting whenever the exchange is shut, which for NSE, BSE, MCX and Currency is
-  always the case on Sunday midnight, and on a thin contract also during the day. A thin option bought at today's offer
-  of 3 whose last trade (days ago) was 15 is valued at 15: shown in-process (prices set by hand, the simulated feed never
-  has a one-sided book), 20 lots bought for 30,000 gave a week result of +119,994, both with a one-sided book and with
-  an empty one. The profit comes back as a loss in a later week (exit or expiry), so it moves result between weeks
-  rather than creating coins for good; it matters as soon as a single week's result is paid out or judged.
-  *Fix on the branch:* `weekly.close_price` uses the last exit-side quote seen (kept in `positions.last_mark` by
-  `remember_marks`, which no longer overwrites it with a bare last trade unless the contract has traded since), and
-  never values a long above the best offer or a short below the best bid. Same attack afterwards: −10,006 (the spread).
-  `weekly_sim.py` 3812 passed, full self-test 214 passed, one new `_books` check. NOT put live because it changes how an
-  honest holder's position is valued at the cut-off (closing quote instead of last trade; a tick or so on liquid
-  contracts) and because what the real feed shows after the close could not be checked from the private copy.
-  To deploy: open Claude and say "put security-fix/2026-11-14 live". Nothing in any account is rewritten by it.
-- (`security-fix/2026-11-12` was put live by the owner on 12 Nov 2026.)
+Nothing. (`security-fix/2026-11-14`, weekly valuation at the last quote instead of an old last trade, was put live by
+the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-12` on 12 Nov 2026.)
 
 ## Ideas already covered by the daily check
 - Nonsense numbers: zero / negative / fractional / NaN / Infinity lots, prices, triggers, leverage; junk side and order type
@@ -49,6 +35,7 @@ branch `security-fix/YYYY-MM-DD` for the owner.
   a fill at the planted price is the failure. Forex / Global: every contract is always streamed, so only a note.
 - Logins (13 Nov 2026): a login made before the password was changed stops working
 - Books (13 Nov 2026): the underlying of every open option position is being streamed (so it settles at a live price)
+- Books (14 Nov 2026): no open position is valued for the weekly cut-off above the best offer (long) / below the best bid (short)
 - Double limit exit, in every market (14 Nov 2026): one lot bought, the same SELL LIMIT placed twice at the same instant
   below the market; the position must end flat, never short
 - Price socket (14 Nov 2026): 40 junk orders (zero lots) on 40 unwatched far-month options from one test account; at most
@@ -76,7 +63,14 @@ branch `security-fix/YYYY-MM-DD` for the owner.
   seven markets (long 1 lot -> short 1 lot). No coins gained (margin is checked, commission paid), but the rule "an exit
   never opens a new position" was bypassed and an honest user with stop-loss and target could be left short.
   *Fix (engine.py, `_process_pending`):* an order that is no longer OPEN is skipped.
-- Waiting on `security-fix/2026-11-14`: weekly valuation at an old last trade (see "Waiting for the owner").
+- LOOPHOLE, FIXED, live since 14 Nov (owner's go-ahead): **weekly valuation at an old last trade.** With nobody quoting
+  on the exit side at the cut-off (always so when the exchange is shut) a position was valued at the last trade, however
+  old: a thin option bought at 3 with a last trade of 15 showed 30,000 spent as +119,994 for the week (in-process test,
+  prices set by hand). *Fix:* `weekly.close_price` uses the last exit-side quote seen (`positions.last_mark`, no longer
+  overwritten by a bare last trade unless the contract has traded since) and never values a long above the best offer
+  or a short below the best bid. Same attack afterwards: −10,006. New `_books` check on it.
+- 14 Nov, owner's request: no "prices are DOWN" alarm for a feed whose markets are all shut (weekend, holiday, night);
+  it starts again one hour before the first of them opens, so the daily-login reminder still comes in time.
 - Checked, no hole: weekly cut-off on the private copy (MCX, Currency, NSE option, BSE resting order, Forex, Global,
   Crypto positions carried; partial exit, add, flip afterwards; own-price P&L of all trades = week result + change since,
   to the paisa); an account short of margin after the cut-off cannot open, add, flip or rest anything during the grace

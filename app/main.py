@@ -1158,6 +1158,17 @@ async def weekly_loop():
         await asyncio.sleep(0.4 if fast else 5)
 
 
+def _opens_soon(exchange: str, minutes: int = 60) -> bool:
+    from .market_calendar import status as _mstatus, ist_now as _inow
+    try:
+        return bool(_mstatus(exchange, _inow() + timedelta(minutes=minutes))["open"])
+    except Exception:
+        return True          # when in doubt, keep the alarm
+
+
+_FEED_MARKETS = {"main": ("NFO", "BFO", "MCX", "CDS"), "forex": ("FOREX",)}     # crypto never shuts
+
+
 async def feed_watch_loop():
     """Telegram ping when a price feed stays down, a reminder every hour while it is still down, and a
     ping when it is back. A feed the master switched off on purpose is not reported. Short blips
@@ -1176,7 +1187,11 @@ async def feed_watch_loop():
             now = time.time()
             for k, f in feeds.items():
                 up = bool(f.get("connected")); off_on_purpose = bool(f.get("paused"))
-                if up or off_on_purpose:
+                # A feed whose markets are all shut (weekend, holiday, night) has nothing to deliver and nobody
+                # can trade there: no alarm, and no call for the daily login, until one of them opens.
+                # The hour before an opening counts as open, so the reminder to log in still comes in time.
+                shut = k in _FEED_MARKETS and not any(engine.market_open(ex) or _opens_soon(ex) for ex in _FEED_MARKETS[k])
+                if up or off_on_purpose or shut:
                     if k in alerted and up:
                         mins = max(1, int((now - down_since.get(k, now)) // 60))
                         await asyncio.get_event_loop().run_in_executor(None, _probe._telegram, f"✅ limefx: {names[k]} prices are back (were down {mins} min).")

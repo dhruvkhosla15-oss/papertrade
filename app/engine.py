@@ -327,6 +327,16 @@ class Engine:
                 return t["ask"]
         return t.get("ltp")
 
+    def value_price(self, p: Position) -> Optional[float]:
+        """What an open position is valued at on the screens and in Available Balance: the live exit-side
+        price, or, when the feed has nothing at all for the contract (site restarted while that exchange is
+        shut: night, weekend, feed not logged in), the last price that was seen for it. Without this a
+        restart over the weekend would show every open position at zero P&L."""
+        mk = self.mark_price(p.token, p.qty)
+        if mk is None and p.last_mark is not None and not self.feed.prices.get(p.token):
+            return p.last_mark
+        return mk
+
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
                 .order_by(Position.id.desc()).first())
@@ -341,7 +351,7 @@ class Engine:
         unreal = 0.0
         unreal_m = 0.0        # the part that counts against Available Balance
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
-            mk = self.mark_price(p.token, p.qty)
+            mk = self.value_price(p)
             if mk is not None:
                 ins = self.feed.instruments.get(p.token)
                 u = (mk - p.avg_price) * p.qty * self.vf(ins)
@@ -1311,7 +1321,9 @@ class Engine:
 
     def position_dict(self, p: Position) -> dict:
         ltp = self.feed.ltp(p.token)
-        mk = self.mark_price(p.token, p.qty)
+        mk = self.value_price(p)
+        if ltp is None and mk is not None:
+            ltp = mk                                  # last price seen, shown while the exchange is shut
         vf = self.vf(self.feed.instruments.get(p.token))
         unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty) else 0.0
         lev = None

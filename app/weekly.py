@@ -195,7 +195,7 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
             ins = engine.feed.instruments.get(p.token)
             vf = engine.vf(ins) if ins else 1.0
             px = close_price(engine, p)
-            if px is None:
+            if px is None or not vf or vf <= 0:      # no price, or no rupee conversion rate: never book a guess
                 unpriced += 1
                 log.warning("weekly close %s: no price for %s of %s, left as it is", we, p.symbol, user.username)
                 continue

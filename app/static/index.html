@@ -636,7 +636,7 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
   const when=iso=>{if(!iso)return '';const ds=iso.slice(0,10);const dd=todayS?Math.round((Date.parse(ds)-Date.parse(todayS))/86400000):0;return (dd<=1?'':DN[new Date(ds+'T00:00:00Z').getUTCDay()]+' ')+t12(iso);};
   const defs=[['NFO','NSE',f.connected],['BFO','BSE',f.connected],['MCX','MCX',f.connected],['CDS','Currency',f.connected],['CRYPTO','Crypto',f.crypto?f.crypto.connected:null],['FOREX','Forex',f.forex?f.forex.connected:null],['US','US',(ms.US&&f.forex)?f.forex.connected:null]];
   return defs.filter(([k,n,c])=>c!==null).map(([k,n,c])=>{const s=ms[k]||{open:true};
-    if(!c)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
+    if(!c&&s.open)return `<span class="mchip down" title="${n}: prices are down">${n}<small>feed down</small></span>`;
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o?'opens '+o:'closed'}</small></span>`;}).join('');}
@@ -650,7 +650,8 @@ function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.
   box.addEventListener('click',e=>{if(drag&&drag.moved){e.preventDefault();e.stopPropagation();}},true);
   if(canHover){box.addEventListener('mouseenter',()=>hov=true);box.addEventListener('mouseleave',()=>hov=false);}}
 marquee($('#tickerBox'),32);marquee($('#mkts'),28);
-function feedDownText(f){const d=[];if(f.connected===false)d.push('NSE','BSE','MCX','Currency');if(f.crypto&&f.crypto.connected===false)d.push('Crypto');if(f.forex&&f.forex.connected===false)d.push('Forex');
+function feedDownText(f){const d=[];const ms=state.marketStatus||{};const op=k=>!ms[k]||ms[k].open!==false;   /* a market that is shut is not "down" */
+  if(f.connected===false)[['NFO','NSE'],['BFO','BSE'],['MCX','MCX'],['CDS','Currency']].forEach(([k,n])=>{if(op(k))d.push(n);});if(f.crypto&&f.crypto.connected===false)d.push('Crypto');if(f.forex&&f.forex.connected===false&&(op('FOREX')||(ms.US&&op('US'))))d.push('Forex');
   if(!d.length)return '';const list=d.length>1?d.slice(0,-1).join(', ')+' &amp; '+d[d.length-1]:d[0];return `<div><b>Price feed down</b> — ${list} prices are currently unavailable. Orders on ${d.length>1?'these markets':'this market'} will be rejected until the feed is back up.</div>`;}
 function renderFeed(f){const ms=state.marketStatus||{};const html=marketChips(f,ms);const m=$('#mkts');const b=$('#banner');const dt=feedDownText(f);if(dt){b.innerHTML=dt;b.className='feedbar';}else b.className='feedbar hidden';
   if(m.dataset.h===html)return;m.dataset.h=html;m.innerHTML=`<div class="mtrack">${html}</div>`;

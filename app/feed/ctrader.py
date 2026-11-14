@@ -135,10 +135,63 @@ class CTraderForex:
         p = self.feed.prices.get(tok) if tok else None
         return float(p["ltp"]) if p and p.get("ltp") else None
 
+    # The last conversion rates seen are remembered across restarts. Forex is shut from Saturday morning to
+    # Monday morning: after a weekend restart nothing streams, and without a rate a forex or global position
+    # would be worth nothing in rupees (and the Sunday weekly valuation would book nothing for it).
+    def _rates_mem(self) -> dict:
+        m = getattr(self, "_inr_mem", None)
+        if m is None:
+            m = {}
+            try:
+                import json
+                from ..db import SessionLocal, get_setting
+                db = SessionLocal()
+                try:
+                    m = {k: float(v) for k, v in json.loads(get_setting(db, "fx_inr_rates") or "{}").items() if float(v) > 0}
+                finally:
+                    db.close()
+            except Exception:
+                m = {}
+            self._inr_mem = m
+        return m
+
+    def _remember_rate(self, quote: str, rate: float):
+        import time
+        m = self._rates_mem()
+        m[quote] = rate
+        now = time.time()
+        if now - getattr(self, "_inr_mem_saved", 0) < 60:
+            return
+        self._inr_mem_saved = now
+        try:
+            import json
+            from ..db import SessionLocal, set_setting
+            db = SessionLocal()
+            try:
+                set_setting(db, "fx_inr_rates", json.dumps(m)); db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
     def quote_to_inr(self, quote: str):
-        """Rupees per 1 unit of the quote currency."""
+        """Rupees per 1 unit of the quote currency: live, else the last rate seen."""
         if quote == "INR":
             return 1.0
+        r = self._quote_to_inr_live(quote)
+        if r and r > 0:
+            self._remember_rate(quote, r)
+            return r
+        r = self._rates_mem().get(quote)
+        if not r and quote == "USD":          # nothing ever seen (first weekend): the crypto side's dollar rate
+            cry = getattr(self.feed, "crypto", None)
+            try:
+                r = cry.usdinr() if cry else None
+            except Exception:
+                r = None
+        return r or None
+
+    def _quote_to_inr_live(self, quote: str):
         usdinr = self._usdinr()
         if usdinr is None:
             return None

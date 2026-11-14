@@ -1296,6 +1296,13 @@ class Engine:
                                 self._und_wait.pop(ut, None)
                             if und is not None:
                                 ltp = max(0.0, (und - ins.strike) if ins.instrument_type == "CE" else (ins.strike - und))
+                        if ltp is None and not (ins and ins.instrument_type in ("CE", "PE")):
+                            # A future (or anything that is not an option) settles at the price the position
+                            # could last be closed at: the exit side of the order book at the close (bid for
+                            # a long, ask for a short), the same closing price the screens show. NOT the last
+                            # traded price: on a thin contract that can be hours old and far from the book,
+                            # and a user could buy at the ask below it and be settled at it for a free profit.
+                            ltp = self.value_price(p)
                         if ltp is None:
                             ltp = self.feed.ltp(p.token)
                         if ltp is None:

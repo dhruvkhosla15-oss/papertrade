@@ -71,10 +71,12 @@ class SimFeed(PriceFeed):
 
 
 I_NIFTY, F_NIFTY, F_SILVER, F_SILVERM, O_CE, O_PE_EXP, F_BTC, F_GOLD, F_CRUDE = range(1, 10)
+F_THIN = 10; THIN_EXP = "2027-01-14"                      # a thinly traded future, expiring on the Thursday of the last simulated week
 feed = SimFeed()
 feed.load_instruments([
     Instrument(I_NIFTY, "NIFTY", "NIFTY", "NSE", "INDICES", "EQ", "", 0, 1, 0.05),
     Instrument(F_NIFTY, "NIFTY27DECFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", FAR, 0, 75, 0.05),
+    Instrument(F_THIN, "MENTHAOIL27JANFUT", "MENTHAOIL", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 360, 0.1),
     Instrument(F_SILVER, "SILVER27DECFUT", "SILVER", "MCX", "MCX-FUT", "FUT", FAR, 0, 30, 1.0),
     Instrument(F_SILVERM, "SILVERM27DECFUT", "SILVERM", "MCX", "MCX-FUT", "FUT", FAR, 0, 5, 1.0),
     Instrument(O_CE, "NIFTY27DEC26000CE", "NIFTY", "NFO", "NFO-OPT", "CE", FAR, 26000, 75, 0.05),
@@ -598,6 +600,21 @@ for n, u in users.items():
         ok(f"daily {n}: today starts from yesterday's close", near(pp(u, wed, wed), truth_total(u.id) - t1[u.id], 0.6), f"{pp(u, wed, wed)} vs {truth_total(u.id) - t1[u.id]:.2f}")
         ok(f"daily {n}: the two days add up to the two-day result", near(pp(u, tue, tue) + pp(u, wed, wed), pp(u, tue, wed), 0.02))
 ok("daily: a day with no day-start record is reported as unknown, never guessed", pp(users["hold"], day(W10, 0, 0, 0), day(W10, 0, 0, 0)) is None)
+
+# ---- expiry of a thin future: settled at what it could be closed at, not at an old last trade ----
+assert iso(thu) == THIN_EXP, iso(thu)
+at(day(W10, 3, 14)); feed.set(F_THIN, 900.0, spread=2.0)                 # book: bid 899 / ask 901
+feed.prices[F_THIN]["ltp"] = 960.0; feed.prices[F_THIN]["ltt"] = time.time() - 6 * 3600   # last trade hours ago, far above the book
+bal0 = {n: db.get(User, users[n].id).balance for n in ("idle", "hold")}; db.expire_all()
+trade("idle", F_THIN, "BUY", 1)                           # buys at the ask, hoping to be settled at the old 960
+trade("hold", F_THIN, "SELL", 1)                          # and the other way round
+W.remember_marks(engine, db)
+at(day(W10, 3, 23, 58)); run(engine._settle_expired()); db.expire_all()
+for n, side, want in (("idle", "SELL", 899.0), ("hold", "BUY", 901.0)):
+    tr = db.query(Trade).filter_by(user_id=users[n].id, token=F_THIN).order_by(Trade.id.desc()).first()
+    ok(f"expiry {n}: a thin future is settled at the exit side of the book, not at the old last trade", tr.side == side and near(tr.price, want, 0.001), f"{tr.side} @ {tr.price}")
+    ok(f"expiry {n}: nothing can be made from the gap between last trade and book", tr.realised_pnl <= 0, str(tr.realised_pnl))
+    ok(f"expiry {n}: position closed and margin released", db.query(Position).filter_by(user_id=users[n].id, token=F_THIN, is_closed=False).count() == 0)
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

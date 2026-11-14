@@ -87,7 +87,7 @@ a{color:var(--acc)}
 @media(max-width:760px){#nav-perf .bar{width:100%}#nav-perf #presets{flex-wrap:wrap;overflow:visible;border:0;gap:6px}#nav-perf #presets button{border:1px solid var(--line);border-radius:999px;flex:1 1 auto}#nav-perf #presets button.active{border-color:var(--acc)}#nav-perf #pUser{width:100%!important;min-width:0}#nav-perf #customRange{width:100%}#nav-perf #customRange input{flex:1 1 auto}}
 @media(max-width:700px){main{padding:12px 10px}th,td{padding:6px 5px;font-size:12px}}
 .accsw{position:relative;display:inline-block;width:44px;height:24px;vertical-align:middle;cursor:pointer}.accsw input{opacity:0;width:0;height:0;position:absolute}.accsw span{position:absolute;inset:0;border-radius:99px;background:#2a3856;transition:.15s}.accsw span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#8ea0bd;transition:.15s}.accsw input:checked+span{background:#84cc16}.accsw input:checked+span:after{left:23px;background:#0b1220}
-#accDefault td,#accDefault th,#dAccess td,#dAccess th{text-align:center}
+#accDefault td,#accDefault th,#dAccess td,#dAccess th,#accOne td,#accOne th{text-align:center}
 </style>
 </head>
 <body>
@@ -259,7 +259,11 @@ a{color:var(--acc)}
   <section id="nav-settings" class="hidden">
   <div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:260px"><h2 style="margin:0">Trading access — default for every user</h2><p class="small mut" style="margin:4px 0 0">New users start with this. Changing it changes every user, except the switches you set on a user yourself. A switch that is off stops new trades only: prices and charts stay visible and a position already held can always be exited.</p></div>
     <div style="flex:0 0 auto;display:flex;gap:8px"><button class="ghost" id="accResetAll">Reset all users to default</button><button id="accSaveDef">Save</button></div></div>
-    <div id="accDefault" style="margin-top:8px"></div></div>
+    <div id="accDefault" style="margin-top:8px"></div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"><b>Change it for one user only</b>
+      <div class="small mut" style="margin:2px 0 8px">Pick a user to switch segments on or off just for him. (Same thing as clicking the user in the Users tab and opening "Trading access".)</div>
+      <select id="accUserSel" style="width:100%;max-width:360px;padding:9px 10px"><option value="">Choose a user…</option></select>
+      <div id="accOne" style="margin-top:10px"></div></div></div>
   <div class="card">
     <h2>Margin % of contract value</h2><p class="small mut" style="margin-bottom:10px">Applies to futures and short options. Long options block the full premium. Stock F&O uses its own (higher) percentage, like real exchange margins.</p>
     <div class="row">
@@ -380,7 +384,7 @@ a{color:var(--acc)}
         <button class="ghost" id="dClose">✕</button>
       </div>
     </div>
-    <details id="dAccWrap" style="margin:12px 0 0;border:1px solid var(--line);border-radius:12px;padding:10px 14px"><summary style="cursor:pointer;font-weight:700">Trading access <span class="small mut" id="dAccSum" style="font-weight:400"></span></summary><div id="dAccess" style="margin-top:8px"></div></details>
+    <details id="dAccWrap" open style="margin:12px 0 0;border:1px solid var(--line);border-radius:12px;padding:10px 14px"><summary style="cursor:pointer;font-weight:700">Trading access <span class="small mut" id="dAccSum" style="font-weight:400"></span></summary><div id="dAccess" style="margin-top:8px"></div></details>
     <div class="pdbar" id="pdBar2" style="margin:12px 0 0"></div>
     <div class="grid" style="margin:12px 0" id="dFunds"></div>
     <div class="tabs" style="justify-content:space-between"><div style="display:flex;gap:6px;flex-wrap:wrap"><button data-dt="positions" class="active">Positions</button><button data-dt="orders">Orders</button><button data-dt="trades">Trades</button><button data-dt="ledger">Coin ledger</button></div></div>
@@ -419,7 +423,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function')accFillUsers();if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -679,15 +683,22 @@ async function loadPerf(){
 /* ---- trading access switches ---- */
 const ACC={def:null,usr:null};
 function accSw(k,on,scope){return `<label class="accsw"><input type="checkbox" data-acc="${scope}" data-k="${k}"${on?' checked':''}><span></span></label>`;}
-function accTable(v,scope){const d=v.default,e=scope==='usr'?v.effective:d,ov=v.overrides||{};
-  const tag=(r)=>{if(scope!=='usr')return '';const ks=[r.fut,r.opt].filter(Boolean).filter(k=>k in ov);if(!ks.length)return '<span class="pill OPEN">DEFAULT</span>';
+function accTable(v,scope){const per=scope!=='def',d=v.default,e=per?v.effective:d,ov=v.overrides||{};
+  const tag=(r)=>{if(!per)return '';const ks=[r.fut,r.opt].filter(Boolean).filter(k=>k in ov);if(!ks.length)return '<span class="pill OPEN">DEFAULT</span>';
     return ks.map(k=>`<span class="pill ${ov[k]?'FILLED':'CANCELLED'}">${(r.opt?(k===r.opt?'OPTIONS ':'FUTURES '):'')+(ov[k]?'ACTIVATED':'DEACTIVATED')}</span>`).join(' ');};
-  return `<table><thead><tr><th style="text-align:left">Segment</th><th>Futures</th><th>Options</th>${scope==='usr'?'<th style="text-align:left">Status</th>':''}</tr></thead><tbody>`+
-    v.rows.map(r=>`<tr><td style="text-align:left"><b>${r.name}</b></td>`+(r.opt?`<td>${accSw(r.fut,e[r.fut],scope)}</td><td>${accSw(r.opt,e[r.opt],scope)}</td>`:`<td colspan="2">${accSw(r.fut,e[r.fut],scope)}</td>`)+(scope==='usr'?`<td style="text-align:left">${tag(r)}</td>`:'')+`</tr>`).join('')+`</tbody></table>`;}
+  return `<table><thead><tr><th style="text-align:left">Segment</th><th>Futures</th><th>Options</th>${per?'<th style="text-align:left">Status</th>':''}</tr></thead><tbody>`+
+    v.rows.map(r=>`<tr><td style="text-align:left"><b>${r.name}</b></td>`+(r.opt?`<td>${accSw(r.fut,e[r.fut],scope)}</td><td>${accSw(r.opt,e[r.opt],scope)}</td>`:`<td colspan="2">${accSw(r.fut,e[r.fut],scope)}</td>`)+(per?`<td style="text-align:left">${tag(r)}</td>`:'')+`</tr>`).join('')+`</tbody></table>`;}
 function accRead(scope){const o={};$$(`input[data-acc="${scope}"]`).forEach(i=>o[i.dataset.k]=i.checked);return o;}
-async function loadAccDefault(){try{ACC.def=await api('/admin/access');$('#accDefault').innerHTML=accTable(ACC.def,'def');}catch(e){}}
+async function loadAccDefault(){try{ACC.def=await api('/admin/access');$('#accDefault').innerHTML=accTable(ACC.def,'def');accFillUsers();}catch(e){}}
 $('#accSaveDef').onclick=async()=>{try{const r=await api('/admin/access/default',{method:'POST',body:{values:accRead('def')}});ACC.def=r;$('#accDefault').innerHTML=accTable(r,'def');toast('Default trading access saved'+(r.cancelled?` · ${r.cancelled} pending order(s) cancelled`:''));if(detail)loadAccUser();}catch(e){toast(e.message,1);}};
 $('#accResetAll').onclick=async()=>{if(!confirm('Put every user back on the default trading access? The switches you set on individual users are removed.'))return;try{const r=await api('/admin/access/reset-all',{method:'POST'});toast('All users are on the default now'+(r.cancelled?` · ${r.cancelled} pending order(s) cancelled`:''));if(detail)loadAccUser();}catch(e){toast(e.message,1);}};
+function accFillUsers(){const el=$('#accUserSel');if(!el)return;const cur=el.value;el.innerHTML='<option value="">Choose a user…</option>'+users.map(u=>`<option value="${u.id}">${esc(u.display_name||u.username)} (${esc(u.username)})</option>`).join('');el.value=cur;}
+$('#accUserSel').onchange=()=>loadAccOne();
+async function loadAccOne(){const uid=+$('#accUserSel').value,box=$('#accOne');if(!uid){box.innerHTML='';return;}
+  try{const v=await api('/admin/access?uid='+uid);const n=Object.keys(v.overrides||{}).length;
+    box.innerHTML=`<div class="small mut" style="margin-bottom:4px">${n?`${n} switch${n===1?'':'es'} set for this user`:'This user is on the default'}</div>`+accTable(v,'one')+`<div class="row" style="justify-content:flex-end;margin-top:8px;gap:8px"><button class="ghost" id="accOneDef">Same as default</button><button id="accOneSave">Save for this user</button></div>`;
+    $('#accOneSave').onclick=async()=>{try{const r=await api(`/admin/users/${uid}/access`,{method:'POST',body:{values:accRead('one')}});toast('Trading access saved for this user'+(r.cancelled?` · ${r.cancelled} pending order(s) cancelled`:''));loadAccOne();if(detail===uid)loadAccUser();}catch(e){toast(e.message,1);}};
+    $('#accOneDef').onclick=async()=>{try{await api(`/admin/users/${uid}/access`,{method:'POST',body:{}});toast('This user is on the default now');loadAccOne();if(detail===uid)loadAccUser();}catch(e){toast(e.message,1);}};}catch(e){toast(e.message,1);}}
 async function loadAccUser(){if(!detail)return;try{const v=await api('/admin/access?uid='+detail);ACC.usr=v;const n=Object.keys(v.overrides||{}).length;
   $('#dAccSum').textContent=n?`· ${n} switch${n===1?'':'es'} set for this user`+(v.until_flat?' (options kept on while option positions are open)':''):'· same as default';
   $('#dAccess').innerHTML=accTable(v,'usr')+`<div class="row" style="justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap"><span class="small mut">${v.until_flat?'Options are on for this user only until his option positions are closed or settled; then they go back to the default by themselves. Saving here makes your choice permanent.':'Off stops new trades only. He can always exit what he already holds.'}</span><span style="display:flex;gap:8px"><button class="ghost" id="accUsrDef">Same as default</button><button id="accUsrSave">Save</button></span></div>`;

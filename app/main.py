@@ -1559,11 +1559,19 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                            "value": round(value, 2), "realised": round(realised, 2) + 0.0, "cost": round(c["total"], 2)})
     positions = []; margin = 0.0
     if live:
+        held = {(p.user_id, p.token): p for p in db.query(Position).filter_by(is_closed=False).all() if p.qty}
         for (uid, token), pos in book.items():
             if not pos["qty"]:
                 continue
-            mk = engine.mark_price(token, pos["qty"])
-            if mk is None: mk = feed.ltp(token)
+            # One closing price: while the contract's market is shut (or the feed has nothing after a restart)
+            # the mirrored position is valued at the same closing price as the user's own position.
+            up = held.get((uid, token))
+            if up is not None and up.last_mark is not None and engine.at_close_price(up):
+                mk = up.last_mark
+            else:
+                mk = engine.mark_price(token, pos["qty"])
+                if mk is None: mk = feed.ltp(token)
+                if mk is None and up is not None: mk = up.last_mark
             u = (mk - pos["avg"]) * pos["qty"] * pos["vf"] if mk is not None else 0.0
             r = row(uid); r["unrealised"] += u
             ins = feed.instruments.get(token); lot = ins.lot_size if ins else 0

@@ -1,18 +1,18 @@
-14 NOV 2026 (IST). LOOPHOLE FOUND AND FIXED: ONE USER COULD FILL THE LIVE-PRICE CONNECTION IN SECONDS, LEAVING EVERYONE ELSE WITHOUT PRICES. ONE MORE FIX WAITS FOR YOU.
+15 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: an expiring future could be settled at a price up to a minute old, and a switched-off segment could still be traded.
 
 Tried tonight
-1. 1,600 nonsense orders on contracts nobody watches. Each made the site stream that contract for good; at 3,000 nobody can trade a new contract until a restart. Fixed.
-2. The same limit exit placed twice (like stop-loss and target together): both filled and the position flipped, in all seven markets. Fixed.
-3. Weekly settlement: a thin option bought at 3 whose last trade, days old, was 15 is valued at 15 when the book has no buyer (always so when the exchange is shut): 30,000 spent showed 120,000 profit (test with prices set by hand). Fix waiting.
-4. Weekly settlement: carried positions, adds, part exits, flips, opening more while short of margin: all correct.
-5. Crypto: mixed leverage when adding: no gain.
+1. Segment switched off: two exit orders, together bigger than the position. Holding 3 lots ended 2 lots short. Fixed.
+2. The same with a stop-loss bigger than what was left. Fixed.
+3. Frozen account: its waiting order still filled and opened a position. Fixed.
+4. Commodity future at expiry: the price drops in the last seconds, add lots, be settled at the price of a minute earlier. 33,000 coins for free in a test with prices set by hand. Fixed.
+5. Index future bought in its last seconds below the index: pays only if the gap is above 0.02 percent; real prices meet at expiry. Not changed, now watched daily.
 
 Markets attacked: NSE, BSE, MCX, Currency, Forex, Global, Crypto.
 
-Live now: one account can start only 25 unwatched contracts streaming, for half a minute each; a cancelled exit never fills. Honest trading unchanged, no account touched. Nobody could gain coins; a user with two exits may hold an unwanted opposite position.
+Live now: in a segment that is off, a waiting exit never sells more than is held. A frozen account's waiting order is cancelled. An expiring future is settled at the price of its last second. Honest trading unchanged, no account touched. Nobody gained coins: no future has expired since Saturday's change. A user in a switched-off segment may hold a position opened this way since Saturday afternoon.
 
-Daily check: added double limit exit and price flood.
+Daily check: added exit in a switched-off segment, frozen account order, closing price of expired futures.
 
-Waiting for you: fix 3 changes how thin positions are valued at the weekly cut-off (first is this Sunday). Open Claude and say "put security-fix/2026-11-14 live".
+Waiting for you: nothing.
 
-Could not test: the real feed after closing time.
+Could not test: a real expiry on the real feed; bulk chart requests (no broker on the test copy).

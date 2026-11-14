@@ -128,14 +128,43 @@ def close_price(engine, p: Position) -> Optional[float]:
     return float(mk)
 
 
-def remember_marks(engine, db) -> int:
+CLOSING_WINDOW = 180        # seconds before a contract stops trading in which its closing price is kept fresh
+
+
+def closing_soon(engine, p: Position, now: Optional[datetime] = None) -> bool:
+    """True during the last minutes before the contract of this position expires (stops trading for good
+    and is settled)."""
+    if not p.expiry or not p.qty:
+        return False
+    ins = engine.feed.instruments.get(p.token)
+    if now is None:
+        from .engine import ist_now
+        now = ist_now()
+    return (not engine.expired(ins, p.exchange, p.expiry, now)
+            and engine.expired(ins, p.exchange, p.expiry, now + timedelta(seconds=CLOSING_WINDOW)))
+
+
+def closing_positions(engine, db) -> list:
+    """Open positions on contracts in their last minutes. Their closing price is what a future is settled
+    at when it expires, so it must be the book at the moment trading stops, not a price up to a minute
+    old: with an old one, a user who sees the market move in the last seconds adds to his position at the
+    new price and is settled at the old one (loophole of 15 Nov 2026). The server therefore refreshes
+    these every second (main.weekly_loop) instead of once a minute."""
+    return [p for p in db.query(Position).filter_by(is_closed=False).filter(Position.expiry != None, Position.expiry != "").all()  # noqa: E711
+            if closing_soon(engine, p)]
+
+
+def remember_marks(engine, db, only: Optional[list] = None) -> int:
     """Keep the last exit-side price of every open position in the database, so a weekly valuation can still
     be done after a restart while that exchange is shut (the feed then has no price in memory), and so that
     a position nobody is quoting at the cut-off is valued at the last quote, not at an old last trade.
     While nobody is quoting, the kept quote stays; it gives way to the last trade only if the contract has
-    traded since."""
+    traded since.
+    only = just these positions (contracts in their last minutes, see closing_positions); for them the time
+    of the mark is refreshed on every pass, also when the price has not changed, so that the daily check can
+    tell that the closing price really was looked at in the last seconds."""
     n = 0
-    for p in db.query(Position).filter_by(is_closed=False).all():
+    for p in (db.query(Position).filter_by(is_closed=False).all() if only is None else only):
         if not p.qty:
             continue
         if p.last_mark is not None and engine.at_close_price(p):
@@ -143,13 +172,15 @@ def remember_marks(engine, db) -> int:
         mk = _exit_quote(engine, p)
         if mk is None:
             if p.last_mark is not None and not _trade_after_mark(engine, p):
+                if only is not None and engine.feed.live(p.token):     # still the best price known, as of now
+                    p.last_mark_at = datetime.utcnow(); n += 1
                 continue
             mk = engine.mark_price(p.token, p.qty)
             if mk is None:
                 mk = engine.feed.ltp(p.token)
         if mk is None or not math.isfinite(mk) or mk < 0:
             continue
-        if p.last_mark != mk:
+        if p.last_mark != mk or only is not None:
             p.last_mark = float(mk); p.last_mark_at = datetime.utcnow(); n += 1
     if n:
         db.commit()

@@ -63,8 +63,12 @@ def overrides(db, uid: int) -> dict:
 
 
 def effective(db, user) -> dict:
-    if user.is_admin or (user.username or "").startswith(_PROBE):
-        return {k: True for k in KEYS}               # the daily safety check trades every market on its own accounts
+    if user.is_admin:
+        return {k: True for k in KEYS}
+    if (user.username or "").startswith(_PROBE):
+        # The daily safety check trades every market on its own accounts. It can switch a segment off on
+        # them for a moment (nobody else can: they are in no list), to check that the switches hold.
+        d = {k: True for k in KEYS}; d.update(overrides(db, user.id)); return d
     d = default(db); d.update(overrides(db, user.id)); return d
 
 

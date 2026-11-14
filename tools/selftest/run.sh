@@ -3,7 +3,8 @@
 # daily safety check is run against it. Nothing here touches the live site.
 #   tools/selftest/run.sh            -> run the safety check, print every line, exit 1 if any check fails
 #   tools/selftest/run.sh keep       -> same, but leave the copy running on http://localhost:8001 (admin / admin123)
-# Extra env for the fake forex/global feed: FAKE_CLOSED=US500 (contract shut), FAKE_MULT=US500:0.99 (price shifted)
+# Extra env for the fake forex/global feed: FAKE_CLOSED=US500 (contract shut), FAKE_MULT=US500:0.99 (price shifted),
+# FAKE_OPEN=1 (every Global contract open all week, so Global can be attacked on a weekend too)
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"; cd "$ROOT"
 DATA="${PT_SELFTEST_DIR:-/tmp/lfx-selftest}"; [ "${PT_SELFTEST_FRESH:-1}" = "1" ] && rm -rf "$DATA"; mkdir -p "$DATA"

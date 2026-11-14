@@ -21,6 +21,8 @@ EXTRA = {20: (10, "America/Chicago", US), 21: (10, "America/Chicago", US), 22: (
          25: (10, "Europe/Berlin", wk([((i+1)*D+120, (i+1)*D+22*3600+59*60) for i in range(5)])), 26: (10, "Europe/Berlin", wk([((i+1)*D+120, (i+1)*D+22*3600+59*60) for i in range(5)])),
          27: (100, "Asia/Tokyo", wk([((i+1)*D+7*3600, (i+2)*D+5*3600+59*60) for i in range(5)])), 28: (10, "Australia/Canberra", wk([((i+1)*D+9*3600+3000, (i+2)*D+6*3600+59*60) for i in range(5)])),
          29: (100, "America/New_York", US), 30: (100, "Europe/London", US), 31: (500000, "America/New_York", US), 32: (100, "America/New_York", US), 33: (100, "America/New_York", US)}
+if os.getenv("FAKE_OPEN") == "1":   # every Global contract open all week (to exercise Global on a weekend)
+    EXTRA = {k: (v[0], v[1], wk([(0, 7*D - 1)])) for k, v in EXTRA.items()}
 PX = {k: v[4] for k, v in SYMS.items()}
 for _kv in filter(None,os.getenv("FAKE_MULT","").split(",")):
     _n,_m=_kv.split(":")

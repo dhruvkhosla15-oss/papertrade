@@ -72,6 +72,7 @@ class Probe:
                     for M in (Trade, Ledger, Order, Position):
                         db.query(M).filter_by(user_id=u.id).delete()
                     u.balance = bal; u.is_active = True; u.must_change_password = False; u.pw_changed_at = 0.0
+                    set_setting(db, f"access_{u.id}", "")        # a segment the check switched off on its own account
                 db.commit()
             finally:
                 db.close()
@@ -81,6 +82,24 @@ class Probe:
             db = SessionLocal()
             try:
                 db.get(User, uid).balance = round(bal, 2); db.commit()
+            finally:
+                db.close()
+
+    async def _set_active(self, uid: int, active: bool):
+        async with self.engine._lock:
+            db = SessionLocal()
+            try:
+                db.get(User, uid).is_active = bool(active); db.commit()
+            finally:
+                db.close()
+
+    async def _set_access(self, uid: int, off_key: str = ""):
+        """Switch one trading-access segment off on a TEST account (or all back on). Real accounts are set
+        by the Master only; this writes nothing but the test account's own switch."""
+        async with self.engine._lock:
+            db = SessionLocal()
+            try:
+                set_setting(db, f"access_{uid}", json.dumps({off_key: False}) if off_key else ""); db.commit()
             finally:
                 db.close()
 
@@ -359,6 +378,88 @@ class Probe:
             except Exception:
                 pass
             await ca.aclose()
+
+    async def _resting_rules(self, label, ins, ub):
+        """The rules an order is checked against when it is placed must still hold when it fills later
+        (loopholes of 15 Nov 2026). Two cases, on the test account only:
+        1. Trading access. In a segment that is switched off a position may only be reduced. A resting exit
+           is accepted because it is no bigger than the position; when the position is then reduced, the
+           exit is bigger than what is left. It must close the rest and no more, never open a position the
+           other way round (holding 3 lots, exits of 2 and 3 lots used to leave the account 2 lots short).
+        2. Frozen account. A resting order of an account that was frozen in the meantime must open nothing."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        T = ins.token
+        bid, ask, ltp = self._quote(T)
+        if not (bid and ask and ltp):
+            return
+        from . import access as _access
+        key = _access.key_for(ins)
+        band = float(ins.price_band_pct or 0)
+        cb = self._client(ub)
+        try:
+            await self._flatten(cb); await self._set_balance(ub.id, 5_000_000.0)
+            # 1. an exit that has become bigger than the position, in a switched-off segment
+            st, o, d = await self._order(cb, token=T, side="BUY", lots=2)
+            if not key or not (st == 200 and o.get("status") == "FILLED" and o.get("lots") == 2):
+                self.note("switched-off segment not tested", f"could not open a 2-lot test position ({d or o.get('reason', '')})"[:150])
+            else:
+                await self._set_access(ub.id, key)
+                st, _, d = await self._order(cb, token=T, side="BUY", lots=1)
+                self.ok("segment switched off: adding to a position is refused", st == 400, d)
+                bid = self._quote(T)[0] or bid
+                lo = bid * (0.01 if not band else 1 - band / 100 * 0.9)
+                # the exit of 2 lots rests until the next price; one lot is sold at market before that
+                s1, o1, d1 = await self._order(cb, token=T, side="SELL", lots=2, order_type="LIMIT", limit_price=round(lo, 6))
+                s2, o2, d2 = await self._order(cb, token=T, side="SELL", lots=1)
+                done = await self._wait_order(cb, o1["id"]) if s1 == 200 else None
+                pos = [p for p in (await self._positions(cb)) or [] if p["token"] == T]
+                short = [p for p in pos if p["qty"] < 0]
+                fair = (s1 == 200 and s2 == 200 and o2.get("status") == "FILLED" and done and done["status"] in ("FILLED", "CANCELLED", "REJECTED")
+                        and done["updated_at"] >= o2["updated_at"])
+                if fair:
+                    self.ok("segment switched off: an exit that has become bigger than the position only closes it, never opens one the other way",
+                            not short, f"now holding {short[0]['qty']}" if short else f"exit order ended {done['status']} for {done['lots']} lot(s)")
+                else:
+                    self.note("oversized exit inconclusive", "the exit filled before the position could be reduced, or no price tick arrived within 7 s")
+                await self._set_access(ub.id)
+            await self._flatten(cb)
+            # 2. a frozen account's resting order
+            ask = self._quote(T)[1] or ask
+            hi = ask * (3 if not band else 1 + band / 100 * 0.9)
+            st, o, d = await self._order(cb, token=T, side="BUY", lots=1, order_type="LIMIT", limit_price=round(hi, 6))
+            if st == 200 and o.get("status") == "OPEN":
+                await self._set_active(ub.id, False)
+                frozen_at = datetime.utcnow()
+                status, held, when = "OPEN", 0, None
+                for _ in range(14):
+                    db = SessionLocal()
+                    try:
+                        row = db.get(Order, o["id"])
+                        status, when = row.status, row.updated_at
+                        held = sum(p.qty for p in db.query(Position).filter_by(user_id=ub.id, token=T, is_closed=False).all())
+                    finally:
+                        db.close()
+                    if status != "OPEN":
+                        break
+                    await asyncio.sleep(0.5)
+                await self._set_active(ub.id, True)
+                if status == "OPEN" or (status == "FILLED" and when and when <= frozen_at):
+                    self.note("frozen-account order inconclusive", "the order filled before the account was frozen, or no price tick arrived within 7 s")
+                else:
+                    self.ok("a frozen account's resting order opens nothing", status == "CANCELLED" and not held,
+                            f"order {status}" + (f", now holding {held}" if held else ""))
+            else:
+                self.note("frozen-account order not tested", (d or o.get("reason", "") or "the order did not rest")[:150])
+        finally:
+            await self._set_access(ub.id); await self._set_active(ub.id, True)
+            try:
+                await self._flatten(cb)
+            except Exception:
+                pass
+            await self._set_balance(ub.id, 1_000_000.0)
+            await cb.aclose()
 
     async def _stream_flood(self, ub):
         """Orders on many contracts nobody is watching. Every such order makes the site stream the contract
@@ -953,6 +1054,47 @@ class Probe:
                 self.ok("no account is carrying more than its coins cover (Available Balance not below zero)", not over, "; ".join(over[:6]))
             elif over:
                 self.note("accounts below zero Available Balance", "; ".join(over[:6]) + " — warned; auto square-off starts after the one-time warning period")
+            # Closing price of an expired future (15 Nov 2026). A future that settles at its order book is
+            # settled at the closing price kept for the position. That price must have been looked at in the
+            # last seconds before the contract stopped trading: one from a minute earlier can be traded
+            # against (see the market move in the last seconds, add at the new price, be settled at the old).
+            try:
+                from .market_calendar import expiry_time_str
+                today = _ist().date()
+                names = {u.id: u.username for u in users}
+                old_marks, n, seen, gaps = [], 0, set(), set()
+                rows = (db.query(Position).filter(Position.is_closed == True, Position.expiry >= (today - timedelta(days=3)).isoformat(),  # noqa: E712
+                                                  Position.expiry <= today.isoformat()).order_by(Position.id.desc()).all())
+                for p in rows:
+                    k = (p.user_id, p.token)
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    if (p.user_id not in names or p.exchange not in ("NFO", "BFO", "MCX", "CDS") or not (p.symbol or "").endswith("FUT")
+                            or p.last_mark is None or not p.last_mark_at or not p.updated_at
+                            or p.expiry < "2026-11-15"):          # the every-second closing price exists since 15 Nov 2026
+                        continue
+                    d = datetime.fromisoformat(p.expiry)
+                    hh, mm = expiry_time_str(p.exchange, d.date()).split(":")[:2]
+                    stop = d.replace(hour=int(hh), minute=int(mm)) - timedelta(hours=5, minutes=30)      # UTC
+                    if not (stop <= p.updated_at <= stop + timedelta(seconds=150)):
+                        continue          # closed by the user before the expiry, or settled late (site was down)
+                    n += 1
+                    age = (stop - p.last_mark_at).total_seconds()
+                    if age > 45:
+                        old_marks.append(f"{names[p.user_id]} {p.symbol} ({int(age)} s before the stop)")
+                    # for the owner's eyes only: index, stock and currency futures settle at the underlying. If
+                    # that is far from where the contract itself last traded, the last seconds were free money.
+                    t = (db.query(Trade).filter(Trade.user_id == p.user_id, Trade.token == p.token, Trade.order_id == None,  # noqa: E711
+                                                Trade.created_at >= stop).order_by(Trade.id.desc()).first())
+                    if t and t.price and p.last_mark > 0 and abs(t.price - p.last_mark) / p.last_mark > 0.001:
+                        gaps.add(f"{p.symbol} settled {t.price:g}, own closing price {p.last_mark:g} ({(t.price / p.last_mark - 1) * 100:+.2f}%)")
+                self.ok(f"futures that expired in the last three days: the closing price was taken in the contract's last seconds ({n} positions)",
+                        not old_marks, "; ".join(old_marks[:5]))
+                if gaps:
+                    self.note("expired futures settled more than 0.1% away from their own closing price", "; ".join(sorted(gaps)[:4]))
+            except Exception as e:
+                self.ok("closing price of expired futures readable", False, type(e).__name__)
             neg = [u.username for u in users if (u.balance or 0) < -0.01]
             if neg:
                 self.note("accounts with a negative balance", ", ".join(neg[:8]))
@@ -1036,6 +1178,7 @@ class Probe:
                     await self._attack(label, ins, ua, ub)
                     await self._shortfall(label, ins, ua)
                     await self._frozen(label, ins, ua)
+                    await self._resting_rules(label, ins, ub)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")

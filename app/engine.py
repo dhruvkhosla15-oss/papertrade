@@ -719,6 +719,36 @@ class Engine:
             if ut:
                 self.feed.pin([ut])
 
+    def _still_allowed(self, db: Session, o: Order, ins) -> bool:
+        """A resting order was checked against the account's rules when it was placed. By the time it can
+        fill, things may have changed: an exit (stop-loss, target) can have become bigger than the position
+        it was meant to close, because the position was reduced in the meantime, and the account may have
+        been frozen. Anything that only reduces or closes is always allowed. An order that would open NEW
+        exposure is checked again here, the same way place_order checks it: on a frozen account, or in a
+        segment that is not activated on the account, an oversized exit closes the position and no more,
+        and any other opening order is cancelled. (Before 15 Nov 2026 it filled in full: holding 3 lots in
+        a switched-off segment, two resting exits of 2 and 3 lots left the account 2 lots SHORT.)"""
+        pos = self._position(db, o.user_id, o.token)
+        cur = pos.qty if pos else 0
+        signed = o.qty if o.side == "BUY" else -o.qty
+        if cur and (cur > 0) != (signed > 0) and abs(signed) <= abs(cur):
+            return True
+        user = db.get(User, o.user_id)
+        if user is None:
+            return True
+        from . import access as _access
+        why = "the account is frozen" if not user.is_active else _access.refusal(db, user, ins)
+        if not why:
+            return True
+        if cur and (cur > 0) != (signed > 0):
+            o.qty = abs(cur); o.lots = abs(cur) // max(ins.lot_size, 1); o.margin_blocked = 0.0
+            return True
+        o.status = "CANCELLED"; o.margin_blocked = 0.0
+        o.reason = "Cancelled — " + ("account frozen" if not user.is_active else "this segment is not activated on your account")
+        db.commit()
+        self._emit(o.user_id, {"type": "order", "order": self.order_dict(o)})
+        return False
+
     # ---- tick handling: pending orders ------------------------------------------
     def _on_tick(self, tick: dict):
         tok = tick["token"]
@@ -762,6 +792,8 @@ class Engine:
                             # and only for the quantity actually offered there (rest stays open)
                             if o.side == "BUY" and ask is not None and ask <= o.limit_price or \
                                o.side == "SELL" and bid is not None and bid >= o.limit_price:
+                                if not self._still_allowed(db, o, ins):
+                                    continue
                                 try:
                                     fill_at, note, _f = self.book_fill(db, ins, o.side, o.qty, limit_price=o.limit_price)
                                     note = note.split("; partial:")[0]
@@ -780,9 +812,13 @@ class Engine:
                                     o.qty = _f; o.lots = _f // ins.lot_size
                                     note += f"; partial: {_f // ins.lot_size} lots filled, {rest // ins.lot_size} still open"
                         elif (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
+                            if not self._still_allowed(db, o, ins):
+                                continue
                             fill_at = o.limit_price
                     elif o.order_type == "SL":
                         if (o.side == "BUY" and ltp >= o.trigger_price) or (o.side == "SELL" and ltp <= o.trigger_price):
+                            if not self._still_allowed(db, o, ins):
+                                continue
                             try:
                                 fill_at, _n, _f = self.book_fill(db, ins, o.side, o.qty)
                                 if _f < o.qty:

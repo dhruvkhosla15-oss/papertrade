@@ -40,8 +40,60 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   below the market; the position must end flat, never short
 - Price socket (14 Nov 2026): 40 junk orders (zero lots) on 40 unwatched far-month options from one test account; at most
   25 may start streaming, and all are dropped again after half a minute
+- Rules at the moment of the fill, in every market (15 Nov 2026): on a test account whose segment is switched off for a
+  moment, a 2-lot limit exit rests, one lot is sold at market, the exit fills: the account must end flat, never short.
+  (The test accounts trade every market, but the check can switch one segment off on them: `access.effective`.)
+- Frozen account, in every market (15 Nov 2026): a buy limit rests, the test account is frozen, the order must be
+  cancelled and open nothing
+- Books (15 Nov 2026): every future that expired in the last three days had its closing price taken in the last 45
+  seconds before it stopped trading (real accounts; needs the position to have been settled within 150 s of the stop).
+  With it, as a note only: expired futures settled more than 0.1% away from their own closing price
 
 ## Findings
+
+### 2026-11-15 (nightly review) — three fixes, all live tonight
+- RULE BYPASS, FIXED, live: **a switched-off segment could be traded through an exit that outgrew its position.**
+  Trading access (14 Nov) is checked when an order is placed: in a segment that is off, only an order no bigger than
+  the position (an exit) is accepted. A resting exit is not looked at again when it fills. Holding 3 lots: rest a limit
+  exit of 2 lots and one of 3 lots (each is "no bigger than the position"); the first leaves 1 lot, the second then
+  sells 3 and the account is 2 lots SHORT in a segment it may not trade. The same with a stop-loss of 3 lots followed
+  by a market sale of 2. Proven over the API on NSE, BSE and Crypto (limit exits) and MCX (stop-loss): long 3 -> short 2;
+  on MCX futures, Currency and Forex the bigger exit happened to fill first in the hand test, and Global was shut, but
+  the new daily check fails on yesterday's code in NSE, BSE, MCX, Currency, Crypto and Forex alike (same code path).
+  No coins gained (margin and commission are charged), but the Master's switch was bypassed, again and again if wanted.
+  *Fix (engine.py, `_still_allowed`, called just before a resting LIMIT / SL order fills):* an order that would open new
+  exposure is checked again; in a segment that is off an oversized exit is cut down to the position (it closes it and
+  no more), any other opening order is cancelled. Orders in an activated segment and plain exits are not touched.
+- RULE BYPASS, FIXED, live (same place): **a frozen account's resting order still filled and opened a position.**
+  Proven: buy limit resting, Master freezes the account, two seconds later the order fills (1 lot BANKNIFTY). Now such
+  an order is cancelled ("Cancelled — account frozen"); a frozen account's stop-loss / target still closes its position.
+- LOOPHOLE (free coins), FIXED, live: **a commodity future was settled at a closing price up to a minute old.** Since
+  14 Nov a future that settles at its order book (every MCX future; index / stock / currency futures when their
+  underlying has no usable price) is settled at the "closing price" kept for the position, and that was refreshed only
+  once a minute. A user who holds 1 lot and sees the market drop in the contract's last seconds adds at the new price
+  and is settled at the old one. Proven in-process (prices and clock set by hand): crude 5999/6001, mark stored, price
+  falls to 5959/5961 twenty seconds before the stop, 9 lots added at 5961, all settled at 5999: +32,927 coins; the same
+  purchase by an account with no earlier position: −3,192. A short who simply held was settled 40 points too high.
+  *Fix (weekly.py `closing_positions` / `remember_marks(only=…)`, main.py `weekly_loop`):* positions on a contract in its
+  last three minutes get their closing price refreshed every second. Same attack afterwards: −7,073. Checked on a
+  running copy (clock set to two minutes before an MCX expiry): the mark of the expiring contract is under a second
+  old, other positions keep the once-a-minute pass. What is left: a closing price up to about one second old.
+  No future has expired since the closing price was introduced (14 Nov, a Saturday), so nobody can have used this.
+- Observation for the owner (design of 14 Nov, not changed): index, stock and currency futures are settled at the
+  underlying, not at the contract's own book. If in the last seconds the underlying stands more than the commission
+  (0.02%) above the contract's offer, buying the contract then is free money for the gap (in-process: 0.1% gap = +1,796
+  on one NIFTY lot, 1% = +22,046; 0.02% = −4). On real prices the two meet at expiry, so this cannot be judged on
+  simulated prices. The daily check now lists every expired future that was settled more than 0.1% away from its own
+  closing price (a note, not an alarm); if that list ever fills up, settle at the contract's own book instead.
+- Checked by hand in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): zero / negative / huge lots,
+  buy limit far above the market, add / flip (market and limit) in a switched-off segment, Exit x6: all refused or
+  filled at the market. Global is shut on the private copy at the weekend; the fake feed now takes `FAKE_OPEN=1`
+  (every Global contract open all week) so it can be attacked on any night.
+- Nothing in any account was changed. Nobody could gain coins from the two rule bypasses. A user in a switched-off
+  segment may since 14 Nov (afternoon) hold a position opened by a limit or stop-loss exit bigger than what he held;
+  only crypto and (for a few hours) forex were open in that time.
+- Daily check: three new checks (see "Ideas already covered"); the two trading ones fail on yesterday's code in all
+  six open markets and pass twice on tonight's. `weekly_sim.py` has all three as well (5103 checks, 0 failures).
 
 ### 2026-11-14 (nightly review) — two fixes live tonight, one waiting on a branch
 - LOOPHOLE (breaks the site for others), FIXED, live: **one account could fill the price socket.** Since the frozen-price
@@ -165,6 +217,14 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
+- Charts: `/api/candles` fetches from the broker for any contract and keeps the answer in memory with no limit per
+  account; one account asking for thousands of contracts could use up the broker's request allowance (charts fail for
+  everybody) and memory. Not reproducible on simulated prices (no broker, no cache there).
+- The closing price at an ordinary daily close (not an expiry) is still up to a minute old. Valuation only: screens,
+  Available Balance overnight, the weekly valuation of a shut market. No coins move on it.
+- Settlement of index / stock / currency futures at the underlying (see 15 Nov 2026): watch the daily check's note.
+- Other rules checked only when an order is placed, not when it fills: the exchange position limit (already listed
+  below) and the intraday / overnight mix. Since 15 Nov the fill re-checks trading access and frozen accounts only.
 - The Zerodha login return address (/auth/kite/callback) needs no Master login. It only works with a one-time code
   from Zerodha for this app, so probably harmless; cannot be tried on the private copy (simulated prices).
 - After a price feed reconnects, prices in memory are as old as the outage until the first new tick (a second or
@@ -213,4 +273,4 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - Twelve switches (futures/options × Indices, Stocks, MCX, Currency, Crypto; Forex; Global). Default: futures on in the four Indian segments, everything else off. Master sets the default table (Settings) and per-user switches (user panel).
 - Enforced in `engine.place_order` for anything that opens NEW exposure (also a flip). Reducing/closing, the auto square-off and expiry are never blocked. Switching off cancels resting orders that would open a position there.
 - Accounts that held options on the day this went live keep options on until they hold none (`access_optflat_<uid>`), then go back to the default by themselves; the Master gets a Telegram line.
-- The daily check's own accounts (`zz-probe-`) and the private copy (`PT_ACCESS_ALL=1` in run.sh) are not restricted. Never set PT_ACCESS_ALL on the live site. The nightly hunt must keep the checks in `weekly_sim.py` ("access: …") passing and should try to get round the switches (flip orders, resting orders, SL orders, exits larger than the position).
+- The daily check's own accounts (`zz-probe-`) and the private copy (`PT_ACCESS_ALL=1` in run.sh) are not restricted. Never set PT_ACCESS_ALL on the live site. The nightly hunt must keep the checks in `weekly_sim.py` ("access: …") passing and should try to get round the switches (flip orders, resting orders, SL orders, exits larger than the position). Done 15 Nov 2026: resting exits (limit and stop-loss) that outgrow the position got round them; fixed, see Findings.

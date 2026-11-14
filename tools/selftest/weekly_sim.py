@@ -80,6 +80,7 @@ feed.load_instruments([
     Instrument(11, "NIFTY27JANFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", THIN_EXP, 0, 75, 0.05),
     Instrument(12, "USDINR27JANFUT", "USDINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
     Instrument(13, "EURINR27JANFUT", "EURINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
+    Instrument(14, "NATURALGAS27JANFUT", "NATURALGAS", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 1250, 0.1),
     Instrument(F_SILVER, "SILVER27DECFUT", "SILVER", "MCX", "MCX-FUT", "FUT", FAR, 0, 30, 1.0),
     Instrument(F_SILVERM, "SILVERM27DECFUT", "SILVERM", "MCX", "MCX-FUT", "FUT", FAR, 0, 5, 1.0),
     Instrument(O_CE, "NIFTY27DEC26000CE", "NIFTY", "NFO", "NFO-OPT", "CE", FAR, 26000, 75, 0.05),
@@ -647,7 +648,23 @@ at(day(W10, 3, 15, 41)); feed.set(I_NIFTY, 30110); run(engine._settle_expired())
 for n in ("idle", "hold"):
     ok(f"expiry {n}: an index future settles at the index's closing value", flat(n, F_NIFTY_X) and near(last_trade(n, F_NIFTY_X).price, 30110, 0.001), str(last_trade(n, F_NIFTY_X).price))
 ok("expiry: the commodity future is still open until its own session ends", not flat("idle", F_THIN))
+# The closing price of a contract in its last minutes is kept fresh (loophole of 15 Nov 2026: it was up to a
+# minute old, so a user who saw the market drop in the last seconds added at the new price and was settled
+# at the old one).
+F_GAS_X = 14
+at(day(W10, 3, 23, 50)); feed.set(F_GAS_X, 300.0, spread=0.2)
+trade("idle", F_GAS_X, "BUY", 1)
+ok("expiry: five minutes before it stops, a contract is not yet in the every-second closing-price pass",
+   F_GAS_X not in [p.token for p in W.closing_positions(engine, db)])
+at(day(W10, 3, 23, 54)); W.remember_marks(engine, db)     # the once-a-minute pass: closing price 299.9
+at(day(W10, 3, 23, 54) + timedelta(seconds=40)); feed.set(F_GAS_X, 297.0, spread=0.2)     # the market drops 20 s before the stop
+ok("expiry: in its last minutes it is", F_GAS_X in [p.token for p in W.closing_positions(engine, db)])
+W.remember_marks(engine, db, only=W.closing_positions(engine, db))    # what the server now does every second
+trade("idle", F_GAS_X, "BUY", 5)                          # adds at 297.1, hoping to be settled at the old 299.9
 at(day(W10, 3, 23, 58)); run(engine._settle_expired()); db.expire_all()
+tr = last_trade("idle", F_GAS_X)
+ok("expiry: a future is settled at the book of its last seconds, not at a closing price from a minute earlier",
+   flat("idle", F_GAS_X) and near(tr.price, 296.9, 0.001) and tr.realised_pnl < 0, f"{tr.side} @ {tr.price}, {tr.realised_pnl}")
 for n, side, want in (("idle", "SELL", 899.0), ("hold", "BUY", 901.0)):
     tr = last_trade(n, F_THIN)
     ok(f"expiry {n}: a thin commodity future is settled at the exit side of the book, not at the old last trade", tr.side == side and near(tr.price, want, 0.001), f"{tr.side} @ {tr.price}")
@@ -712,6 +729,28 @@ class _P:                                                 # the daily safety che
 ok("access: the daily safety check's accounts are not restricted", all(A.effective(db, _P).values()))
 run(engine._check_liquidations())
 ok("access: the auto square-off is not stopped by a switch", True)
+# A resting order is checked again when it fills (15 Nov 2026): an exit that has become bigger than the
+# position only closes it, and a frozen account's resting order opens nothing.
+lots_btc = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=users["crypto"].id, token=F_BTC, is_closed=False))
+q0 = lots_btc()
+trade("crypto", F_BTC, "BUY" if q0 >= 0 else "SELL", 3)   # crypto is on for everybody at this point
+q1 = lots_btc(); xs = "SELL" if q1 > 0 else "BUY"; lim = 80000.0 if q1 > 0 else 100000.0
+eff = A.effective(db, users["crypto"]); eff["CRYPTO_FUT"] = False
+A.set_user(db, users["crypto"].id, eff)
+trade("crypto", F_BTC, xs, abs(q1) - 1, order_type="LIMIT", limit_price=lim)      # two exits, each no bigger than the position
+trade("crypto", F_BTC, xs, abs(q1), order_type="LIMIT", limit_price=lim)
+run(engine._process_pending(F_BTC, 90000)); db.expire_all()
+ok("access: two resting exits that together are bigger than the position close it and open nothing the other way",
+   lots_btc() == 0, f"was {q1}, now {lots_btc()}")
+A.set_user(db, users["crypto"].id, None)
+qn = sum(p.qty for p in db.query(Position).filter_by(user_id=users["idle"].id, token=F_NIFTY, is_closed=False))
+o = trade("idle", F_NIFTY, "BUY", 1, order_type="LIMIT", limit_price=31000.0)
+users["idle"].is_active = False; db.commit()
+run(engine._process_pending(F_NIFTY, 30200)); db.expire_all()
+ok("frozen: a resting order of an account frozen in the meantime opens nothing and is cancelled",
+   db.get(Order, o.id).status == "CANCELLED" and qn == sum(p.qty for p in db.query(Position).filter_by(user_id=users["idle"].id, token=F_NIFTY, is_closed=False)),
+   db.get(Order, o.id).status)
+users["idle"].is_active = True; db.commit()
 A.set_default(db, {k: True for k in A.KEYS})
 check_running("after the access tests")
 

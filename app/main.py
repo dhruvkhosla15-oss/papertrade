@@ -1170,7 +1170,7 @@ async def weekly_loop():
         db.close()
     marks_at = 0.0; failures = 0; pause_until = 0.0
     while True:
-        fast = False
+        fast = False; closing_fast = False
         try:
             now = datetime.utcnow() + ist
             last_seconds = now.weekday() == 6 and now.hour == 23 and now.minute == 59 and now.second >= 57
@@ -1216,6 +1216,17 @@ async def weekly_loop():
                             log.exception("weekly settlement report failed")
                 elif not last_seconds:
                     engine.week_hold = False
+                if not engine.week_hold:
+                    # contracts in their last minutes: closing price refreshed every second (an expiring
+                    # future is settled at it; a price up to a minute old could be traded against)
+                    try:
+                        closing = _weekly.closing_positions(engine, db)
+                        if closing:
+                            closing_fast = True
+                            _weekly.remember_marks(engine, db, only=closing)
+                    except Exception:
+                        log.exception("closing-price pass failed")
+                        db.rollback()
                 if not engine.week_hold and time.time() - marks_at > 60:
                     _weekly.remember_marks(engine, db); marks_at = time.time()
                     try:
@@ -1233,7 +1244,7 @@ async def weekly_loop():
                     asyncio.get_event_loop().run_in_executor(None, _probe._telegram, "limefx: the weekly settlement failed 3 times; trading continues, it will be retried in 15 minutes.")
                 except Exception:
                     pass
-        await asyncio.sleep(0.4 if fast else 5)
+        await asyncio.sleep(0.4 if fast else 1 if closing_fast else 5)
 
 
 def _opens_soon(exchange: str, minutes: int = 60) -> bool:

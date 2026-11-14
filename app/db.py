@@ -143,6 +143,20 @@ class ShadowFill(Base):
     created_at = Column(DateTime, default=now)
 
 
+class DaySnap(Base):
+    """Where each account stood at the start of an IST day: its P&L since the very beginning (finished
+    weeks + the running week, open positions included). The difference between two of them is the true
+    result of the days in between, closed trades and the move in open positions together."""
+    __tablename__ = "day_snaps"
+    __table_args__ = (UniqueConstraint("day", "user_id", name="uq_day_user"),)
+    id = Column(Integer, primary_key=True)
+    day = Column(String(10), index=True, nullable=False)        # the IST day that STARTS here, YYYY-MM-DD
+    user_id = Column(Integer, index=True, nullable=False)
+    overall = Column(Float, nullable=False, default=0.0)
+    exact = Column(Boolean, default=True)                       # False: taken late, not at midnight
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class WeekSettlement(Base):
     """One row per user per finished week (Mon 00:00 – Sun 23:59:59 IST). Written once at the cut-off and
     never changed afterwards."""

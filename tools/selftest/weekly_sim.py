@@ -577,6 +577,28 @@ at(day(W9 + timedelta(days=7), 0, 9, 16)); px(nifty=30500); db.expire_all()   # 
 pos_f = db.query(Position).filter_by(user_id=fx_u.id, is_closed=False).first()
 ok("closing price: on Monday the live price is used again", abs(engine.position_dict(pos_f)["mark"] - 30500) < 1 and not engine.position_dict(pos_f)["at_close"], str(engine.position_dict(pos_f)["mark"]))
 
+# ---- Daily view: a day's result is measured from where the day started (the last closing price) ----
+W10 = W9 + timedelta(days=7)
+iso = lambda d: d.date().isoformat()
+tue, wed, thu = day(W10, 1, 0, 0), day(W10, 2, 0, 0), day(W10, 3, 0, 0)
+at(tue); M.take_day_snaps(db, iso(tue)); db.expire_all()
+t0 = {u.id: truth_total(u.id) for u in users.values() if not u.is_admin}
+at(day(W10, 1, 11)); px(nifty=30800, btc=91000); trade("fixer", F_NIFTY, "SELL", 1); trade("scalper", F_NIFTY, "BUY", 1)
+at(day(W10, 1, 15)); px(nifty=30650)
+pp = lambda u, a, b: M.build_report(db, [u], iso(a), iso(b))["users"][0]["period_pnl"]
+for n, u in users.items():
+    if not u.is_admin:
+        ok(f"daily {n}: today's result = closed trades + move in open positions since the day started", near(pp(u, tue, tue), truth_total(u.id) - t0[u.id], 0.6), f"{pp(u, tue, tue)} vs {truth_total(u.id) - t0[u.id]:.2f}")
+at(wed); M.take_day_snaps(db, iso(wed)); db.expire_all()
+t1 = {u.id: truth_total(u.id) for u in users.values() if not u.is_admin}
+at(day(W10, 2, 12)); px(nifty=30100, btc=89500); trade("fixer", F_NIFTY, "BUY", 1)
+for n, u in users.items():
+    if not u.is_admin:
+        ok(f"daily {n}: yesterday's result does not move with today's prices", near(pp(u, tue, tue), t1[u.id] - t0[u.id], 0.6), f"{pp(u, tue, tue)} vs {t1[u.id] - t0[u.id]:.2f}")
+        ok(f"daily {n}: today starts from yesterday's close", near(pp(u, wed, wed), truth_total(u.id) - t1[u.id], 0.6), f"{pp(u, wed, wed)} vs {truth_total(u.id) - t1[u.id]:.2f}")
+        ok(f"daily {n}: the two days add up to the two-day result", near(pp(u, tue, tue) + pp(u, wed, wed), pp(u, tue, wed), 0.02))
+ok("daily: a day with no day-start record is reported as unknown, never guessed", pp(users["hold"], day(W10, 0, 0, 0), day(W10, 0, 0, 0)) is None)
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

@@ -1210,6 +1210,52 @@ async def feed_watch_loop():
         await asyncio.sleep(20)
 
 
+def _overall_now(db, u) -> float:
+    """P&L of an account since the very beginning: finished weeks + the running week, open positions included."""
+    credited = sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
+    return round(engine.funds(db, u)["equity"] - credited + _weekly.settled_total(db, u), 2)
+
+
+def take_day_snaps(db, day: str, exact: bool = True) -> int:
+    """Remember where every account stands at the start of IST day `day` (once per day and account)."""
+    from .db import DaySnap
+    have = {r.user_id for r in db.query(DaySnap).filter_by(day=day).all()}
+    n = 0
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all():
+        if u.id not in have:
+            db.add(DaySnap(day=day, user_id=u.id, overall=_overall_now(db, u), exact=exact)); n += 1
+    if n:
+        db.commit()
+    return n
+
+
+def _period_pnl(db, u, f: date, t: date, overall_now: float):
+    """True result of the IST days f..t for one account (closed trades + the move in open positions −
+    commission), from the day-start snapshots. None when a snapshot it needs was never taken."""
+    from .db import DaySnap
+    from .engine import ist_now as _now
+    today = _now().date()
+    if f > today:
+        return 0.0
+    s = db.query(DaySnap).filter_by(day=f.isoformat(), user_id=u.id).first()
+    if s is not None:
+        a = s.overall
+    else:
+        first = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.created_at).first()
+        if first is None or (first.created_at + IST).date() >= f:
+            a = 0.0                       # the account did not exist before this period
+        else:
+            return None
+    if t >= today:
+        b = overall_now
+    else:
+        e = db.query(DaySnap).filter_by(day=(t + timedelta(days=1)).isoformat(), user_id=u.id).first()
+        if e is None:
+            return None
+        b = e.overall
+    return round(b - a, 2)
+
+
 async def daystart_loop():
     """At the start of every IST day remember where the book stood, so 'P&L Today' can be the same
     formula as Net P&L (closed trades + open positions + commission) for today only. A snapshot taken
@@ -1228,6 +1274,8 @@ async def daystart_loop():
                     alloc, equity = _book_totals(db)
                     set_setting(db, "daystart", json.dumps({"day": day, "alloc": alloc, "equity": equity,
                                                             "exact": now.hour == 0 and now.minute < 10, "at": now.strftime("%H:%M")}))
+                if not getattr(engine, "week_hold", False):          # never in the middle of the weekly cut-off
+                    take_day_snaps(db, day, exact=now.hour == 0 and now.minute < 10)
             finally:
                 db.close()
         except Exception:
@@ -1971,6 +2019,7 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
             "avg_win": round(sum(wins) / len(wins), 2) if wins else 0, "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
             "profit_factor": round(sum(wins) / abs(sum(losses)), 2) if losses else None,
             "allocated": round(credited, 2), "equity": funds["equity"], "overall_pnl": round(funds["equity"] - credited + settled, 2),
+            "period_pnl": _period_pnl(db, u, f, t, round(funds["equity"] - credited + settled, 2)) if from_ else None,
             "daily": dict(sorted(daily.items())),
         })
     out["daily"] = dict(sorted(all_days.items()))

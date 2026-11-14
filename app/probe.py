@@ -845,6 +845,51 @@ class Probe:
             closed = get_setting(db, "week_closed") or due
             just = now_i.weekday() == 0 and now_i.hour == 0 and now_i.minute < 15
             self.ok("the weekly cut-off has run for every finished week", closed >= due or just, f"last closed {closed}, due {due}")
+            # ---- what the Master and the users are shown: the same figures everywhere, open or shut, holiday or not ----
+            try:
+                import sys
+                M = sys.modules.get("app.main") or sys.modules.get("main")
+                from . import market_calendar as _cal
+                moved, zero, differ, rep_bad = [], [], [], []
+                per_user = {}
+                for p in db.query(Position).filter_by(is_closed=False).all():
+                    if not p.qty:
+                        continue
+                    d = self.engine.position_dict(p)
+                    per_user[p.user_id] = per_user.get(p.user_id, 0.0) + (d["unrealised"] or 0.0)
+                    shut = self.engine.at_close_price(p)
+                    if shut and p.last_mark is not None and d["mark"] != p.last_mark:
+                        moved.append(p.symbol)                      # shut market: must sit on the closing price
+                    if d["mark"] is None:
+                        zero.append(p.symbol)                       # would be shown at 0 P&L
+                self.ok("positions in a shut market (night, weekend, holiday) are valued at their closing price", not moved, ", ".join(sorted(set(moved))[:8]))
+                self.ok("no open position is shown without a price (it would read as zero P&L)", not zero, ", ".join(sorted(set(zero))[:8]))
+                rows = {r["username"]: r for r in (M._admin_rows(db) if M else [])}
+                tol = lambda a, b: abs((a or 0) - (b or 0)) <= max(1.0, 0.002 * abs(b or 0))      # prices tick between two reads
+                for u in users:
+                    f = self.engine.funds(db, u); r = rows.get(u.username); w = _wk.running_row(self.engine, db, u)
+                    want = per_user.get(u.id, 0.0)
+                    if not tol(f["unrealised"], want) or (r and not tol(r["unrealised"], want)) or not tol(w["valuation"], want):
+                        differ.append(f"{u.username} (positions {want:,.0f}, balance {f['unrealised']:,.0f}, Master {r['unrealised'] if r else '-'}, weekly {w['valuation']:,.0f})")
+                    if r and (abs(r["allocated"] + r["net_pnl"] - r["net_balance"]) > 0.05 or abs(r["unrealised"] + r["realised"] - r["commission"] - r["net_pnl"]) > 0.05):
+                        rep_bad.append(f"{u.username}: row does not add up")
+                    if r and not tol(r["net_pnl"], w["result"]):
+                        rep_bad.append(f"{u.username}: Master {r['net_pnl']:,.0f} vs weekly report {w['result']:,.0f}")
+                    if M:
+                        a = M.build_report(db, [u], None, None)["users"][0]
+                        done_w = sum(x.result for x in db.query(WeekSettlement).filter_by(user_id=u.id).all())
+                        if not tol(a["week_pnl"], w["result"]) or not tol(a["overall_pnl"], done_w + w["result"]):
+                            rep_bad.append(f"{u.username}: user P&L week {a['week_pnl']:,.0f} / all time {a['overall_pnl']:,.0f} vs weekly report {w['result']:,.0f} + finished weeks {done_w:,.0f}")
+                self.ok("open-position P&L is the same on the user screen, the Master table and the weekly report", not differ, "; ".join(differ[:4]))
+                self.ok("Master table, user P&L and weekly report agree, and every row adds up", not rep_bad, "; ".join(rep_bad[:4]))
+                wd = now_i.weekday()
+                st = {k: _cal.status(k) for k in ("NFO", "BFO", "MCX", "CDS")}
+                from .config import ENFORCE_MARKET_HOURS as _enf
+                wrong = [k for k, v in st.items() if _enf and bool(v.get("open")) != bool(self.engine.market_open(k))]      # trading follows the calendar shown
+                self.ok("market open/closed status matches the calendar (weekend, holiday)", not wrong, ", ".join(wrong))
+                self.note("markets right now", ", ".join(f"{k} {'open' if v.get('open') else 'closed' + (' (' + str(v.get('holiday')) + ')' if v.get('holiday') else '')}" for k, v in st.items()))
+            except Exception as e:
+                self.ok("screen and report figures could be cross-checked", False, f"{type(e).__name__}: {e}")
             o_bad = [o.id for o in db.query(Order).filter_by(status="OPEN").all()
                      if o.margin_blocked is None or o.margin_blocked < 0 or (o.order_type == "LIMIT" and not (o.limit_price and o.limit_price > 0))
                      or (o.order_type == "SL" and not (o.trigger_price and o.trigger_price > 0)) or o.qty <= 0]

@@ -202,6 +202,10 @@ class KiteFeed(PriceFeed):
         self.status_msg = msg
 
     def _on_connect(self, ws, response):
+        try:
+            self.restart_live(self.own_tokens())   # prices in memory are from before the outage: wait for new ones
+        except Exception:
+            log.exception("could not mark prices as waiting for a new tick")
         self._set_status(True, "Live market data")
         toks = list(self._refcount)
         if toks:

@@ -1,18 +1,18 @@
-15 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: an expiring future could be settled at a price up to a minute old, and a switched-off segment could still be traded.
+16 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: when a price feed dropped, went silent or had just come back, trades were still filled at the old price.
 
 Tried tonight
-1. Segment switched off: two exit orders, together bigger than the position. Holding 3 lots ended 2 lots short. Fixed.
-2. The same with a stop-loss bigger than what was left. Fixed.
-3. Frozen account: its waiting order still filled and opened a position. Fixed.
-4. Commodity future at expiry: the price drops in the last seconds, add lots, be settled at the price of a minute earlier. 33,000 coins for free in a test with prices set by hand. Fixed.
-5. Index future bought in its last seconds below the index: pays only if the gap is above 0.02 percent; real prices meet at expiry. Not changed, now watched daily.
+1. Exit while NSE, BSE, MCX or Currency prices are down: the position closed at the frozen price. Fixed.
+2. Order in the instant prices come back, every market: filled at the old price. 7,000 to 36,000 free coins in tests. Fixed.
+3. Crypto or forex prices connected but silent: orders kept filling at the last price. 14,000 to 70,000 free coins in tests. Fixed.
+4. Bought option carried over the weekly cut-off at a profit, then falling back: an account with 300 coins lost 575 and was never stopped. Fix waiting for you.
+5. Rounding with tiny lots, a frozen account's price connection, 2FA after a password reset: nothing to gain.
 
 Markets attacked: NSE, BSE, MCX, Currency, Forex, Global, Crypto.
 
-Live now: in a segment that is off, a waiting exit never sells more than is held. A frozen account's waiting order is cancelled. An expiring future is settled at the price of its last second. Honest trading unchanged, no account touched. Nobody gained coins: no future has expired since Saturday's change. A user in a switched-off segment may hold a position opened this way since Saturday afternoon.
+Live now: while a market's prices are down or silent nothing is filled there, Exit included, and after they return an order waits for a fresh price. Honest trading unchanged, no account touched. A user cannot cause an outage, only pounce on one; the books cannot show if anyone did.
 
-Daily check: added exit in a switched-off segment, frozen account order, closing price of expired futures.
+Daily check: added exit during an outage, silent prices, order right after prices return.
 
-Waiting for you: nothing.
+Waiting for you: branch security-fix/2026-11-16. A carried bought option would then be squared off if it falls too far: your call. To deploy, open Claude and say: put security-fix/2026-11-16 live
 
-Could not test: a real expiry on the real feed; bulk chart requests (no broker on the test copy).
+Could not test: a real NSE outage (simulated only).

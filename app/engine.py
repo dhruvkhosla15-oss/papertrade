@@ -464,13 +464,21 @@ class Engine:
         if self.expired(ins):
             raise EngineError("This contract has expired — open positions in it are settled automatically")
         cry = getattr(self.feed, "crypto", None)
-        if cry and token in cry.items and not cry.connected:
+        # A feed that is connected but has gone silent is as good as down: its prices stand still while
+        # the real market moves (see quiet() in the feeds).
+        if cry and token in cry.items and (not cry.connected or getattr(cry, "quiet", lambda: False)()):
             raise EngineError("Crypto live prices are offline right now — trading is paused until the feed is back")
         if cry and token in cry.items and not cry.fx_ready():
             raise EngineError("Waiting for the ₹ conversion rate — crypto trading resumes in a moment")
         fx = getattr(self.feed, "forex", None)
+        if not ((cry and token in cry.items) or (fx and token in fx.items)) and not self.feed.connected:
+            # NSE / BSE / MCX / Currency. The order screen already refuses while this feed is down; the Exit
+            # button did not, and closed the position at the frozen price from before the outage: a user who
+            # could see elsewhere that the market had moved against him got out at the old price
+            # (loophole of 16 Nov 2026).
+            raise EngineError("Live prices are offline right now — trading is paused until the feed is back")
         if fx and token in fx.items:
-            if not fx.connected:
+            if not fx.connected or getattr(fx, "quiet", lambda: False)():
                 raise EngineError("Forex prices are offline right now — trading is paused until the feed is back")
             if not fx.fx_ready(ins):
                 raise EngineError("Waiting for the rupee conversion rate for this pair — try again in a moment")

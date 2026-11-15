@@ -158,6 +158,23 @@ class PriceFeed:
         p = self.prices.get(token)
         return bool(p) and token in self._refcount and (p.get("ts") or 0) >= self._since.get(token, 0)
 
+    def own_tokens(self) -> List[int]:
+        """Streamed contracts this feed prices itself (crypto and forex / global have their own connections)."""
+        other = set()
+        for name in ("crypto", "forex"):
+            other |= set(getattr(getattr(self, name, None), "items", None) or ())
+        return [t for t in list(self._refcount) if t not in other]
+
+    def restart_live(self, tokens: List[int]):
+        """The connection these contracts are priced over has just come back (or has just started
+        delivering again after a silence). What is in memory for them is as old as the outage, so none
+        of it counts as a live price until a new one arrives: without this, an order sent in the instant
+        after a reconnect was filled at the price from before the outage (loophole of 16 Nov 2026)."""
+        now = time.time()
+        for t in tokens:
+            if t in self._refcount:
+                self._since[t] = now
+
     def on_tick(self, cb: Callable[[dict], None]):
         self._listeners.append(cb)
 

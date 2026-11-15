@@ -33,6 +33,7 @@ ACCOUNT_LOGIN = os.getenv("PT_CTRADER_ACCOUNT", "")
 ENV_TOKEN = os.getenv("PT_CTRADER_TOKEN", "")
 TOKEN_BASE = 6_000_000_000
 LOT_UNITS = int(os.getenv("PT_FOREX_LOT_UNITS", "1000"))
+QUIET_SECS = float(os.getenv("PT_FEED_QUIET_SECS", "8"))   # no price at all from the broker for this long = prices cannot be trusted
 # symbols offered (broker names). Everything else the broker lists is ignored.
 WANTED = [s.strip().upper() for s in os.getenv(
     "PT_FOREX_SYMBOLS",
@@ -94,6 +95,8 @@ class CTraderForex:
         self.token = None
         self.refresh_token = None
         self._depth: dict = {}         # token -> {quote id: (price, size, side)}
+        self._last_px = 0.0            # when the broker last sent a price
+        self._stale: dict = {}         # contract -> sides received since the last (re)connect or silence; its price in memory is older
         self._assets: dict = {}        # assetId -> name
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
         self._orig_candles = feed.candles
@@ -214,6 +217,28 @@ class CTraderForex:
         m = self.meta.get(ins.token) or {}
         r = self.quote_to_inr(m.get("quote", "USD"))
         return (r or 0.0) * (ins.multiplier or 1.0)
+
+    def quiet(self) -> bool:
+        """True when the connection is up but the broker has sent no price at all for a while (every pair
+        and every Global contract is streamed all the time, so that only happens when the stream has
+        stalled or the broker has paused quoting). The prices in memory are then standing still while the
+        real market moves; nothing may be filled against them (found 16 Nov 2026)."""
+        return bool(self.connected and self._last_px and time.time() - self._last_px > QUIET_SECS)
+
+    def _resync(self, clear_depth: bool):
+        """The connection is back (or prices are arriving again after a silence): what is in memory is as
+        old as the gap. No contract counts as live until a complete new price (both sides) has arrived for
+        it, and the old order-book ladder is not used again."""
+        if clear_depth:
+            self._depth.clear()        # quote ids of the old connection are never deleted on the new one
+        self._stale = {t: {} for t in self._subs}
+        self.feed.restart_live(list(self._subs))
+
+    def _px_event(self):
+        now = time.time()
+        if self._last_px and now - self._last_px > QUIET_SECS:
+            self._resync(clear_depth=False)
+        self._last_px = now
 
     def fx_ready(self, ins) -> bool:
         return self.value_factor(ins) > 0
@@ -397,6 +422,7 @@ class CTraderForex:
             raise RuntimeError("account auth: " + json.dumps(r.get("payload"))[:200])
         if not self.items:
             await self._load_symbols()
+        self._resync(clear_depth=True); self._last_px = time.time()
         if self._subs:
             ids = [self.items[t].token - TOKEN_BASE for t in self._subs if t in self.items]
             await self._send(PT_SUB_SPOTS, {"ctidTraderAccountId": self.account_id, "symbolId": ids})
@@ -539,8 +565,22 @@ class CTraderForex:
             tok = self.by_symbol_id.get(int(p.get("symbolId", -1)))
             if not tok:
                 return
+            self._px_event()
             prev = dict(self.feed.prices.get(tok) or {})
             d = prev
+            new = self._stale.get(tok)
+            if new is not None:
+                # first prices after a reconnect or a silence. The broker may send one side at a time; until
+                # both sides are new nothing is published, so a new bid never sits next to an old ask, and
+                # the old order-book ladder is not used again.
+                for k in ("bid", "ask"):
+                    if p.get(k) is not None:
+                        new[k] = int(p[k]) / PRICE_SCALE
+                if len(new) < 2:
+                    return
+                d.pop("bids", None); d.pop("asks", None)
+                d["bid"], d["ask"] = new["bid"], new["ask"]
+                self._stale.pop(tok, None)
             if p.get("bid") is not None:
                 d["bid"] = int(p["bid"]) / PRICE_SCALE
             if p.get("ask") is not None:
@@ -576,6 +616,7 @@ class CTraderForex:
             tok = self.by_symbol_id.get(int(p.get("symbolId", -1)))
             if not tok:
                 return
+            self._px_event()
             book = self._depth.setdefault(tok, {})
             for q in p.get("newQuotes", []):
                 qid = int(q["id"]); size = int(int(q.get("size", 0)) / VOL_SCALE)
@@ -595,6 +636,8 @@ class CTraderForex:
                         book.pop(k)
                 bids = sorted(((px, sz, 0) for px, sz, side in book.values() if side == "bid" and sz > 0), key=lambda x: -x[0])[:5]
                 asks = sorted(((px, sz, 0) for px, sz, side in book.values() if side == "ask" and sz > 0), key=lambda x: x[0])[:5]
+            if tok in self._stale and not (bids and asks):
+                return                 # after a reconnect or a silence: wait for a ladder with both sides
             d = dict(self.feed.prices.get(tok) or {"token": tok})
             d.update({"token": tok, "bids": bids, "asks": asks, "ts": time.time(),
                       "tbq": sum(b[1] for b in bids), "tsq": sum(a[1] for a in asks)})
@@ -604,6 +647,7 @@ class CTraderForex:
                 d["ask"] = asks[0][0]
             if d.get("bid") is not None and d.get("ask") is not None:
                 d["ltp"] = round((d["bid"] + d["ask"]) / 2, 6)
+                self._stale.pop(tok, None)
                 self.feed._publish(d)
 
     # ---- subscriptions ----------------------------------------------------------------------------

@@ -311,15 +311,9 @@ class Probe:
             await self._set_balance(ua.id, 1_000_000.0)
             await ca.aclose()
 
-    async def _frozen(self, label, ins, ua):
-        """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.
-        An order must never be filled at such a price (look, stop looking, wait for the market to move,
-        then trade at the old price — the loophole of 13 Nov 2026). Take a contract nobody is streaming,
-        look at it once, plant a recognisable price in its frozen book and send an order: it must be
-        refused or filled at a newly streamed price, never at the planted one."""
-        self.area = label
-        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
-            return
+    def _unwatched(self, ins):
+        """Up to four contracts of the same market that nobody is streaming right now (so a test on them
+        cannot touch a price any real user is looking at or trading on)."""
         feed = self.feed
         today = _ist().date().isoformat()
         if ins.exchange == "CRYPTO":
@@ -331,7 +325,166 @@ class Probe:
             cand = [i for i in feed.instruments.values() if i.exchange == ins.exchange and i.segment == ins.segment
                     and i.instrument_type == "FUT" and (not i.expiry or i.expiry >= today)]
             cand.sort(key=lambda i: (i.expiry or "", i.symbol))
-        cand = [i for i in cand if i.token != ins.token and i.token not in feed._refcount and self.engine.tradable_now(i)][:4]
+        free = lambda i: i.token != ins.token and i.token not in feed._refcount and self.engine.tradable_now(i)
+        out = [i for i in cand if free(i)][:4]
+        if not out and ins.exchange not in ("CRYPTO", "FOREX"):
+            # every future of this market is being streamed (a small market): options near the money instead
+            spot = feed.ltp(feed.index_token_for(ins.name) or -1) or 0
+            opts = [i for i in feed.instruments.values() if i.exchange == ins.exchange and i.name == ins.name
+                    and i.instrument_type in ("CE", "PE") and i.expiry and i.expiry >= today and free(i)]
+            if spot and opts:
+                exp = min(i.expiry for i in opts)
+                out = sorted([i for i in opts if i.expiry == exp], key=lambda i: abs(i.strike - spot))[:4]
+        return out
+
+    async def _after_reconnect(self, label, ins, ua):
+        """When a price feed comes back after an outage, the prices in memory are as old as the outage.
+        An order sent in that instant must wait for a new price (loophole of 16 Nov 2026: it was filled at
+        the price from before the outage; with the market 1% higher after a short outage that was +7,000
+        to +36,000 coins on the private copy, in crypto, forex and Global alike).
+        Tested on one contract that nobody else is streaming, so no price a real user sees is touched: it
+        is streamed, then told what every contract is told when its feed reconnects, a recognisable
+        (worse) price is planted as the price from before the outage, and an order is sent. The order must
+        be refused or filled at a newly arrived price, never at the planted one."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        feed = self.feed
+        cand = self._unwatched(ins)
+        if not cand:
+            self.note("order right after a reconnect not tested", "every contract of this market is being streamed all the time"); return
+        name = "an order sent the instant a price feed is back waits for a new price (never fills at the one from before the outage)"
+        mark = getattr(feed, "restart_live", None)
+        if mark is None:
+            self.ok(name, False, "prices are not marked as old when a feed reconnects"); return
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            why = "no contract with a two-sided price that nobody else is streaming"
+            for c in cand:
+                T = c.token
+                feed.subscribe([T])
+                planted = real = None
+                since = None
+                try:
+                    for _ in range(20):
+                        t = feed.prices.get(T) or {}
+                        if feed.live(T) and t.get("asks") and t.get("bid") and t.get("ask"):
+                            break
+                        await asyncio.sleep(0.25)
+                    real = feed.prices.get(T)
+                    if not feed.live(T) or feed._refcount.get(T, 0) != 1 or not real or not (real.get("asks") and real.get("bid") and real.get("ask")):
+                        continue
+                    since = feed._since.get(T)
+                    trap = round(real["ask"] * 1.0137, 6)            # worse for the buyer, so nobody could ever gain from it
+                    planted = dict(real)
+                    planted.update({"ask": trap, "asks": [(trap,) + tuple(real["asks"][0][1:])]})
+                    mark([T]); feed.prices[T] = planted              # "the feed has just reconnected; this is the old price"
+                    st, o, d = await self._order(ca, token=T, side="BUY", lots=1)
+                finally:
+                    if planted is not None and feed.prices.get(T) is planted:
+                        feed.prices[T] = real
+                    if since is not None and T in feed._refcount and not feed.live(T):
+                        feed._since[T] = since                       # no new price came: leave the contract as it was found
+                    feed.unsubscribe([T])
+                if st == 200 and o.get("status") == "FILLED":
+                    hit = abs((o.get("fill_price") or 0) - trap) < 1e-9
+                    self.ok(name, not hit, f"{c.symbol}: price from before said {trap}, filled {o.get('fill_price')}")
+                    return
+                if st == 400 and "live price" in d:
+                    self.ok(name, True, f"{c.symbol}: refused until a new price arrives")
+                    return
+                why = f"{c.symbol}: {d or o.get('reason') or 'no fill'}"
+            self.note("order right after a reconnect not tested", why[:160])
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await ca.aclose()
+
+    async def _offline(self, label, ins, ua):
+        """While a market's prices are not arriving, nothing may be filled there: not a new order and not
+        the Exit of a position either. Loopholes of 16 Nov 2026: (1) with the NSE / BSE / MCX / Currency
+        feed down the order screen refused, but Exit still closed a position at the frozen price from
+        before the outage, so a user who could see elsewhere that the market had moved against him got
+        out at the old price; (2) a crypto or forex feed that was connected but had gone silent kept
+        filling orders at its last price (+14,000 to +70,000 coins on the private copy).
+        The test account opens one lot. Then, for the length of one function call during which nothing else
+        on the site can run, that market's feed is marked as down (and, for crypto / forex, as silent) and
+        the exit is sent the way the Exit button sends it. It must be refused each time."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        T = ins.token
+        bid, ask, ltp = self._quote(T)
+        if not (bid and ask and ltp):
+            return
+        from .engine import EngineError
+        cry = getattr(self.feed, "crypto", None); fx = getattr(self.feed, "forex", None)
+        src = cry if ins.exchange == "CRYPTO" else fx if ins.exchange == "FOREX" else self.feed
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            st, o, d = await self._order(ca, token=T, side="BUY", lots=1)
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == T and p["qty"] > 0]
+            if not (st == 200 and o.get("status") == "FILLED" and pos):
+                self.note("exit while prices are offline not tested", f"could not open a test position ({d or o.get('reason', '')})"[:150]); return
+            lots = pos[0]["qty"] // ins.lot_size
+
+            async def attempt(attr, value):
+                """Exit with the feed marked down / silent. Nothing is awaited while the mark is set."""
+                async with self.engine._lock:
+                    db = SessionLocal()
+                    was = getattr(src, attr)
+                    try:
+                        u = db.get(User, ua.id)
+                        setattr(src, attr, value)
+                        try:
+                            self.engine.place_order(db, u, T, "SELL", lots)
+                            return "FILLED"
+                        except EngineError as e:
+                            db.rollback()
+                            return str(e)
+                    finally:
+                        setattr(src, attr, was)
+                        db.close()
+
+            res = await attempt("connected", False)
+            name = "the Exit of a position is refused while that market's price feed is down (no way out at the frozen price)"
+            if res == "FILLED" or "offline" in res:
+                self.ok(name, res != "FILLED", "position closed at the price from before the outage" if res == "FILLED" else res[:90])
+            else:
+                self.note("exit while the feed is down inconclusive", res[:150])
+            attr = "_last_msg" if src is cry else "_last_px" if src is fx else None
+            if attr and res != "FILLED":
+                if not hasattr(src, "quiet") or not hasattr(src, attr):
+                    self.ok("nothing is filled while a connected feed has gone silent", False, "the feed does not notice that it has gone silent")
+                else:
+                    res = await attempt(attr, time.time() - 3600)
+                    if res == "FILLED" or "offline" in res:
+                        self.ok("nothing is filled while a connected feed has gone silent", res != "FILLED",
+                                "filled at the last price before the silence" if res == "FILLED" else res[:90])
+                    else:
+                        self.note("silent-feed exit inconclusive", res[:150])
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await ca.aclose()
+
+    async def _frozen(self, label, ins, ua):
+        """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.
+        An order must never be filled at such a price (look, stop looking, wait for the market to move,
+        then trade at the old price — the loophole of 13 Nov 2026). Take a contract nobody is streaming,
+        look at it once, plant a recognisable price in its frozen book and send an order: it must be
+        refused or filled at a newly streamed price, never at the planted one."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        feed = self.feed
+        cand = self._unwatched(ins)
         if not cand:
             self.note("frozen-price order not tested", "every contract of this market is being streamed all the time"); return
         ca = self._client(ua)
@@ -1179,6 +1332,8 @@ class Probe:
                     await self._shortfall(label, ins, ua)
                     await self._frozen(label, ins, ua)
                     await self._resting_rules(label, ins, ub)
+                    await self._after_reconnect(label, ins, ua)
+                    await self._offline(label, ins, ua)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")

@@ -29,6 +29,19 @@ for _kv in filter(None,os.getenv("FAKE_MULT","").split(",")):
     for _k,_v in SYMS.items():
         if _v[0]==_n: PX[_k]*=float(_m)
 
+@app.get("/debug/shift")
+def shift(symbol: str, pct: float):
+    """Move one contract's price (what the real market does while our connection to the broker is down)."""
+    for k, v in SYMS.items():
+        if v[0] == symbol: PX[k] *= 1 + pct / 100; return {"ok": True, "px": PX[k]}
+    return {"ok": False}
+
+MUTE = [0.0]
+@app.get("/debug/mute")
+def mute(secs: float):
+    """The connection stays up but no price is sent for a while (a stalled stream, or the broker pausing its quotes)."""
+    MUTE[0] = time.time() + secs; return {"ok": True}
+
 @app.websocket("/")
 async def ws(sock: WebSocket):
     await sock.accept(); spots = set(); depth = set(); authed = {"app": False, "acc": False}
@@ -63,6 +76,8 @@ async def ws(sock: WebSocket):
     try:
         qids = {}
         while True:
+            if time.time() < MUTE[0]:
+                await asyncio.sleep(0.1); continue
             for sid in list(PX): PX[sid] *= 1 + random.uniform(-0.0001, 0.0001)
             for sid in list(spots):
                 px = PX[sid]; tick = 10 ** (-SYMS[sid][3]); sp = tick * 2

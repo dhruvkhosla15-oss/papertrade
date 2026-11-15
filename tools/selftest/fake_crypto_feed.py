@@ -51,6 +51,12 @@ def expire(ddmmyy: str):
 def shift(symbol: str, pct: float):
     PX[symbol] *= 1 + pct / 100; return {"ok": True, "px": PX[symbol]}
 
+MUTE = [0.0]
+@app.get("/debug/mute")
+def mute(secs: float):
+    """The connection stays up but nothing is sent for a while (a stalled stream)."""
+    MUTE[0] = time.time() + secs; return {"ok": True}
+
 INR = 100.1
 @app.get("/v2/history/candles")
 def candles(symbol: str, resolution: str = "1d", start: int = 0, end: int = 0):
@@ -79,6 +85,8 @@ async def ws(sock: WebSocket):
     asyncio.create_task(reader())
     try:
         while True:
+            if time.time() < MUTE[0]:
+                await asyncio.sleep(0.1); continue
             for s in list(PX): PX[s] *= 1 + random.uniform(-0.0002, 0.0002)
             await sock.send_text(json.dumps({"type": "spot_price", "symbol": ".DEUSDTINR", "price": INR}))
             for s in list(subs["ticker"]):

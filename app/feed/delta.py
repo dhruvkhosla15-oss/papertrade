@@ -33,6 +33,7 @@ PERPS = [s.strip().upper() for s in os.getenv("PT_CRYPTO_PERPS", "BTCUSD,ETHUSD,
 OPTION_UNDERLYINGS = [s.strip().upper() for s in os.getenv("PT_CRYPTO_OPTIONS", "BTC,ETH").split(",") if s.strip()]
 OPTION_DAYS = int(os.getenv("PT_CRYPTO_OPTION_DAYS", "10"))   # list option expiries this far ahead
 IST = timedelta(hours=5, minutes=30)
+QUIET_SECS = float(os.getenv("PT_FEED_QUIET_SECS", "8"))   # nothing at all from the exchange for this long = prices cannot be trusted
 
 
 class DeltaCrypto:
@@ -47,6 +48,8 @@ class DeltaCrypto:
         self.paused = False
         self.message = "not started"
         self._refresh_task = None
+        self._last_msg = 0.0             # when the exchange last sent anything
+        self._stale_book = set()         # perpetuals whose order book in memory is from before the last (re)connect
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -311,6 +314,21 @@ class DeltaCrypto:
         self.paused = False; self.message = "reconnecting"
         return True
 
+    def quiet(self) -> bool:
+        """True when the connection is up but the exchange has sent nothing for a while. The prices in
+        memory are then standing still while the real market moves; an order filled against them is the
+        same free money as one filled at a frozen price (found 16 Nov 2026: 8 s of silence, +7,500 coins)."""
+        return bool(self.connected and self._last_msg and time.time() - self._last_msg > QUIET_SECS)
+
+    def _resync(self):
+        """The connection is back (or delivering again after a silence): every price in memory is as old
+        as the gap. None of them counts as live until a new one arrives. A perpetual gets its order book
+        and its last price in separate messages; until the new book is in, the last-price message is not
+        taken either, so a fresh timestamp can never sit on an old book."""
+        subs = list(self._subs)
+        self.feed.restart_live(subs)
+        self._stale_book = {t for t in subs if t in self.items and self.items[t].instrument_type == "FUT"}
+
     async def _run(self):
         import websockets
         while True:
@@ -320,11 +338,16 @@ class DeltaCrypto:
             try:
                 async with websockets.connect(WS, ping_interval=20, ping_timeout=20, max_size=8_000_000) as ws:
                     self._ws = ws
+                    self._resync(); self._last_msg = time.time()
                     self.connected = True; self.message = "Delta Exchange India live"
                     await ws.send(json.dumps({"type": "subscribe", "payload": {"channels": [{"name": "spot_price", "symbols": [self.INR_INDEX]}]}}))
                     if self._subs:
                         await ws.send(json.dumps({"type": "subscribe", "payload": {"channels": self._channels(list(self._subs))}}))
                     async for raw in ws:
+                        now = time.time()
+                        if now - self._last_msg > QUIET_SECS:
+                            self._resync()         # first message after a silence: same as a reconnect
+                        self._last_msg = now
                         try:
                             self._handle(json.loads(raw))
                         except Exception:
@@ -356,14 +379,19 @@ class DeltaCrypto:
             d = dict(prev)
             d.update({"token": tok, "bids": bids, "asks": asks, "bid": bids[0][0] if bids else None,
                       "ask": asks[0][0] if asks else None, "ts": time.time()})
-            if "ltp" not in d:
+            if "ltp" not in d or tok in self._stale_book:
+                # first book ever, or first book after a reconnect (the last price in memory is from
+                # before the outage): the middle of the new book stands in until the next last-price message
                 mid = (bids[0][0] + asks[0][0]) / 2 if bids and asks else None
                 if mid is None:
                     return
                 d["ltp"] = mid
+                self._stale_book.discard(tok)
             d["tbq"] = sum(b[1] for b in bids); d["tsq"] = sum(a[1] for a in asks)
             self.feed._publish(d)
         elif t == "v2/ticker":
+            if tok in self._stale_book:
+                return                     # the book in memory is from before the reconnect: wait for the new one
             q = m.get("quotes") or {}
             d = dict(prev)
             ltp = m.get("close") or m.get("mark_price")

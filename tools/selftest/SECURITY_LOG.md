@@ -11,7 +11,21 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-Nothing. (`security-fix/2026-11-14`, weekly valuation at the last quote instead of an old last trade, was put live by
+- **`security-fix/2026-11-16`: a bought option carried over the weekly cut-off at a profit is not covered by coins.**
+  The cut-off pays the option's profit out and carries it at the week-close price, but only the premium first paid
+  stays blocked, and (owner's decision of 13 Nov) a bought option's running loss does not count against Available
+  Balance. If the option falls back, the account loses coins nothing covers and is never stopped. Proven on the
+  private copy (16 Nov): 300 coins, option bought for 150, worth 705 at the cut-off (+555 paid out), fell back: running
+  loss 555 with 150 blocked, Available Balance still +150, three BTC lots opened with it, option sold: balance −276.
+  Over both weeks the user gains nothing (+555, then −575); the risk is a week's loss far bigger than the account.
+  *Fix on the branch (engine.py `funds`):* what a bought option loses beyond its blocked premium counts against
+  Available Balance (always zero for an option that was never carried), so the usual shortfall square-off applies.
+  Same test afterwards: the new position is refused and the option is squared off. Self-test 230 / 0 twice, weekly
+  simulation 0 failures, daily check added on the branch ("Bought option"). NOT on main because it changes how
+  Available Balance is worked out for options carried tonight at a profit (they could be squared off if they fall
+  back by more than the premium paid). To deploy: open Claude and say "put security-fix/2026-11-16 live".
+
+Earlier: nothing open. (`security-fix/2026-11-14`, weekly valuation at the last quote instead of an old last trade, was put live by
 the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-12` on 12 Nov 2026.)
 
 ## Ideas already covered by the daily check
@@ -49,7 +63,57 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   seconds before it stopped trading (real accounts; needs the position to have been settled within 150 s of the stop).
   With it, as a note only: expired futures settled more than 0.1% away from their own closing price
 
+- Prices offline, in every market (16 Nov 2026): the test account opens one lot; for the length of one function call
+  (nothing else on the site can run in between) that market's feed is marked as down and the exit is sent the way the
+  Exit button sends it: it must be refused. Crypto and Forex / Global also with the feed marked as silent.
+  (`_offline`; restores the mark in the same call; never disconnects anything.)
+- Order right after a reconnect, in every market with a contract nobody is streaming (16 Nov 2026): the contract is
+  streamed, told what every contract is told when its feed reconnects (`feed.restart_live`), a recognisable worse
+  price is planted as the price from before the outage, and an order is sent: refused or filled at a new price, never
+  at the planted one. Forex / Global: only a note (every contract is streamed all the time). `_unwatched` now falls
+  back to near-the-money options when every future of a small market is being streamed (BSE on the private copy).
+
 ## Findings
+
+### 2026-11-16 (nightly review) — three fixes live tonight (all about price-feed outages), one waiting on a branch
+- LOOPHOLE (loss dodged at an old price), FIXED, live: **Exit worked while the NSE / BSE / MCX / Currency feed was
+  down.** The order screen refuses while that feed is down ("Orders will be rejected until the feed is back up"), but
+  the Exit button went straight to the engine, which only checked the crypto and forex feeds. A position was closed at
+  the frozen book from before the outage (for up to five minutes). A user who sees elsewhere that the market has moved
+  against him gets out at the old price; if it moved his way he waits. Proven over the API in all four markets (new
+  order 400, Exit 200 FILLED at a price 4 s old). *Fix (engine.py `place_order`):* no order of any kind on a contract
+  of the main feed while it is not connected. Same test afterwards: Exit refused in all four.
+- LOOPHOLE (free coins), FIXED, live: **the instant a feed came back, orders were filled at the price from before the
+  outage.** On a reconnect the feed is marked connected at once, but the prices in memory are as old as the outage until
+  each contract's next tick (up to a second; up to five for crypto options). Proven on the private copy (feed switched
+  off, simulated market moved 1%, feed switched on, order sent at once): Crypto +7,000, Forex +20,860, Global +35,832
+  coins; NSE / BSE / MCX / Currency filled at a price 4 s old (the simulated NSE feed cannot move while it is off).
+  *Fix:* `PriceFeed.restart_live` — on every (re)connect the feed's contracts stop counting as live until a new price
+  arrives (Zerodha `_on_connect`, the simulated feed, Delta `_resync`, cTrader `_resync`); orders wait for it like on a
+  contract nobody streams. A crypto perpetual gets its book and its last price in separate messages: the last-price
+  message is not taken until the new book is in (`_stale_book`). Forex: the old ladder and the old quote ids are
+  dropped, and nothing is published until both sides are new. Same attacks afterwards: −207 to −614 (costs only); a
+  resting stop-loss across an outage fills at the new bid.
+- LOOPHOLE (free coins), FIXED, live: **a crypto or forex feed that was connected but silent kept filling orders.**
+  A stalled stream is noticed late (crypto: after 20–40 s; forex: never, there is no ping) and until then every order
+  fills at the last price received. Proven (the pretend exchanges can now go mute: `/debug/mute`, `/debug/shift`):
+  9.5 s of silence with the market 1% higher: Crypto +14,566, Forex +40,933, Global +70,786 coins.
+  *Fix:* `quiet()` in both feeds: after 8 s without anything from the exchange (crypto) or without any price from the
+  broker (forex / Global) orders are refused like on a feed that is down, and the first message after such a silence
+  counts as a reconnect (prices wait for a new tick). `PT_FEED_QUIET_SECS` changes the 8 s. Afterwards: refused.
+  What is left: a silence shorter than 8 s (3 s of silence with a 1% jump still filled at the old price in the test).
+- A user cannot cause any of these three; he can only pounce when an outage happens (the feed status is on his
+  screen). Whether somebody did cannot be told from the books: the fills look ordinary. A sign would be fills within
+  seconds of a "prices are back" message, or an Exit during a "prices are DOWN" spell.
+- RULE GAP, fix waiting on `security-fix/2026-11-16`: a bought option carried over the weekly cut-off at a profit can
+  lose far more than the account holds without being stopped (see "Waiting for the owner").
+- Checked by hand in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global; Global opened with
+  `FAKE_OPEN=1`): zero / negative / huge lots, buy limit far above the market, Exit x6, an order bigger than the visible
+  book, 12 orders at once with coins for 3: all refused or filled at the market. Exit while the crypto / forex feed is
+  down: refused (was already so).
+- Nothing in any account was changed. Self-test 229 / 0 twice on main, weekly simulation 0 failures.
+- Daily check: two new checks (see "Ideas already covered"); on yesterday's code they fail 11 times (exit in NSE, BSE,
+  MCX, Currency; silent feed in Crypto and Forex; reconnect in five markets), on tonight's they pass twice.
 
 ### 2026-11-15 (nightly review) — three fixes, all live tonight
 - RULE BYPASS, FIXED, live: **a switched-off segment could be traded through an exit that outgrew its position.**
@@ -201,6 +265,14 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Tiny lots to round losses away (16 Nov 2026): the smallest price step on one lot is worth ₹0.001 (XAUT) to ₹0.006
+  (JP225); a loss only rounds to zero when the price has moved less than a few steps, far inside the spread.
+- A frozen account's (or a reset password's) open live-price connection (16 Nov 2026): it keeps receiving prices until
+  it is closed, nothing else: no orders, no other account's data. Not changed.
+- 2FA switched on by someone inside an account survives a password reset by the Master (16 Nov 2026): the owner then
+  needs the Master's "reset 2FA" as well. Nobody gets in with it; wrong codes are locked after five tries.
+- The "grace until Monday noon" flag after a weekly settlement (16 Nov 2026, read only): it is cleared on the first
+  margin pass that finds the account no longer short, and never lasts past Monday noon.
 - Mixing leverage when adding to a crypto position (14 Nov 2026): margin is released in proportion, the average never
   drops below the highest leverage the contract allows.
 - Opening more during the weekly-settlement grace time (14 Nov 2026): every opening, adding, flipping or resting order
@@ -227,8 +299,12 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   below) and the intraday / overnight mix. Since 15 Nov the fill re-checks trading access and frozen accounts only.
 - The Zerodha login return address (/auth/kite/callback) needs no Master login. It only works with a one-time code
   from Zerodha for this app, so probably harmless; cannot be tried on the private copy (simulated prices).
-- After a price feed reconnects, prices in memory are as old as the outage until the first new tick (a second or
-  so). Orders are refused while a feed is down; the moment after it is back was not attacked.
+- (Done 16 Nov 2026: the moment after a feed is back, and a silent feed. Left open:) the automatic closes (margin
+  call, shortfall square-off, intraday square-off) still act on the prices in memory while a feed is down or silent;
+  a user cannot trigger them at will. Zerodha's own feed is trusted to notice a dead connection within seconds (its
+  library does); it has no "silent" rule here because an evening with one quiet MCX contract is silent by nature.
+- A carried FUTURE also keeps the margin blocked at its original price; its running loss counts against Available
+  Balance, so it is covered. Only bought options were not (branch of 16 Nov 2026).
 - Rupee conversion for Forex cross pairs uses the USD legs; those are always streamed. A cross pair that is not a
   USD pair (if the broker ever lists one) would be open to the frozen-price idea only through the daily check's note.
 - Short-option margin before the first fill uses the underlying's price in memory (may be frozen) or the strike.

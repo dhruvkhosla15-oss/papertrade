@@ -195,6 +195,7 @@ class MockFeed(PriceFeed):
         self.paused = True; self.connected = False; self.status_msg = "Live feed paused by master"
 
     def reconnect(self):
+        self.restart_live(self.own_tokens())      # prices in memory are from before the pause
         self.paused = False; self.connected = True; self.status_msg = "simulated prices"; return True
 
     def status(self):

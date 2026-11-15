@@ -293,8 +293,12 @@ def check_reports(week_end: date, label="", late=False):
         ok(f"{tag}: Performance tab Net P&L for the week = week result", near(w["total_pnl"], r.result, 0.03) and near(w["open_pnl"], r.valuation, 0.03), f"{w['total_pnl']} vs {r.result}")
         wb = load_workbook(io.BytesIO(M.build_xlsx(db, [u], mon, we)))
         _, prow = _sheet(wb, "P&L Statement")
-        tot = next(x for x in prow if x[0] == "TOTAL")
-        ok(f"{tag}: Excel P&L Statement total = week result", near(tot[10], r.result, 0.03), f"{tot[10]} vs {r.result}")
+        tot = next(x for x in prow if x[0] == "NET P&L (SETTLEMENT)")
+        ok(f"{tag}: Excel P&L Statement Net P&L (Settlement) = week result", near(tot[11], r.result, 0.03) and near(tot[8] + tot[9] + tot[10], tot[11], 0.03), f"{tot[11]} vs {r.result}")
+        body = [x for x in prow if x[0] != "NET P&L (SETTLEMENT)" and isinstance(x[11], (int, float))]
+        ok(f"{tag}: Excel P&L Statement rows add up to the total", near(sum(x[11] for x in body), tot[11], 0.05) and near(sum(x[9] or 0 for x in body), tot[9], 0.05), f"{sum(x[11] for x in body)} vs {tot[11]}")
+        _, srow = _sheet(wb, "Summary")
+        ok(f"{tag}: Excel Summary Net P&L (Settlement) = week result", near(srow[0][5], r.result, 0.03) and near(srow[0][2] + srow[0][3] + srow[0][4], srow[0][5], 0.03), f"{srow[0][5]} vs {r.result}")
         _, lrow = _sheet(wb, "Ledger Statement")
         closing = next(x for x in lrow if x[2] == "Closing Balance")[4]
         ok(f"{tag}: Excel ledger closes the week at the allocated coins", near(closing, r.allocated, 0.011), f"{closing} vs {r.allocated}")
@@ -360,6 +364,15 @@ def check_running(tag):
             ok(f"{tag} {name}: Performance tab this week = running week result", near(_wk["total_pnl"], run_row["result"], 0.05), f"{_wk['total_pnl']} vs {run_row['result']}")
         ok(f"{tag} {name}: screens: Net P&L (This Week) and (All Time)", near(a["week_pnl"], run_row["result"], 0.02) and near(a["overall_pnl"], truth_total(u.id), 0.5),
            f"{a['week_pnl']} vs {run_row['result']}; {a['overall_pnl']} vs {truth_total(u.id):.2f}")
+    if (D.get_setting(db, "week_closed") or "") < W.week_end_of(T.date()).isoformat():
+        for name, u in users.items():
+            if u.is_admin:
+                continue
+            rr = W.running_row(engine, db, u); mon = (W.week_end_of(T.date()) - timedelta(days=6)).isoformat()
+            wb = load_workbook(io.BytesIO(M.build_xlsx(db, [u], mon, W.week_end_of(T.date()).isoformat())))
+            _, prow = _sheet(wb, "P&L Statement")
+            tot = next(x for x in prow if x[0] == "NET P&L (SETTLEMENT)")
+            ok(f"{tag} {name}: Excel for the running week: Net P&L (Settlement) = week result so far, with open positions", near(tot[11], rr["result"], 0.05), f"{tot[11]} vs {rr['result']}")
     for row in M._admin_rows(db):
         rr = W.running_row(engine, db, users[row["username"]])
         ok(f"{tag} {row['username']}: Master row = running week", near(row["net_pnl"], rr["result"], 0.02) and near(row["realised"], rr["closed"], 0.03) and near(row["commission"], rr["commission"], 0.02)

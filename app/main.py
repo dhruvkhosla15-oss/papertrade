@@ -2310,33 +2310,44 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
             o = t_orders.get(x.order_id)
             return " · ".join(v for v in ("Liquidated by system" if x.order_id in liq_orders else "", (o.carry_note or "") if o else "") if v)
         prow = [(x.created_at, x.id, [_ist_date(x.created_at), (x.created_at + IST).strftime("%H:%M:%S")] + tval(x.user_id) + [x.symbol, x.exchange,
-                 x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2),
+                 x.side, x.qty, x.price, round(x.price * x.qty, 2), x.realised_pnl or 0, 0, -(x.commission or 0), round((x.realised_pnl or 0) - (x.commission or 0), 2),
                  tnote(x)]) for x in trades]
         # open positions valued at a weekly cut-off: booked without a trade, shown as their own lines
         vals = db.query(Ledger).filter(Ledger.user_id.in_(ids), Ledger.kind == _weekly.VALUATION, Ledger.created_at >= start, Ledger.created_at < end).order_by(Ledger.created_at, Ledger.id).all()
         val_total = round(sum(l.amount for l in vals), 2)
         prow += [(l.created_at, 10 ** 12 + l.id, [_ist_date(l.created_at), (l.created_at + IST).strftime("%H:%M:%S")] + tval(l.user_id) + [(l.note or "").split(" valued at")[0], "",
-                  "WEEK CLOSE", "", "", "", l.amount, 0, l.amount, "Open position valued at the week-close price and carried forward: " + (l.note or "")]) for l in vals]
+                  "WEEK CLOSE", "", "", "", 0, l.amount, 0, l.amount, "Open position valued at the week-close price and carried forward: " + (l.note or "")]) for l in vals]
         prow.sort(key=lambda r: (r[0], r[1]))
-        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Commission", "Net P&L", "Note"],
+        # Net P&L of the period = Realised (closed trades) + Unrealised (open positions) − Commission: the
+        # settlement figure, the same number as the Weekly Settlement tab and the Performance tab.
+        open_all = round(sum(u["open_pnl"] for u in rep["users"]), 2)
+        total_all = round(sum(u["total_pnl"] for u in rep["users"]), 2)
+        now_ist = datetime.utcnow() + IST
+        for u in rep["users"]:
+            still = round(u["open_pnl"] - u["valuation"], 2)          # what is not already a WEEK CLOSE line above
+            if still:
+                prow.append((datetime.max, u["id"], [_ist_date(datetime.utcnow()), now_ist.strftime("%H:%M:%S")] + tval(u["id"]) + [
+                    "OPEN POSITIONS", "", "OPEN", "", "", "", 0, still, 0, still,
+                    "Unrealised P&L on positions still open, valued at the live price (closing price while the market is shut). Details in the Open Positions sheet."]))
+        sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Unrealised", "Commission", "Net P&L", "Note"],
               [r[2] for r in prow],
-              money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11)), int_cols=(sh(6),), statement="P&L Statement",
-              summary=(f"Trades {len(trades)}   ·   Closed Trades {sg(real)}   ·   Open Positions At Week Close {sg(val_total)}   ·   Commission {sg(-cm)}   ·   Net P&L {sg(round(net + val_total, 2))}"
-                       "   (positions still open now are not included)"),
-              totals=["TOTAL"] + [""] * (sh(8) - 1) + [round(real + val_total, 2), -cm, round(net + val_total, 2)])
+              money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11), sh(12)), int_cols=(sh(6),), statement="P&L Statement",
+              summary=(f"NET P&L (SETTLEMENT) {sg(total_all)}   =   Realised (Closed Trades) {sg(real)}   +   Unrealised (Open Positions) {sg(open_all)}   −   Commission {sg(cm)}"
+                       f"      ·   Trades {len(trades)}"),
+              totals=["NET P&L (SETTLEMENT)"] + [""] * (sh(8) - 1) + [real, open_all, -cm, total_all])
         # the same figures per user, in the order the screens use, then how the account stands now
-        sheet("Summary", ["User", "Username", "Realised", "Commission", "Net P&L (Closed Trades)", "Open Positions At Week Close", "Period Result",
+        sheet("Summary", ["User", "Username", "Realised", "Unrealised (Open Positions)", "Commission", "Net P&L (Settlement)", "Net P&L (Closed Trades)",
                           "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
                           "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (This Week)", "Net P&L (All Time)"],
-              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), -u["commission"], u["net_pnl"], u["valuation"], round(u["net_pnl"] + u["valuation"], 2),
+              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), u["open_pnl"], -u["commission"], u["total_pnl"], u["net_pnl"],
                 u["trades"], u["closing_trades"],
                 u["wins"], u["losses"], u["win_rate"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"],
                 u["allocated"], u["equity"], u["week_pnl"], u["overall_pnl"]] for u in rep["users"]],
               money_cols=(3, 4, 5, 6, 7, 13, 14, 15, 16, 18, 19, 20, 21), int_cols=(8, 9, 10, 11, 12, 17), statement="Summary",
-              summary=("Realised, Commission, Net P&L (Closed Trades) and Trades are for the period and count closed trades only. Open Positions At Week Close is what the weekly cut-offs "
-                       "inside the period booked on positions carried forward; Period Result is the two together. Allocated, Net Balance and Net P&L (This Week) are as of now and include "
-                       "open positions; Net Balance = Allocated + Net P&L (This Week). Net P&L (All Time) adds every finished week."),
-              totals=(["TOTAL", "", real, -cm, net, val_total, round(net + val_total, 2), len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
+              summary=("Net P&L (Settlement) = Realised + Unrealised (Open Positions) − Commission for the period: the figure the week is settled at. Realised and Net P&L (Closed Trades) "
+                       "count closed trades only. Unrealised is the open positions: valued at the week-close price for a finished week, at the live or closing price for the running week. "
+                       "Allocated, Net Balance and Net P&L (This Week) are as of now; Net Balance = Allocated + Net P&L (This Week). Net P&L (All Time) adds every finished week."),
+              totals=(["TOTAL", "", real, open_all, -cm, total_all, net, len(trades)] + [""] * 9 + [round(sum(u["allocated"] for u in rep["users"]), 2),
                       round(sum(u["equity"] for u in rep["users"]), 2), round(sum(u["week_pnl"] for u in rep["users"]), 2), round(sum(u["overall_pnl"] for u in rep["users"]), 2)]) if many else None)
         days = sorted({d for u in rep["users"] for d in u["daily"]})
         cum = 0; rows = []
@@ -2382,7 +2393,9 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
         wset = round(sum(l.amount for l in led if l.kind == "WEEKLY_SETTLEMENT"), 2)
         closing = (led[-1].balance_after if led else opening) if not many else None
-        summ = (f"Entries {len(led)}   ·   Coins Added {sg(cr)}   ·   Coins Removed {sg(dr)}   ·   Realised {sg(pnl)}   ·   Commission {sg(cmm)}   ·   Net P&L {sg(round(pnl + cmm, 2))}"
+        _open = round(sum(u["open_pnl"] for u in rep["users"]), 2); _tot = round(sum(u["total_pnl"] for u in rep["users"]), 2)
+        summ = (f"Entries {len(led)}   ·   Coins Added {sg(cr)}   ·   Coins Removed {sg(dr)}   ·   Realised {sg(pnl)}   ·   Commission {sg(cmm)}   ·   Net P&L (Closed Trades) {sg(round(pnl + cmm, 2))}"
+                f"   ·   Unrealised (Open Positions) {sg(_open)}   ·   NET P&L (SETTLEMENT) {sg(_tot)}"
                 + (f"   ·   Weekly Settlements {sg(wset)} (coins put back or taken out to return to Allocated)" if wset else ""))
         sheet("Ledger Statement", ["Date", "Time (IST)"] + tcol + ["Type", "Amount", "Balance After", "Note"], rows, money_cols=(sh(4), sh(5)),
               statement="Ledger Statement", summary=summ,

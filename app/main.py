@@ -2332,7 +2332,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         sheet("P&L Statement", ["Date", "Time (IST)"] + tcol + ["Contract", "Exchange", "Side", "Qty", "Price", "Value", "Realised", "Unrealised", "Commission", "Net P&L", "Note"],
               [r[2] for r in prow],
               money_cols=(sh(7), sh(8), sh(9), sh(10), sh(11), sh(12)), int_cols=(sh(6),), statement="P&L Statement",
-              summary=(f"NET P&L (SETTLEMENT) {sg(total_all)}   =   Realised (Closed Trades) {sg(real)}   +   Unrealised (Open Positions) {sg(open_all)}   −   Commission {sg(cm)}"
+              summary=(f"NET P&L (SETTLEMENT) {sg(total_all)}   =   Realised (Closed Trades) {sg(real)}   +   Unrealised (Open Positions) {sg(open_all)}   −   Commission {cm:,.2f}"
                        f"      ·   Trades {len(trades)}"),
               totals=["NET P&L (SETTLEMENT)"] + [""] * (sh(8) - 1) + [real, open_all, -cm, total_all])
         # the same figures per user, in the order the screens use, then how the account stands now

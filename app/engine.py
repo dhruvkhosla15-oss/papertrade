@@ -368,9 +368,15 @@ class Engine:
                 ins = self.feed.instruments.get(p.token)
                 u = (mk - p.avg_price) * p.qty * self.vf(ins)
                 unreal += u
-                # A BOUGHT option's whole premium is already blocked as its margin, so it can never lose
-                # more than that: its running loss does not eat into Available Balance a second time.
-                if not (ins and ins.instrument_type in ("CE", "PE") and p.qty > 0):
+                # A BOUGHT option's whole premium is already blocked as its margin, so normally it can never
+                # lose more than that: its running loss does not eat into Available Balance a second time.
+                # Not so once it has been carried over a weekly cut-off at a profit: the profit was paid out,
+                # the option now stands in the books at the week-close price, and it can lose all of that
+                # while only the original premium is blocked. Whatever it loses beyond the blocked premium
+                # counts like any other running loss (for an option never carried this is always zero).
+                if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+                    unreal_m += min(0.0, u + (p.margin_blocked or 0.0))
+                else:
                     unreal_m += u
         # realised today (IST calendar day) net of commission, from the ledger
         from datetime import datetime, timedelta

@@ -250,6 +250,27 @@ class Probe:
                     bool(pos) and not short,
                     f"{pick.symbol}: lowest running P&L ₹{low:,.0f}{'' if low < 0 else ' (no dip during the test)'}, "
                     f"Available Balance ₹{f2['available']:,.2f}, position {'kept' if pos else 'CLOSED'}")
+            # The same option after a weekly cut-off at a profit (found 16 Nov 2026). The cut-off pays the
+            # profit out and carries the option at the week-close price, but only the premium first paid
+            # stays blocked. If the option then falls back, it loses coins that nothing covers: the account
+            # could go far below zero without ever being stopped. On the test account's own position the
+            # books are set the way the cut-off leaves them (carried at three times the price paid); the
+            # loss beyond the blocked premium must then count against Available Balance.
+            if pos:
+                async with self.engine._lock:
+                    db = SessionLocal()
+                    try:
+                        row = db.get(Position, pos[0]["id"])
+                        if row and row.qty and not row.is_closed:
+                            row.entry_avg = row.avg_price; row.avg_price = row.avg_price * 3
+                            row.carried_week = (_ist().date() - timedelta(days=_ist().weekday() + 1)).isoformat()
+                            db.commit()
+                    finally:
+                        db.close()
+                f3 = await self._funds(ca)
+                self.ok("a bought option carried at a profit: what it loses beyond the blocked premium counts against Available Balance",
+                        f3["available"] < 0, f"{pick.symbol}: running loss ₹{f3['unrealised']:,.0f}, premium blocked ₹{f3['used_margin']:,.0f}, "
+                                             f"Available Balance ₹{f3['available']:,.2f}")
         finally:
             try:
                 await self._flatten(ca)

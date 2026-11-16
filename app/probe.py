@@ -1286,7 +1286,11 @@ class Probe:
                         self.ok(f"{q}–rupee rate is sensible", a < v < b, round(v, 4))
                 cu = getattr(self.feed, "usdinr", lambda: None)()
                 if r and cu:
-                    self.ok("the two dollar–rupee sources agree within 10%", abs(cu / r - 1) < 0.10, f"{cu} vs {round(r, 3)}")
+                    # The crypto side converts at the crypto exchange's own USDT/INR rate, which trades at a premium
+                    # over the bank dollar rate (about 8% on 14 Nov 2026, 10.7% on 16 Nov). That gap is real and
+                    # not an error; only a gap this wide would mean one of the two rates is broken.
+                    self.ok("the two dollar–rupee sources agree within 20%", abs(cu / r - 1) < 0.20, f"{cu} vs {round(r, 3)}")
+                    self.note("crypto dollar rate vs bank dollar rate", f"{cu} vs {round(r, 3)} ({(cu / r - 1) * 100:+.1f}%)")
         except Exception as e:
             self.ok("conversion rates readable", False, type(e).__name__)
         # Expiry moment. Crypto options: the exchange's own moment (5:30 pm IST) — settling later hands out

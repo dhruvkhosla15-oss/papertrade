@@ -257,6 +257,9 @@ a{color:var(--acc)}
   </section>
 
   <section id="nav-settings" class="hidden">
+  <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Site health <span id="hlBadge" class="pill OPEN" style="vertical-align:middle">…</span></h2><button class="ghost" id="hlRefresh">Refresh</button></div>
+    <p class="small mut" style="margin:4px 0 10px">The technical side: is everything that runs in the background alive, is there space, are errors being logged, does the backup open. Problems are also sent to Telegram.</p>
+    <div id="hlBody" class="small"></div></div>
   <div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:260px"><h2 style="margin:0">Trading access — default for every user</h2><p class="small mut" style="margin:4px 0 0">New users start with this. Changing it changes every user, except the switches you set on a user yourself. A switch that is off stops new trades only: prices and charts stay visible and a position already held can always be exited.</p></div>
     <div style="flex:0 0 auto;display:flex;gap:8px"><button class="ghost" id="accResetAll">Reset all users to default</button><button id="accSaveDef">Save</button></div></div>
     <div id="accDefault" style="margin-top:8px"></div>
@@ -423,7 +426,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function')accFillUsers();if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function'){accFillUsers();loadHealth();}if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -680,6 +683,21 @@ async function loadPerf(){
 }
 
 // ----- detail modal -----
+/* ---- site health (technical) ---- */
+async function loadHealth(){const el=$('#hlBody');if(!el)return;try{const h=await api('/admin/health');const ok=h.ok&&h.errors_hour<5;
+  const b=$('#hlBadge');b.textContent=ok?'ALL RUNNING':'NEEDS ATTENTION';b.className='pill '+(ok?'FILLED':'REJECTED');
+  const row=(k,v,good)=>`<div class="plrow"><span>${k}</span><b class="${good===false?'dn':good===true?'up':''}">${v}</b></div>`;
+  const ago=x=>x==null?'not yet':x<90?x+' s ago':Math.round(x/60)+' min ago';const dk=h.disk||{},bk=h.backup||{},ck=bk.check||{};
+  el.innerHTML=row('Site running since',`${esc(h.started)} (${esc(h.uptime)})`)+row('Database',h.database?'answering':'NOT answering',h.database)
+    +h.jobs.map(j=>row(esc(j.name),j.running?'running · '+ago(j.last):'STOPPED',j.running)).join('')
+    +row('Disk space',dk.free_mb!=null?`${dk.free_mb.toLocaleString('en-IN')} MB free (${dk.free_pct}%)`:'—',dk.free_pct==null?undefined:dk.free_pct>=10)
+    +row('Books size',h.db_mb!=null?h.db_mb+' MB':'—')
+    +row('Server errors','last hour '+h.errors_hour+' · last 24 h '+h.errors_day+(h.last_error?` · latest ${esc(h.last_error.at)}: ${esc(h.last_error.what).slice(0,90)}`:''),h.errors_hour<5)
+    +row('Latest backup',bk.latest?esc(bk.latest)+` · ${bk.kept} kept`:'none yet',!!bk.latest)
+    +row('Backup opened and checked',ck.file?(ck.ok?`complete · ${ck.users} accounts, ${ck.ledger} ledger lines (${esc(ck.at||'')})`:'FAILED: '+esc(ck.why||'')):'after the next daily backup',ck.file?!!ck.ok:undefined)
+    +row('Copy kept off the server',bk.offsite_on?('on'+(bk.offsite_last?' · last sent '+esc(bk.offsite_last):' · nothing sent yet')):'OFF',!!bk.offsite_on)
+    +row('Telegram alerts',h.telegram?'on':'OFF',!!h.telegram);}catch(e){el.textContent='Could not read the site health: '+e.message;}}
+$('#hlRefresh').onclick=loadHealth;
 /* ---- trading access switches ---- */
 const ACC={def:null,usr:null};
 function accSw(k,on,scope){return `<label class="accsw"><input type="checkbox" data-acc="${scope}" data-k="${k}"${on?' checked':''}><span></span></label>`;}

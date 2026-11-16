@@ -358,3 +358,10 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - `tools/selftest/site_check.py` (run by run.sh after the safety check, prints "SITE n passed, m failed"): in a real browser on the private copy, Master page and user app on a computer and a phone screen, every tab and panel, dashboard filters, user panel, order ticket, pop-ups; no script/server error, nothing wider than the screen, no "undefined"/"NaN"; a weekly cut-off in the middle (carried positions, final week, pop-up, order-book note); every Excel file downloads, opens, has its sheets, adds up and matches the server's figures; two-factor set-up and login.
 - Daily live check (books section) additions: every user's Excel builds, its Net P&L (Settlement) equals the weekly report, ledger balances run on; the days of the running week add up to the week; the Master's all-users Excel builds; both pages are in place and complete.
 - The nightly task now has two parts: PART 1 normal working (recent changes verified by use, screens looked at, numbers compared across screens and Excel, new checks added to site_check.py), PART 2 the loophole hunt.
+
+## 16 Nov 2026 — technical health (`app/watchdog.py`)
+- Every background job calls `_wd.beat(name)` each round (prices, squareoff, expiry, weekly, feedwatch, daystart, backup, dailycheck). `watchdog_loop` sends Telegram when a job is silent beyond its allowed gap (and when it is back), when the disk is nearly full, and when 5+ errors are logged in 10 minutes. A NEW background job must get a beat and an entry in `watchdog.JOBS`.
+- The daily backup is opened right after it is written (integrity check, tables, accounts, ledger lines); a bad one is renamed .bad, reported, and redone.
+- `/healthz` (no login, no data): 200 only when the database answers and the two core jobs run. For an outside uptime monitor and the hosting's check of a new version.
+- `/api/admin/health` + "Site health" card on Master → Settings. Daily live check: jobs running, disk, errors in the last hour, recent backup, backup opened and complete.
+- The broker-login reminder already exists (feed alarm counts the hour before an opening as open).

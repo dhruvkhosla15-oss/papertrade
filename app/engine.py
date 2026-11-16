@@ -23,6 +23,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting
+from . import watchdog as _wd
 from .feed.base import PriceFeed
 from .config import DEFAULT_MARGIN_PCT, DEFAULT_COMMISSION_PCT, MARKET_HOURS, ENFORCE_MARKET_HOURS, IST_OFFSET_HOURS
 
@@ -902,6 +903,7 @@ class Engine:
     # ---- liquidation (margin call) --------------------------------------------------
     async def liquidation_loop(self):
         while True:
+            _wd.beat("squareoff")
             try:
                 await self._check_liquidations()
             except Exception:
@@ -1291,6 +1293,7 @@ class Engine:
     # ---- expiry settlement ------------------------------------------------------
     async def expiry_loop(self):
         while True:
+            _wd.beat("expiry")
             try:
                 await self._settle_expired()
             except Exception:

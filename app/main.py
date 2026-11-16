@@ -20,6 +20,7 @@ class BaseModel(_PydBase):
     model_config = ConfigDict(allow_inf_nan=False)
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from . import config
 from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
@@ -37,6 +38,7 @@ app = FastAPI(title="LimeFX")
 from . import probe as _probe
 from . import weekly as _weekly
 from . import access as _access
+from . import watchdog as _wd
 _PROBE = _probe.PREFIX
 
 
@@ -226,6 +228,7 @@ engine.set_event_callback(_emit)
 async def broadcaster():
     """Every 300ms push changed prices to each client (batching ticks)."""
     while True:
+        _wd.beat("prices")
         for c in list(clients):
             if c.dirty:
                 toks = list(c.dirty); c.dirty.clear()
@@ -267,6 +270,8 @@ async def startup():
     asyncio.create_task(daystart_loop())
     asyncio.create_task(feed_watch_loop())
     asyncio.create_task(weekly_loop())
+    _wd.install()
+    asyncio.create_task(watchdog_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -1170,6 +1175,7 @@ async def weekly_loop():
         db.close()
     marks_at = 0.0; failures = 0; pause_until = 0.0
     while True:
+        _wd.beat("weekly")
         fast = False; closing_fast = False
         try:
             now = datetime.utcnow() + ist
@@ -1268,6 +1274,7 @@ async def feed_watch_loop():
     names = {"main": "NSE / BSE / MCX / Currency", "crypto": "Crypto", "forex": "Forex / Global"}
     ist = lambda ts: (datetime.utcfromtimestamp(ts) + timedelta(hours=5, minutes=30)).strftime("%I:%M %p").lstrip("0")
     while True:
+        _wd.beat("feedwatch")
         try:
             st = _feed_status()
             feeds = {"main": st}
@@ -1350,6 +1357,7 @@ async def daystart_loop():
     formula as Net P&L (closed trades + open positions + commission) for today only. A snapshot taken
     late (server was down at midnight) is marked not exact and the panel falls back to closed trades."""
     while True:
+        _wd.beat("daystart")
         try:
             now = datetime.utcnow() + timedelta(hours=5, minutes=30)
             day = now.date().isoformat()
@@ -1689,6 +1697,111 @@ def admin_clear_maintenance(admin: User = Depends(current_admin), db: Session = 
     return {"ok": True}
 
 
+# ---- technical health: background jobs, disk, errors, backup ------------------------------------------
+def set_setting_safe(key: str, value: str):
+    db = SessionLocal()
+    try:
+        set_setting(db, key, value); db.commit()
+    except Exception:
+        log.exception("could not store %s", key)
+    finally:
+        db.close()
+
+
+def _health() -> dict:
+    """Everything the watchdog knows, in plain words for the Master's Settings page and the daily check."""
+    db = SessionLocal()
+    try:
+        try:
+            bk = json.loads(get_setting(db, "backup_check") or "{}")
+        except Exception:
+            bk = {}
+        db.execute(text("select 1"))
+        db_ok = True
+    except Exception:
+        bk, db_ok = {}, False
+    finally:
+        db.close()
+    d = config.DATA_DIR / "backups"
+    files = sorted(d.glob("limefx-*.db")) if d.exists() else []
+    f = _db_file()
+    off = {}
+    try:
+        off = _tg_state() if _tg_ready() else {}
+    except Exception:
+        off = {}
+    stopped = _wd.stopped_jobs()
+    now = time.time()
+    return {
+        "ok": db_ok and not stopped,
+        "database": db_ok, "uptime": _wd.uptime(), "started": (datetime.utcfromtimestamp(_wd.STARTED) + IST).strftime("%d %b, %I:%M %p"),
+        "jobs": [{"name": label, "running": n not in {x[0] for x in stopped},
+                  "last": (int(now - _wd._beats[n]) if n in _wd._beats else None)} for n, (label, _) in _wd.JOBS.items()],
+        "stopped": [label for _, label, _ in stopped],
+        "disk": _wd.disk(config.DATA_DIR), "db_mb": round(f.stat().st_size / 1e6, 1) if f and f.exists() else None,
+        "errors_hour": len(_wd.errors_since(3600)), "errors_day": len(_wd.errors_since(86400)),
+        "last_error": (lambda e: {"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]} if e else None)(_wd._errors[-1] if _wd._errors else None),
+        "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
+                   "offsite_on": _tg_ready(), "offsite_last": off.get("sent")},
+        "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),
+    }
+
+
+@app.get("/healthz")
+def healthz():
+    """For an outside "is the site up" monitor and for the hosting's own check before it switches to a new
+    version: 200 only when the database answers. No login, no private data."""
+    db = SessionLocal()
+    try:
+        db.execute(text("select 1"))
+    except Exception:
+        raise HTTPException(503, "database not answering")
+    finally:
+        db.close()
+    stopped = _wd.stopped_jobs()
+    if any(n in ("prices", "squareoff") for n, _, _ in stopped):
+        raise HTTPException(503, "a core background job has stopped")
+    return {"ok": True}
+
+
+@app.get("/api/admin/health")
+def admin_health(admin: User = Depends(current_admin)):
+    return _health()
+
+
+async def watchdog_loop():
+    """Tells the owner on Telegram when something technical is wrong: a background job has stopped, the
+    disk is nearly full, or the server is logging errors. One message per problem, a reminder while it
+    lasts, and a message when it is over."""
+    tell = lambda msg: asyncio.get_event_loop().run_in_executor(None, _probe._telegram, msg)
+    known_stopped: set = set()
+    await asyncio.sleep(300)
+    while True:
+        try:
+            stopped = {label for _, label, _ in _wd.stopped_jobs()}
+            for label in stopped:
+                if _wd.due("job:" + label, 1800):
+                    log.error("background job stopped: %s", label)
+                    await tell(f"⚠️ limefx: a background job has STOPPED: {label}. The site is still open, but this part is not running. Tell Claude; a restart of the site usually brings it back.")
+            for label in known_stopped - stopped:
+                _wd.clear("job:" + label)
+                await tell(f"✅ limefx: {label} is running again.")
+            known_stopped = stopped
+            dk = _wd.disk(config.DATA_DIR)
+            if dk and (dk["free_pct"] < 10 or dk["free_mb"] < 200):
+                if _wd.due("disk", 6 * 3600):
+                    await tell(f"⚠️ limefx: the server's disk is nearly full ({dk['free_mb']} MB free, {dk['free_pct']}%). Backups and the books need space; tell Claude.")
+            else:
+                _wd.clear("disk")
+            errs = _wd.errors_since(600)
+            if len(errs) >= 5 and _wd.due("errors", 3600):
+                last = errs[-1]
+                await tell(f"⚠️ limefx: the server logged {len(errs)} errors in the last 10 minutes (latest: {last[2][:160]}). The site may still be working; send this to Claude.")
+        except Exception:
+            log.exception("watchdog failed")
+        await asyncio.sleep(60)
+
+
 # ---- backups & audit trail ---------------------------------------------------------------------------
 def _db_file() -> Optional[Path]:
     return Path(config.DB_URL.replace("sqlite:///", "", 1)) if config.DB_URL.startswith("sqlite:///") else None
@@ -1712,6 +1825,7 @@ async def backup_loop():
     """One snapshot per day kept beside the database for 14 days — protects against a bad deploy or a
     corrupted file. (Off-server copies: use the Download backup button on the master panel.)"""
     while True:
+        _wd.beat("backup")
         try:
             f = _db_file()
             if f and f.exists():
@@ -1720,6 +1834,14 @@ async def backup_loop():
                 if not today.exists():
                     await asyncio.get_event_loop().run_in_executor(None, _backup_to, today)
                     log.info("daily backup written: %s", today.name)
+                    # a backup nobody has opened is only a hope: open it and make sure it is complete
+                    chk = await asyncio.get_event_loop().run_in_executor(None, _wd.check_backup, today, f)
+                    set_setting_safe("backup_check", json.dumps({**chk, "at": (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M")}))
+                    if not chk["ok"]:
+                        log.error("daily backup did not pass its check: %s", chk["why"])
+                        await asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
+                            f"⚠️ limefx: today's backup ({today.name}) did not pass its check: {chk['why']}. The books themselves are not affected; tell Claude.")
+                        today.rename(today.with_suffix(".bad"))          # so the next round makes a fresh one
                 for old in sorted(d.glob("limefx-*.db"))[:-14]:
                     old.unlink(missing_ok=True)
                 if _tg_ready() and today.exists() and _tg_state().get("sent") != today.name:

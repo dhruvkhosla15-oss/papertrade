@@ -203,6 +203,8 @@ def main():
             for nav, label in (("trainees", "Users"), ("weekly", "Weekly Settlement"), ("perf", "Performance"), ("shadow", "Shadow Book"), ("settings", "Settings")):
                 page.evaluate("(n) => document.querySelector(`[data-nav=\"${n}\"]`).click()", nav); page.wait_for_timeout(2500)
                 check_view(f"Master ({size_name}) {label} tab", page, bag, f"#nav-{nav}")
+                if nav == "settings":
+                    ok(f"Master ({size_name}) Settings: site health card shows every background job", page.evaluate("document.querySelectorAll('#hlBody .plrow').length") >= 14)
             page.evaluate("document.querySelector('[data-nav=\"trainees\"]').click()"); page.wait_for_timeout(800)
             for mode in ("all", "day", "week", "month"):
                 page.evaluate("(m) => { const b = document.querySelector(`#pdBar [data-pm=\"${m}\"]`); if (b) b.click(); }", mode); page.wait_for_timeout(1800)
@@ -246,6 +248,14 @@ def main():
             ok(f"User ({size_name}) order ticket: margin needed is shown", page.evaluate("/[0-9]/.test((document.querySelector('#sheet') || {}).innerText || '')"))
             ctx.close()
 
+        # technical health
+        import httpx
+        hz = httpx.get(f"{B}/healthz", timeout=20)
+        ok("Health: the outside 'is the site up' address answers without login", hz.status_code == 200 and hz.json().get("ok") is True, hz.text[:120])
+        h = aget("/api/admin/health")
+        ok("Health: the Master can read the site health", h.get("database") is True and len(h.get("jobs", [])) >= 8, str(h)[:200])
+        ok("Health: no background job is reported stopped on a healthy copy", not h.get("stopped"), h.get("stopped"))
+        ok("Health: the site health is not shown without a Master login", httpx.get(f"{B}/api/admin/health", timeout=20).status_code in (401, 403))
         # the figures a user sees equal the figures the Master sees
         f = uget("/api/me")["funds"]; rows = aget("/api/admin/users")
         mrow = next((x for x in rows if x.get("username") == "sitecheck"), {}) if isinstance(rows, list) else {}

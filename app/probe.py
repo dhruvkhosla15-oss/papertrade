@@ -21,6 +21,7 @@ import httpx
 
 from .auth import COOKIE, make_token
 from .db import SessionLocal, User, Order, Position, Trade, Ledger, get_setting, set_setting
+from . import watchdog as _wd
 
 log = logging.getLogger("probe")
 PREFIX = "zz-probe-"
@@ -1219,6 +1220,24 @@ class Probe:
                         self.ok(f"the {'user app' if nm == 'index.html' else 'Master page'} is in place and complete", len(txt) > 50000 and txt.rstrip().endswith("</html>"), f"{len(txt)} characters")
             except Exception as e:
                 self.ok("the Excel files and period views could be checked", False, f"{type(e).__name__}: {e}")
+            # ---- technical health: background jobs, disk, errors, backup ----
+            try:
+                import sys
+                M = sys.modules.get("app.main") or sys.modules.get("main")
+                if M:
+                    h = M._health()
+                    self.ok("every background job is running (prices, auto square-off, expiry, weekly, backup…)", not h["stopped"], ", ".join(h["stopped"]))
+                    dk = h.get("disk") or {}
+                    self.ok("the server has disk space left", not dk or (dk["free_pct"] >= 10 and dk["free_mb"] >= 200), f"{dk.get('free_mb')} MB free ({dk.get('free_pct')}%)")
+                    self.ok("the server is not logging errors (fewer than 5 in the last hour)", h["errors_hour"] < 5, f"{h['errors_hour']} in the last hour; latest: {(h.get('last_error') or {}).get('what', '')}")
+                    bk = h["backup"]; chk = bk.get("check") or {}
+                    if _wd.STARTED and (time.time() - _wd.STARTED) > 2 * 3600:        # the first backup round after a restart may not have run yet
+                        self.ok("a backup from the last two days exists", bool(bk["latest"]) and bk["latest"] >= f"limefx-{(_ist() - timedelta(days=1)).date().isoformat()}.db", str(bk["latest"]))
+                    if chk:
+                        self.ok("the latest backup was opened and is complete", bool(chk.get("ok")), chk.get("why") or f"{chk.get('file')}: {chk.get('users')} accounts, {chk.get('ledger')} ledger lines")
+                    self.note("technical health", f"up {h['uptime']} · database {h.get('db_mb')} MB · disk {dk.get('free_mb')} MB free · errors today {h['errors_day']} · backups kept {bk['kept']} · off-server copy {'on, last ' + str(bk.get('offsite_last')) if bk['offsite_on'] else 'OFF'}")
+            except Exception as e:
+                self.ok("the technical health could be read", False, f"{type(e).__name__}: {e}")
             o_bad = [o.id for o in db.query(Order).filter_by(status="OPEN").all()
                      if o.margin_blocked is None or o.margin_blocked < 0 or (o.order_type == "LIMIT" and not (o.limit_price and o.limit_price > 0))
                      or (o.order_type == "SL" and not (o.trigger_price and o.trigger_price > 0)) or o.qty <= 0]
@@ -1550,6 +1569,7 @@ async def loop(app, engine, feed):
     except Exception:
         log.exception("nightly report forward failed")
     while True:
+        _wd.beat("dailycheck")
         try:
             now = _ist()
             today = now.date().isoformat()

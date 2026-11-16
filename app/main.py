@@ -1700,6 +1700,9 @@ def admin_clear_maintenance(admin: User = Depends(current_admin), db: Session = 
 
 
 # ---- technical health: background jobs, disk, errors, backup ------------------------------------------
+DOMAIN_EXPIRY = "2027-11-09"          # limefx.in at GoDaddy (registry record read 16 Nov 2026). Update after each renewal.
+
+
 def set_setting_safe(key: str, value: str):
     db = SessionLocal()
     try:
@@ -1756,6 +1759,8 @@ def _health() -> dict:
         "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
                    "offsite_on": _tg_ready(), "offsite_last": off.get("sent")},
         "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),
+        "domain": {"expires": os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY),
+                   "days_left": (date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY)) - (datetime.utcnow() + IST).date()).days},
     }
 
 
@@ -1805,6 +1810,16 @@ async def watchdog_loop():
                     await tell(f"⚠️ limefx: the server's disk is nearly full ({dk['free_mb']} MB free, {dk['free_pct']}%). Backups and the books need space; tell Claude.")
             else:
                 _wd.clear("disk")
+            # the domain name: if it lapses the site disappears. Reminders 30, 14, 7, 3, 2, 1 and 0 days before.
+            try:
+                exp = date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY))
+                nowi = datetime.utcnow() + IST; left = (exp - nowi.date()).days
+                if left in (30, 14, 7, 3, 2, 1, 0) and nowi.hour >= 10 and get_setting_safe("domain_reminded") != f"{exp}:{left}":
+                    set_setting_safe("domain_reminded", f"{exp}:{left}")
+                    await tell(f"⏰ limefx: the domain name limefx.in runs out on {exp.strftime('%d %b %Y')} ({left} day{'s' if left != 1 else ''} left). "
+                               "It is registered at GoDaddy. Log in there and renew it, or make sure auto-renew is on. If it lapses, the site cannot be reached.")
+            except Exception:
+                log.exception("domain reminder failed")
             errs = _wd.errors_since(600)
             if len(errs) >= 5 and _wd.due("errors", 3600):
                 last = errs[-1]

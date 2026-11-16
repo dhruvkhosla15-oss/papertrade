@@ -1235,6 +1235,8 @@ class Probe:
                         self.ok("a backup from the last two days exists", bool(bk["latest"]) and bk["latest"] >= f"limefx-{(_ist() - timedelta(days=1)).date().isoformat()}.db", str(bk["latest"]))
                     if chk:
                         self.ok("the latest backup was opened and is complete", bool(chk.get("ok")), chk.get("why") or f"{chk.get('file')}: {chk.get('users')} accounts, {chk.get('ledger')} ledger lines")
+                    dm = h.get("domain") or {}
+                    self.ok("the domain name is not about to run out (more than 7 days left)", dm.get("days_left", 999) > 7, f"limefx.in runs out on {dm.get('expires')}, {dm.get('days_left')} days left: renew it at GoDaddy")
                     self.note("technical health", f"up {h['uptime']} · database {h.get('db_mb')} MB · disk {dk.get('free_mb')} MB free · errors today {h['errors_day']} · backups kept {bk['kept']} · off-server copy {'on, last ' + str(bk.get('offsite_last')) if bk['offsite_on'] else 'OFF'}")
             except Exception as e:
                 self.ok("the technical health could be read", False, f"{type(e).__name__}: {e}")

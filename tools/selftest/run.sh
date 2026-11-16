@@ -30,6 +30,12 @@ print(f"\nRESULT {j['passed']} passed, {j['failed']} failed, {j['secs']}s")
 sys.exit(1 if j["failed"] else 0)
 PY
 RC=$?
+# Normal-working check in a real browser: every screen, tab and Excel file (tools/selftest/site_check.py).
+# PT_SITE_CHECK=0 skips it; "full" prints every line instead of only the failures and the total.
+if [ "${PT_SITE_CHECK:-1}" != "0" ] && python3 -c "import playwright, pyotp" 2>/dev/null; then
+  if [ "${PT_SITE_CHECK:-1}" = "full" ]; then timeout 400 python3 "$HERE/site_check.py"; else timeout 400 python3 "$HERE/site_check.py" 2>&1 | grep -E "^FAIL|^SITE|Traceback|Error"; fi
+  SRC=${PIPESTATUS[0]}; [ "$SRC" != "0" ] && { [ "$SRC" = "124" ] && echo "SITE check timed out"; RC=1; }
+fi
 grep -c "Traceback" "$DATA/server.log" | sed 's/^/server tracebacks: /'
 if [ "${1:-}" != "keep" ]; then pkill -f "uvicorn app.main:app --port 8001"; pkill -f fake_crypto_feed.py; pkill -f fake_forex_feed.py; fi
 exit $RC

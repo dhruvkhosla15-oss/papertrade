@@ -1170,6 +1170,55 @@ class Probe:
                 self.note("markets right now", ", ".join(f"{k} {'open' if v.get('open') else 'closed' + (' (' + str(v.get('holiday')) + ')' if v.get('holiday') else '')}" for k, v in st.items()))
             except Exception as e:
                 self.ok("screen and report figures could be cross-checked", False, f"{type(e).__name__}: {e}")
+            # ---- normal working of the site: the Excel files and the period views, on the real data ----
+            try:
+                import io as _io, sys
+                from datetime import timedelta as _td
+                from openpyxl import load_workbook as _lw
+                M = sys.modules.get("app.main") or sys.modules.get("main")
+                if M and users:
+                    today = now_i.date(); mon = today - _td(days=today.weekday()); sun = mon + _td(days=6)
+                    week_open = (get_setting(db, "week_closed") or "") < sun.isoformat()
+                    bad_x, bad_d, need = [], [], ["Order Book", "P&L Statement", "Summary", "Daily Net P&L", "Weekly Settlement", "Ledger Statement"]
+                    def _rows(wb, name):
+                        rows = [[c.value for c in r] for r in wb[name].iter_rows()]
+                        h = next(i for i, r in enumerate(rows) if r and r[0] in ("Date", "Week", "User", "Contract"))
+                        return rows[h + 1:]
+                    for u in users:
+                        w1 = _wk.running_row(self.engine, db, u)
+                        wb = _lw(_io.BytesIO(M.build_xlsx(db, [u], mon.isoformat(), sun.isoformat())))
+                        w2 = _wk.running_row(self.engine, db, u)
+                        if any(n not in wb.sheetnames for n in need):
+                            bad_x.append(f"{u.username}: sheet missing"); continue
+                        tot = next((x for x in _rows(wb, "P&L Statement") if x[0] == "NET P&L (SETTLEMENT)"), None)
+                        if not tot or abs(tot[8] + tot[9] + tot[10] - tot[11]) > 0.05:
+                            bad_x.append(f"{u.username}: Net P&L (Settlement) row does not add up")
+                        elif week_open:
+                            lo, hi = min(w1["result"], w2["result"]), max(w1["result"], w2["result"]); t = max(1.0, 0.002 * abs(lo))
+                            if not (lo - t <= tot[11] <= hi + t) or abs(tot[8] - w1["closed"]) > 0.05 or abs(-tot[10] - w1["commission"]) > 0.05:
+                                bad_x.append(f"{u.username}: Excel {tot[11]:,.0f} vs weekly report {w1['result']:,.0f}")
+                        led = [x for x in _rows(wb, "Ledger Statement") if x[2] != "Closing Balance" and isinstance(x[3], (int, float))]
+                        if any(abs(y[4] - (x[4] + y[3])) > 0.011 for x, y in zip(led, led[1:])):
+                            bad_x.append(f"{u.username}: ledger balances do not run on")
+                        # the days of the running week add up to the week (where every day has its day-start record)
+                        if week_open:
+                            days = [M.build_report(db, [u], (mon + _td(days=i)).isoformat(), (mon + _td(days=i)).isoformat())["users"][0]["period_pnl"] for i in range((today - mon).days + 1)]
+                            w3 = _wk.running_row(self.engine, db, u)
+                            if all(d is not None for d in days):
+                                lo, hi = min(w2["result"], w3["result"]), max(w2["result"], w3["result"]); t = max(2.0, 0.003 * abs(lo))
+                                if not (lo - t <= sum(days) <= hi + t):
+                                    bad_d.append(f"{u.username}: days {sum(days):,.0f} vs week {w3['result']:,.0f}")
+                    self.ok("Excel statements build for every user and their Net P&L (Settlement) equals the weekly report", not bad_x, "; ".join(bad_x[:4]))
+                    self.ok("the daily figures of this week add up to the week's result", not bad_d, "; ".join(bad_d[:4]))
+                    wb = _lw(_io.BytesIO(M.build_xlsx(db, users, None, None)))
+                    self.ok("the Master's all-users Excel builds with every sheet", all(n in wb.sheetnames for n in need), ", ".join(wb.sheetnames))
+                    for nm in ("index.html", "admin.html"):
+                        import os as _os
+                        fp = _os.path.join(_os.path.dirname(_os.path.abspath(M.__file__)), "static", nm)
+                        txt = open(fp, encoding="utf-8").read() if _os.path.exists(fp) else ""
+                        self.ok(f"the {'user app' if nm == 'index.html' else 'Master page'} is in place and complete", len(txt) > 50000 and txt.rstrip().endswith("</html>"), f"{len(txt)} characters")
+            except Exception as e:
+                self.ok("the Excel files and period views could be checked", False, f"{type(e).__name__}: {e}")
             o_bad = [o.id for o in db.query(Order).filter_by(status="OPEN").all()
                      if o.margin_blocked is None or o.margin_blocked < 0 or (o.order_type == "LIMIT" and not (o.limit_price and o.limit_price > 0))
                      or (o.order_type == "SL" and not (o.trigger_price and o.trigger_price > 0)) or o.qty <= 0]

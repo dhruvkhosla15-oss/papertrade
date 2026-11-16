@@ -1757,7 +1757,7 @@ def _health() -> dict:
         "errors_hour": len(_wd.errors_since(3600)), "errors_day": len(_wd.errors_since(86400)),
         "last_error": (lambda e: {"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]} if e else None)(_wd._errors[-1] if _wd._errors else None),
         "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
-                   "offsite_on": _tg_ready(), "offsite_last": off.get("sent")},
+                   "offsite_on": _tg_ready(), "offsite_last": off.get("sent"), "offsite_opens": off.get("opens"), "offsite_error": off.get("error") or ""},
         "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),
         "domain": {"expires": os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY),
                    "days_left": (date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY)) - (datetime.utcnow() + IST).date()).days},
@@ -1917,6 +1917,18 @@ def _encrypt_backup(raw: bytes, password: str) -> bytes:
     return b"LFXB1" + salt + nonce + AESGCM(key).encrypt(nonce, gzip.compress(raw), b"LFXB1")
 
 
+def _decrypt_backup(blob: bytes, password: str) -> bytes:
+    """The reverse of _encrypt_backup (the same steps as tools/decrypt_backup.py)."""
+    import gzip
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    if blob[:5] != b"LFXB1":
+        raise ValueError("not a limefx backup")
+    salt, nonce, data = blob[5:21], blob[21:33], blob[33:]
+    key = Scrypt(salt=salt, length=32, n=2 ** 15, r=8, p=1).derive(password.encode())
+    return gzip.decompress(AESGCM(key).decrypt(nonce, data, b"LFXB1"))
+
+
 def _tg_send(snapshot: Path, daily: bool = True) -> dict:
     """Send one encrypted snapshot. Records the outcome; never raises and never logs the token."""
     import httpx
@@ -1924,7 +1936,12 @@ def _tg_send(snapshot: Path, daily: bool = True) -> dict:
     st = _tg_state()
     now = f"{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d %H:%M}"
     try:
-        blob = _encrypt_backup(snapshot.read_bytes(), password)
+        raw = snapshot.read_bytes()
+        blob = _encrypt_backup(raw, password)
+        # prove the copy that is about to leave the server can be opened again with the password
+        st["opens"] = bool(_decrypt_backup(blob, password) == raw)
+        if not st["opens"]:
+            raise ValueError("encrypted copy does not open")
         name = snapshot.name.replace(".db", ".db.enc")
         r = httpx.post(f"{os.getenv('PT_TG_API', 'https://api.telegram.org')}/bot{token}/sendDocument", timeout=60,
                        data={"chat_id": chat, "caption": f"limefx backup {snapshot.stem.replace('limefx-', '')} (encrypted)"},

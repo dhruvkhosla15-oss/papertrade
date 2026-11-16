@@ -365,3 +365,8 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - `/healthz` (no login, no data): 200 only when the database answers and the two core jobs run. For an outside uptime monitor and the hosting's check of a new version.
 - `/api/admin/health` + "Site health" card on Master → Settings. Daily live check: jobs running, disk, errors in the last hour, recent backup, backup opened and complete.
 - The broker-login reminder already exists (feed alarm counts the hour before an opening as open).
+
+## 16 Nov 2026 — owner's rule on WHEN changes go live
+- Anything that is NOT urgent goes live after 11:55 pm IST or on a weekend (the nightly task at 12:40 am already fits). Anything URGENT (a loophole someone can use now, wrong money figures, the site or a market not working) goes live then and there, at any hour. When in doubt whether it is urgent: it is urgent if a user or the owner is being harmed or misled right now.
+- New tools on the private copy: `tools/selftest/load_test.py` (N users trading at once; never against the live site) and `tools/selftest/restore_drill.py` (backup → encrypt → decrypt → brand-new site → everything compared → safety check on the restored site).
+- The off-server copy is decrypted again on the server before it is sent, to prove it opens with the password.

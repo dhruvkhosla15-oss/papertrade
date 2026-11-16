@@ -695,7 +695,7 @@ async function loadHealth(){const el=$('#hlBody');if(!el)return;try{const h=awai
     +row('Server errors','last hour '+h.errors_hour+' · last 24 h '+h.errors_day+(h.last_error?` · latest ${esc(h.last_error.at)}: ${esc(h.last_error.what).slice(0,90)}`:''),h.errors_hour<5)
     +row('Latest backup',bk.latest?esc(bk.latest)+` · ${bk.kept} kept`:'none yet',!!bk.latest)
     +row('Backup opened and checked',ck.file?(ck.ok?`complete · ${ck.users} accounts, ${ck.ledger} ledger lines (${esc(ck.at||'')})`:'FAILED: '+esc(ck.why||'')):'after the next daily backup',ck.file?!!ck.ok:undefined)
-    +row('Copy kept off the server',bk.offsite_on?('on'+(bk.offsite_last?' · last sent '+esc(bk.offsite_last):' · nothing sent yet')):'OFF',!!bk.offsite_on)
+    +row('Copy kept off the server',bk.offsite_on?('on'+(bk.offsite_last?' · last sent '+esc(bk.offsite_last):' · nothing sent yet')+(bk.offsite_opens?' · opens with the password':'')+(bk.offsite_error?' · last problem: '+esc(bk.offsite_error).slice(0,80):'')):'OFF',!!bk.offsite_on&&!bk.offsite_error)
     +row('Telegram alerts',h.telegram?'on':'OFF',!!h.telegram)
     +(h.domain?row('Domain name limefx.in',`valid until ${esc(h.domain.expires)} · ${h.domain.days_left} days left (GoDaddy)`,h.domain.days_left>30):'');}catch(e){el.textContent='Could not read the site health: '+e.message;}}
 $('#hlRefresh').onclick=loadHealth;

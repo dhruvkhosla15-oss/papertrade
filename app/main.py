@@ -1333,15 +1333,17 @@ def _period_pnl(db, u, f: date, t: date, overall_now: float):
     today = _now().date()
     if f > today:
         return 0.0
-    s = db.query(DaySnap).filter_by(day=f.isoformat(), user_id=u.id).first()
-    if s is not None:
-        a = s.overall
+    first = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.created_at).first()
+    if first is None or (first.created_at + IST).date() >= f:
+        # The account did not exist before this period: it started from zero. (Its day-start record for
+        # that first day is written some seconds after it was created, possibly after its first trades,
+        # so that record must not be used as the starting point.)
+        a = 0.0
     else:
-        first = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.created_at).first()
-        if first is None or (first.created_at + IST).date() >= f:
-            a = 0.0                       # the account did not exist before this period
-        else:
+        s = db.query(DaySnap).filter_by(day=f.isoformat(), user_id=u.id).first()
+        if s is None:
             return None
+        a = s.overall
     if t >= today:
         b = overall_now
     else:

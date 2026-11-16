@@ -170,9 +170,12 @@ def main():
                 run = uget("/api/weekly")["row"]
                 ok("Excel: the week's file has the closed trades and commission of the week exactly", bool(tot) and near(tot[8], fin.get("closed", 0) + run["closed"], 0.05)
                    and near(-tot[10], fin.get("commission", 0) + run["commission"], 0.05), f"{tot and tot[8:11]} vs closed {fin.get('closed')}+{run['closed']}, commission {fin.get('commission')}+{run['commission']}")
-                # the open positions move with the simulated prices between two reads: allow for that
-                ok("Excel: the week's file has the open positions (week close + now) and adds up to Net P&L (Settlement)", bool(tot) and near(tot[8] + tot[9] + tot[10], tot[11], 0.05)
-                   and near(tot[9], fin.get("valuation", 0) + run["valuation"], max(2500.0, abs(run["valuation"]) * 0.5)), f"{tot and tot[9]} vs {fin.get('valuation')} + {run['valuation']}")
+                # the open positions move with the simulated prices, so compare inside the same file:
+                # Unrealised in the P&L Statement = week-close valuation + "This Week" total of the Open Positions sheet
+                _, orow = sheet_rows(wbw, "Open Positions")
+                otot = next((x for x in orow if x[0] == "TOTAL"), None)
+                ok("Excel: the week's file has the open positions (week close + now) and adds up to Net P&L (Settlement)", bool(tot) and bool(otot) and near(tot[8] + tot[9] + tot[10], tot[11], 0.05)
+                   and near(tot[9], fin.get("valuation", 0) + (otot[10] or 0), 900.0), f"{tot and tot[9]} vs {fin.get('valuation')} + {otot and otot[10]}")
 
         # ---------------- screens ----------------
         def watch(page, bag):

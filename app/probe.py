@@ -496,6 +496,91 @@ class Probe:
                 pass
             await ca.aclose()
 
+    async def _session_open(self, label, ins, ua):
+        """In the first instant after a market opens, the price in memory for a contract is still the book
+        the LAST session closed with, until the new session's first price arrives. The feed hands that old
+        book out again to anyone who starts looking at the contract shortly before the opening, so it can
+        look only seconds old. Loophole of 17 Nov 2026 (shown with prices and clock set by hand): on a
+        morning that opens 1% higher a buy at the opening second was filled at yesterday's closing offer and
+        sold seconds later at the new price: +175,000 coins on ten NIFTY lots, the same on BSE, MCX,
+        Currency, Forex on Monday morning and a Global contract after its daily break.
+        The test account opens one lot. Then, for the length of one function call during which nothing else
+        on the site can run, the engine is told that this contract's session has opened this very moment
+        (so every price in memory is from before the opening) and the exit is sent the way the Exit button
+        sends it. It must be refused."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        T = ins.token
+        bid, ask, ltp = self._quote(T)
+        if not (bid and ask and ltp):
+            return
+        name = "an order in the first instant of a session waits for that session's first price (never fills at the last session's book)"
+        if not hasattr(self.engine, "session_opened"):
+            self.ok(name, False, "the engine does not know when a session opened"); return
+        from .engine import EngineError
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            st, o, d = await self._order(ca, token=T, side="BUY", lots=1)
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == T and p["qty"] > 0]
+            if not (st == 200 and o.get("status") == "FILLED" and pos):
+                self.note("order at the opening not tested", f"could not open a test position ({d or o.get('reason', '')})"[:150]); return
+            lots = pos[0]["qty"] // ins.lot_size
+            async with self.engine._lock:                    # nothing is awaited while the engine is told so
+                db = SessionLocal()
+                try:
+                    u = db.get(User, ua.id)
+                    self.engine.session_opened = lambda _ins: time.time()
+                    try:
+                        self.engine.place_order(db, u, T, "SELL", lots)
+                        res = "FILLED"
+                    except EngineError as e:
+                        db.rollback()
+                        res = str(e)
+                finally:
+                    self.engine.__dict__.pop("session_opened", None)
+                    db.close()
+            if res == "FILLED" or "just opened" in res:
+                self.ok(name, res != "FILLED", "filled at a price from before the opening" if res == "FILLED" else res[:100])
+            else:
+                self.note("order at the opening inconclusive", res[:150])
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await ca.aclose()
+
+    async def _one_login(self, ub):
+        """Requests take turns (80 at a time for the whole site). One login must not be able to take them
+        all: before 17 Nov 2026 one account sending 300 Excel downloads at once kept every other user
+        waiting half a minute for a click. Now one login is worked on a few requests at a time and its
+        other requests wait behind its own. One test account sends 40 light requests at the same instant;
+        the turnstile reports how many of them it worked on at once."""
+        self.area = "Capacity"
+        name = "one login cannot take every turn: its requests are worked on a few at a time"
+        try:
+            from . import main as _m
+            ts = getattr(getattr(_m, "_Turnstile", None), "last", None)
+        except Exception:
+            ts = None
+        if ts is None or not hasattr(ts, "watch") or not hasattr(ts, "PER"):
+            self.ok(name, False, "the requests of one login are not limited"); return
+        who = f"u{ub.id}"
+        c = self._client(ub)
+        try:
+            ts.watch[who] = 0
+            rs = await asyncio.gather(*[c.get("/api/me") for _ in range(40)], return_exceptions=True)
+            peak = ts.watch.get(who, 0)
+        finally:
+            ts.watch.pop(who, None)
+            await c.aclose()
+        good = sum(1 for r in rs if getattr(r, "status_code", 0) == 200)
+        if peak <= 0 or good < 40:
+            self.note("turns of one login not measured", f"{good} of 40 requests answered, {peak} seen by the turnstile"); return
+        self.ok(name, peak <= ts.PER, f"40 requests at the same instant from one test account: {peak} worked on at a time (limit {ts.PER})")
+
     async def _frozen(self, label, ins, ua):
         """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.
         An order must never be filled at such a price (look, stop looking, wait for the market to move,
@@ -1429,6 +1514,7 @@ class Probe:
                     await self._resting_rules(label, ins, ub)
                     await self._after_reconnect(label, ins, ua)
                     await self._offline(label, ins, ua)
+                    await self._session_open(label, ins, ua)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
@@ -1462,6 +1548,11 @@ class Probe:
             except Exception as e:
                 log.exception("probe price-socket check crashed")
                 self.ok("the price-socket check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                await self._one_login(ub)
+            except Exception as e:
+                log.exception("probe turns check crashed")
+                self.ok("the turns check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

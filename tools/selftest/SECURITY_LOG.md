@@ -11,22 +11,9 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-- **`security-fix/2026-11-16`: a bought option carried over the weekly cut-off at a profit is not covered by coins.**
-  The cut-off pays the option's profit out and carries it at the week-close price, but only the premium first paid
-  stays blocked, and (owner's decision of 13 Nov) a bought option's running loss does not count against Available
-  Balance. If the option falls back, the account loses coins nothing covers and is never stopped. Proven on the
-  private copy (16 Nov): 300 coins, option bought for 150, worth 705 at the cut-off (+555 paid out), fell back: running
-  loss 555 with 150 blocked, Available Balance still +150, three BTC lots opened with it, option sold: balance −276.
-  Over both weeks the user gains nothing (+555, then −575); the risk is a week's loss far bigger than the account.
-  *Fix on the branch (engine.py `funds`):* what a bought option loses beyond its blocked premium counts against
-  Available Balance (always zero for an option that was never carried), so the usual shortfall square-off applies.
-  Same test afterwards: the new position is refused and the option is squared off. Self-test 230 / 0 twice, weekly
-  simulation 0 failures, daily check added on the branch ("Bought option"). NOT on main because it changes how
-  Available Balance is worked out for options carried tonight at a profit (they could be squared off if they fall
-  back by more than the premium paid). To deploy: open Claude and say "put security-fix/2026-11-16 live".
-
-Earlier: nothing open. (`security-fix/2026-11-14`, weekly valuation at the last quote instead of an old last trade, was put live by
-the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-12` on 12 Nov 2026.)
+Nothing open. (`security-fix/2026-11-16`, a carried bought option's loss beyond its blocked premium counts against
+Available Balance, is on main since 16 Nov 2026 together with the owner's rule that a carried bought option blocks its
+whole carried value; `security-fix/2026-11-14` was put live on 14 Nov 2026, `security-fix/2026-11-12` on 12 Nov 2026.)
 
 ## Ideas already covered by the daily check
 - Nonsense numbers: zero / negative / fractional / NaN / Infinity lots, prices, triggers, leverage; junk side and order type
@@ -73,7 +60,91 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   at the planted one. Forex / Global: only a note (every contract is streamed all the time). `_unwatched` now falls
   back to near-the-money options when every future of a small market is being streamed (BSE on the private copy).
 
+- First instant of a session, in every market (17 Nov 2026): the test account opens one lot; for the length of one
+  function call (nothing else on the site can run in between) the engine is told that this contract's session opened
+  this very moment (`engine.session_opened`), so every price in memory is from before the opening, and the exit is
+  sent the way the Exit button sends it: it must be refused ("the market has just opened"). `_session_open`.
+- Turns (17 Nov 2026): one test account sends 40 light requests at the same instant; the turnstile reports how many
+  of them it worked on at once: never more than its limit for one login (8). `_one_login`, area "Capacity".
+
+## Normal-working checks added to `site_check.py` (private copy, real browser)
+- 17 Nov 2026: no screen shows "-₹0" (nothing, with a minus sign); the Master summary Excel has whole paise only; with
+  the simulated prices paused, the Master's user panel shows the same Unrealised / Realised / Net P&L as the user's
+  row on All Time and on Daily; All Time "Realised" is closed trades only (equal to the server's closed-trade figure).
+
 ## Findings
+
+### 2026-11-17 (nightly review) — two loophole fixes and three display faults, all live tonight
+PART 1, normal working
+- Self-test at the start: 267 / 0, browser check 209 / 0, weekly simulation 0 failures, no server error.
+- Recent changes used for real on the private copy: orders, Exit and Cancel after the capacity change of 16 Nov (they
+  hand the database connection back while waiting): every proven attack by hand in all seven markets, Exit x6 with
+  two market sales at the same instant, 300 requests at once (which is how the turnstile fault below was found);
+  `/healthz` and the Site health card (every job running, backup opened and checked, domain line shows); period
+  results of an account created today (Daily = Monthly = All Time, to the paisa); the carried bought option after
+  a cut-off (margin = carried value, exit note in the Order Book); a frozen account and a switched-off segment
+  (order refused with the right message, both show on the Master's screens); Excel files of three users (all
+  statements, P&L, ledger, order book; this week, last week, all time) and the Master's files.
+- Screens: every Master tab and user screen opened at 1440 and 412 wide, twice: with all markets open and with NSE /
+  BSE / MCX / Currency shut (the copy started with exchange hours enforced at 1 am: closing price everywhere, "opens
+  9:15 am" pills, figures standing still). Studied most closely tonight: Master dashboard with each filter, the user
+  panel, Weekly Settlement, Settings / Site health; user Positions with carried positions, P&L, Ledger, order ticket.
+- Figures compared for three users (one trading in six markets, one in three with a short option, one brand new):
+  Master row, the four dashboard filters, Weekly Settlement running and final, Performance, Shadow Book, the user's
+  own P&L / weekly / ledger, and every Excel file. They agree, apart from the three faults below. (On the private
+  copy the test cut-off closes the week that is still running, so "this week" holds a finished and a running week;
+  that cannot happen on the live site.)
+- FAULT, FIXED, live: **the Master's user panel disagreed with the user's own row.** On Daily, Monthly and an earlier
+  week the panel worked Unrealised and Net P&L out its own way (always the whole open P&L of the running week, or
+  nothing for a finished week) while the row showed the result of the period. Proven with prices standing still:
+  same user, same moment, Daily: row Net P&L +458, panel +175. *Fix (admin.html `refreshDetail`):* the panel takes
+  its figures from the same calculation as the row (`pdRow`).
+- FAULT, FIXED, live: **Master dashboard, All Time: "Realised" was not closed trades.** It also held what open
+  positions were valued at when earlier weeks closed, so it disagreed with the Performance tab and every Excel file
+  (user with one closed trade of +3.75: dashboard Realised +286, Performance and Excel +4). *Fix:* `/api/admin/users`
+  also gives the closed trades since the beginning (`realised_closed`); All Time shows that as Realised and counts
+  the week-close valuations with Unrealised, like Performance and Excel do. Net P&L is unchanged; the note under the
+  dashboard says so. Nothing stored is touched.
+- FAULT, FIXED, live: **"-₹0" in red.** A user with no closed trade this week saw "Realised -₹0" on his P&L tab (a
+  stray 0.00000000001 from the arithmetic), and the Master summary Excel showed -0.00 in the same place. *Fix:* an
+  amount that rounds to ₹0 carries no minus sign (both pages); the two figures are rounded to the paisa.
+- Seen, not changed: a 500x forex position can read "501x" after the price has moved (the label is worked out from
+  the current price); times on the user's screens follow the clock of his own device.
+
+PART 2, the hunt
+- LOOPHOLE (free coins), FIXED, live: **the first instant of a session was filled at the last session's book.**
+  An order needs a price that is live and under five minutes old. But "old" was counted from when the price reached
+  us, and the feed hands the last book out again to whoever starts looking at a contract (and to everybody after a
+  reconnect), so shortly before the opening yesterday's closing book can look seconds old. Proven in-process (prices
+  and clock set by hand; the closing book handed out ten seconds before the opening; the new session 1% higher): a
+  buy at the opening second was filled at yesterday's closing offer and sold five seconds later at the new price:
+  NSE +174,923 (ten NIFTY lots), BSE +152,584, MCX +54,668, Currency +19,179, Forex on Monday morning +125,982,
+  a Global contract after its daily break +280,434. Crypto never closes. *Fix (engine.py `session_opened`, checked in
+  `place_order`; ctrader.py `opened_at` for a Global contract's own timetable and holidays):* a price that reached us
+  before the session opened (or in its first two seconds) is not a price of this session; the order is refused with
+  "the market has just opened, try again in a second" until the session's first price has arrived. Same attacks
+  afterwards: refused; the round trip costs commission only. What an honest user notices: an order in the first two
+  seconds of a session, or on a contract that has not had a single price yet today, is asked to try again.
+  Could not be checked from here: whether the real NSE feed really hands out a book with offers in it before the
+  opening (it may hand out an empty one, and then nothing could be filled anyway). Nothing in the books can show
+  whether anyone used it; a sign would be fills in the first second or two of a session far from the next prices.
+- LOOPHOLE (breaks the site for others), FIXED, live: **one login could take every turn.** Since 16 Nov requests take
+  turns, 80 at a time, first come first served. Proven on the private copy: one small account sent 300 Excel
+  downloads at once; another user's next click was answered after 32 seconds (300 orders on contracts nobody watches:
+  2 seconds on the copy, longer where a price takes longer to arrive). Kept up, that shuts the site for everybody.
+  *Fix (main.py `_Turnstile`):* one login (a visitor: one address) is worked on 8 requests at a time; its other
+  requests wait behind its own, not in everybody's queue; beyond 200 waiting it is told "too many requests" at once.
+  Same flood afterwards: the other user is answered in 0.03 to 0.25 seconds.
+- Checked by hand in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): zero / negative / huge lots,
+  buy limit above the market, an order bigger than the visible book, Exit x6 together with two market sales, the same
+  limit exit twice at the same instant, intraday / overnight mixing: all refused or filled at the market, nothing
+  left blocked. Junk numbers and text into the watchlist, margin, chart, option chain, search, weekly, report and
+  Excel addresses, and the Master's addresses as a user: refused; one of them (deleting a watchlist entry with an
+  absurd number) answers "500" to the sender only.
+- Nothing in any account was changed. Self-test twice on tonight's code: 275 / 0, browser check 213 / 0, weekly
+  simulation 0 failures, no server error.
+- Daily check: two new checks (see "Ideas already covered"). Browser check: four new checks.
+
 
 ### 2026-11-16 (nightly review) — three fixes live tonight (all about price-feed outages), one waiting on a branch
 - LOOPHOLE (loss dodged at an old price), FIXED, live: **Exit worked while the NSE / BSE / MCX / Currency feed was
@@ -265,6 +336,13 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Mixing intraday and overnight on one contract (17 Nov 2026): a sale bigger than an overnight position, sent as
+  intraday, leaves an intraday position with its full margin; adding the other kind is refused. Nothing gained.
+- Exit racing with market sales after the capacity change (17 Nov 2026): one Exit goes through, the others find no
+  position; the sales open an ordinary short with margin. Never an unpaid position.
+- Junk into the watchlist / margin / chart / chain / search addresses (17 Nov 2026): an error for the sender only;
+  the watchlist stays at its 50 entries.
+- Switching two-factor on again while it is on, to replace the code without knowing it (17 Nov 2026, read only): refused.
 - Tiny lots to round losses away (16 Nov 2026): the smallest price step on one lot is worth ₹0.001 (XAUT) to ₹0.006
   (JP225); a loss only rounds to zero when the price has moved less than a few steps, far inside the spread.
 - A frozen account's (or a reset password's) open live-price connection (16 Nov 2026): it keeps receiving prices until
@@ -289,6 +367,12 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
+- The automatic closes (margin call, shortfall square-off) in the first seconds of a session still act on the last
+  session's book until the first price arrives; a user cannot choose to be squared off, so no gain was found.
+- A flood of requests from many addresses without a login (public pages) is limited per address only; the address is
+  read from a header (see the login-throttling item below).
+- Exit of a position that another request closed a moment earlier while the engine was busy could answer "500"
+  (close_position reads the position before its turn); not reachable in tests, the engine is never busy that long.
 - Charts: `/api/candles` fetches from the broker for any contract and keeps the answer in memory with no limit per
   account; one account asking for thousands of contracts could use up the broker's request allowance (charts fail for
   everybody) and memory. Not reproducible on simulated prices (no broker, no cache there).
@@ -376,3 +460,10 @@ Load test found the private copy locking up at about 300 simultaneous users: eve
 or for its turn kept one of the 120 database connections. place_order, cancel_order, close_position and
 admin_squareoff now hand the connection back (db.rollback()) before they wait; everything is re-read under
 the lock as before (db.expire_all()). iPhone install hint reworded (Share button is in the bottom bar).
+
+## 17 Nov 2026 — turns per login, and the first price of a session
+- `main._Turnstile`: 80 requests at a time for the site, of which at most 8 for one login (visitor: one address);
+  the rest of that login's requests wait behind its own. `_Turnstile.last.watch` lets the daily check count them.
+- `engine.session_opened(ins)`: when the session a contract trades in began (None for crypto, mid-week forex, or when
+  exchange hours are not enforced, as on the private copy). `place_order` refuses until a price newer than that
+  (plus `OPEN_SETTLE_SECS`, 2 s) is in memory. A new kind of market with its own opening must be added there.

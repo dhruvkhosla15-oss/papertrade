@@ -63,20 +63,75 @@ class _Turnstile:
     """At most MAX page/API requests are worked on at the same moment; the rest wait their turn (a few
     hundredths of a second) without holding a database connection. Without it, a few hundred people
     refreshing together could take every database connection at once and the site would stop answering
-    (found by tools/selftest/load_test.py at ~300 simultaneous users). Price sockets are not counted."""
+    (found by tools/selftest/load_test.py at ~300 simultaneous users). Price sockets are not counted.
+
+    Of those turns one login (or, for a visitor, one address) gets at most PER at a time; its further
+    requests wait behind its own, not in everybody's queue. Before 17 Nov 2026 one account that sent 300
+    Excel downloads at once took every turn: another user's next click was answered half a minute later,
+    and for as long as the sender kept it up the site was shut for everybody. More than QUEUE requests of
+    one login already waiting are answered "too many requests" straight away."""
     MAX = 80
+    PER = 8
+    QUEUE = 200
+    last = None             # the instance in use (the daily check looks at it)
 
     def __init__(self, app_):
         self.app = app_
         self.sem = None
+        self.mine = {}      # who -> [their own turnstile, requests of theirs being worked on or waiting, being worked on]
+        self.watch = {}     # who -> most requests of theirs worked on at the same moment (only for names put here)
+        _Turnstile.last = self
+
+    @staticmethod
+    def _who(scope) -> str:
+        try:
+            hd = {k: v for k, v in (scope.get("headers") or []) if k in (b"cookie", b"authorization", b"x-forwarded-for")}
+            tok = ""
+            for part in hd.get(b"cookie", b"").decode("latin-1").split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == COOKIE:
+                    tok = v.strip('"')
+            tok = tok or hd.get(b"authorization", b"").decode("latin-1").replace("Bearer ", "").strip()
+            if tok:
+                from .auth import decode_token as _dt
+                data = _dt(tok)                      # only a login this site signed counts as "one login"
+                if data and "uid" in data:
+                    return f"u{data['uid']}"
+            ip = hd.get(b"x-forwarded-for", b"").decode("latin-1").split(",")[0].strip() or str((scope.get("client") or ("",))[0])
+            return "ip" + ip[:64]
+        except Exception:
+            return "?"
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope.get("path") == "/healthz":
             return await self.app(scope, receive, send)
         if self.sem is None:
             self.sem = asyncio.Semaphore(self.MAX)
-        async with self.sem:
-            await self.app(scope, receive, send)
+        who = self._who(scope)
+        ent = self.mine.get(who)
+        if ent is None:
+            ent = self.mine[who] = [asyncio.Semaphore(self.PER), 0, 0]
+        if ent[1] >= self.PER + self.QUEUE:
+            body = b'{"detail":"Too many requests at once - please wait a moment and try again"}'
+            await send({"type": "http.response.start", "status": 429,
+                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        ent[1] += 1
+        try:
+            async with ent[0]:
+                ent[2] += 1
+                if who in self.watch:
+                    self.watch[who] = max(self.watch[who], ent[2])
+                try:
+                    async with self.sem:
+                        await self.app(scope, receive, send)
+                finally:
+                    ent[2] -= 1
+        finally:
+            ent[1] -= 1
+            if ent[1] <= 0 and self.mine.get(who) is ent:
+                del self.mine[who]
 
 _CSP = ("default-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; "
@@ -1172,6 +1227,8 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
                     "total_credited": sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                                           .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"]))),
                     "settled_total": _weekly.settled_total(db, u),      # sum of finished weeks' results
+                    # closed trades since the very beginning (what "Realised" means on every screen and in the Excel files)
+                    "realised_closed": round(sum((t.realised_pnl or 0.0) for t in db.query(Trade.realised_pnl).filter(Trade.user_id == u.id)), 2) + 0.0,
                     "commission_total": round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id, kind="COMMISSION")), 2)})
     return out
 
@@ -2624,7 +2681,7 @@ def _admin_rows(db):
         # the week in progress: everything since the last weekly settlement brought the coins back to Allocated
         cut = _weekly.last_cutoff(db, u)
         comm = round(sum(t.commission or 0.0 for t in db.query(Trade).filter(Trade.user_id == u.id).filter(*([Trade.created_at > cut] if cut else []))), 2)
-        realised = f["balance"] - alloc + comm
+        realised = round(f["balance"] - alloc + comm, 2) + 0.0     # to the paisa; "+ 0.0" so no closed trades reads 0, never -0.00
         rows.append({"name": u.display_name, "username": u.username, "status": "active" if u.is_active else "frozen",
                      "settled_total": _weekly.settled_total(db, u),
                      "allocated": alloc, "exposure": f["used_margin"], "available": f["available"], "unrealised": f["unrealised"],

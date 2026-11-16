@@ -285,6 +285,51 @@ class CTraderForex:
         self._hours[token] = {"open": False, "opens_at": opens.replace(tzinfo=None).isoformat(timespec="seconds"), "closes_at": None}
         return False, opens.strftime("%a %-I:%M %p") + " IST"
 
+    def opened_at(self, token, now=None):
+        """When the session a Global contract is trading in began (epoch seconds): the start of the stretch
+        of its weekly timetable we are in, or the end of a holiday closure if that came later. None for a
+        currency pair (plain 24x5 calendar), outside trading hours, or when it cannot be told. A quote that
+        arrived before that moment belongs to the session before the break and is not a price to fill at."""
+        m = self.meta.get(token) or {}
+        ins = self.items.get(token)
+        if not ins or ins.segment != "GLOBAL-SPOT" or not m.get("schedule"):
+            return None
+        from datetime import datetime, timedelta, timezone
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(m.get("tz") or "UTC")
+        now = now or datetime.now(timezone.utc)
+        loc = now.astimezone(tz)
+        week0 = (loc - timedelta(days=(loc.weekday() + 1) % 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        sec = (loc - week0).total_seconds()
+        seg = next(((a, b) for a, b in m["schedule"] if a <= sec < b), None)
+        if seg is None:
+            return None
+        start = seg[0]
+        for _ in range(len(m["schedule"])):          # stretches that follow each other without a gap are one session
+            prev = next((a for a, b in m["schedule"] if b == start and a < start), None)
+            if prev is None:
+                break
+            start = prev
+        if start <= 0 and any(b >= 7 * 86400 - 1 for a, b in m["schedule"]):
+            return None                               # open right through the week's turn: no opening to speak of
+        opened = (week0 + timedelta(seconds=start)).timestamp()
+        for h in m.get("holidays", []):
+            try:
+                hl = now.astimezone(ZoneInfo(h["tz"]))
+            except Exception:
+                continue
+            hd = datetime(1970, 1, 1).date() + timedelta(days=h["day"])
+            for back in (0, 1):                       # a closure earlier today, or one that ran to the end of yesterday
+                day = (hl - timedelta(days=back)).date()
+                same = (day.month, day.day) == (hd.month, hd.day) if h["recurring"] else day == hd
+                if not same:
+                    continue
+                end = 86400 if (h["start"] is None or h["end"] is None) else int(h["end"])
+                over = (hl.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=back) + timedelta(seconds=end)).timestamp()
+                if opened < over <= now.timestamp():
+                    opened = over
+        return opened
+
     def hours(self, symbol):
         """{open, opens_at, closes_at} (IST, ISO) for one contract by name, or None if it is not offered."""
         tok = next((t for t, i in self.items.items() if i.symbol == symbol), None)

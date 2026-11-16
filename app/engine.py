@@ -182,6 +182,37 @@ class Engine:
                 return True
         return True
 
+    OPEN_SETTLE_SECS = 2.0      # a price counts as this session's only when it arrived this long after the opening
+
+    def session_opened(self, ins) -> Optional[float]:
+        """When the session this contract is trading in began (epoch seconds), or None for a market that
+        has no opening (crypto, the middle of the forex week) or when exchange hours are not enforced.
+        NSE / BSE / MCX / Currency open every morning, forex on Monday morning, a Global contract after its
+        daily break, the weekend or a holiday. A price that reached us before that moment is the LAST
+        session's: the feed hands it out again to anyone who starts looking at the contract before the
+        opening, so it can look only seconds old. See place_order."""
+        if not ENFORCE_MARKET_HOURS or ins is None:
+            return None
+        from datetime import time as _time
+        from .market_calendar import _sessions
+        n = ist_now()
+        opened = None
+        try:
+            for o, c in _sessions(ins.exchange, n.date())[0]:
+                if o <= n.time() <= c and o != _time(0, 0):
+                    opened = time.time() - (n - datetime.combine(n.date(), o)).total_seconds()
+        except Exception:
+            opened = None
+        fx = getattr(self.feed, "forex", None)
+        if fx is not None and ins.token in getattr(fx, "items", {}) and hasattr(fx, "opened_at"):
+            try:
+                own = fx.opened_at(ins.token)
+            except Exception:
+                own = None
+            if own is not None and (opened is None or own > opened):
+                opened = own
+        return opened
+
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
@@ -504,6 +535,14 @@ class Engine:
             # viewer left. Filling against it would let a user wait for the market to move and then trade
             # at the old price. (The order endpoint starts the stream and waits for a new price first.)
             raise EngineError("No live price yet for this contract — try again in a second")
+        _opened = self.session_opened(ins)
+        if _opened is not None and ((self.feed.prices.get(token) or {}).get("ts") or 0) < _opened + self.OPEN_SETTLE_SECS:
+            # The market has only just opened and no price of the new session has arrived for this contract
+            # yet: what is in memory is the book the last session closed with (it can look fresh, because
+            # the feed sends it again to whoever starts looking at the contract before the opening). On a
+            # morning that opens higher, a buy in the first instant was filled at yesterday's closing offer
+            # and sold seconds later at the new price (loophole of 17 Nov 2026). Wait for the first price.
+            raise EngineError("No live price yet for this contract — the market has just opened, try again in a second")
         if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
             raise EngineError("limit_price required")
         if order_type == "SL" and (trigger_price is None or trigger_price <= 0):

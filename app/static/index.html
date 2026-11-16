@@ -517,7 +517,7 @@ const usdOn=ex=>ex==='CRYPTO'&&CCCY==='USD'&&!!state.usdinr;
 const money=(ex,v,dec)=>v==null?'—':(usdOn(ex)?'$'+Number(v/state.usdinr).toLocaleString('en-IN',{minimumFractionDigits:dec??2,maximumFractionDigits:dec??2}):(dec===0?inr(v):'₹'+fmt2(v)));
 // currency contracts tick in 0.0025, so show 4 decimals when a price actually carries them (84.8725) and 2 otherwise
 const fmt=(n,d=2)=>{if(n==null)return '—';const x=Number(n);if(d===2&&Math.abs(x)<1000){for(const k of [2,3,4,5]){const y=x*10**k;if(Math.abs(y-Math.round(y))<1e-6){d=k;break;}d=5;}}return x.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});};
-const inr=n=>(n<0?'-':'')+'₹'+fmt(Math.abs(n),0);
+const inr=n=>(n<0&&Math.round(Math.abs(n))>0?'-':'')+'₹'+fmt(Math.abs(n),0);   // an amount that rounds to ₹0 never carries a minus sign
 const pnlCls=n=>n>0?'up':n<0?'dn':'';
 let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set(),positions:[],orders:[],sel:null,side:'BUY',otype:'MARKET',tab:'watch'};
 
@@ -1063,7 +1063,7 @@ async function loadPerf(){try{const d=istDay(),q=dateQS('pnl');
   const r=await api(`/report?from=${(q&&q.from)||'2024-01-01'}&to=${(q&&q.to)||d}`);const a=r.users[0]||{},f=state.funds||{};
   const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';let rows;
   let wk=null;try{wk=await api('/weekly');}catch(e){}
-  if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=pl-un;
+  if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=Math.round((pl-un)*100)/100||0;   /* no closed trades = exactly 0, not a stray -0.00000001 shown as -₹0 in red */
     rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L (This Week)',sg(net),c(net)],['Net Balance',inr(eq),'']];
     if(wk&&wk.weeks&&wk.weeks.length){const all=a.overall_pnl!=null?a.overall_pnl:net;rows.push(['Net P&L (All Time, with finished weeks)',sg(all),c(all)]);}}
   else{const real=(a.gross_profit||0)+(a.gross_loss||0),val=a.valuation||0,comm=a.commission||0,net=(a.net_pnl||0)+val;

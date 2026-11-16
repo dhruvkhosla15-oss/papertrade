@@ -187,7 +187,7 @@ def main():
             return page.evaluate("""(sel) => { const el = document.querySelector(sel) || document.body; const t = el.innerText || '';
                 const wide = []; document.querySelectorAll('body *').forEach(e => { const b = e.getBoundingClientRect();
                     if (b.width > 0 && b.right > window.innerWidth + 2 && !e.closest('table') && !e.closest('.tscroll') && !e.closest('[style*="overflow"]') && wide.length < 4) wide.push(e.tagName + '.' + (e.className || '') + '#' + (e.id || '')); });
-                return { text: t.length, bad: (t.match(/undefined|NaN|\\[object Object\\]|null%|Infinity/g) || []).slice(0, 4), page: document.documentElement.scrollWidth, win: window.innerWidth, wide }; }""", sel)
+                return { text: t.length, bad: (t.match(/undefined|NaN|\\[object Object\\]|null%|Infinity|[-−]₹0(?![0-9.,])/g) || []).slice(0, 4), page: document.documentElement.scrollWidth, win: window.innerWidth, wide }; }""", sel)
 
         def check_view(label, page, bag, sel="body", min_text=40):
             s = state_of(page, sel)
@@ -250,6 +250,36 @@ def main():
             check_view(f"User ({size_name}) order ticket", page, bag, "#sheet")
             ok(f"User ({size_name}) order ticket: margin needed is shown", page.evaluate("/[0-9]/.test((document.querySelector('#sheet') || {}).innerText || '')"))
             ctx.close()
+
+        # Master summary Excel: every figure is to the paisa (a stray 0.00000000001 from the arithmetic showed as "-0.00")
+        wbs = xl(A, "/api/admin/summary.xlsx")
+        if wbs is not None:
+            odd = [(c.coordinate, c.value) for r in wbs["Master Summary"].iter_rows() for c in r
+                   if isinstance(c.value, float) and (abs(c.value * 100 - round(c.value * 100)) > 1e-6 or str(c.value) == "-0.0")]
+            ok("Excel: Master summary figures are whole paise (no -0.00 or long decimals)", not odd, odd[:4])
+
+        # The Master's row for a user and the user panel must tell the same story in every period, and
+        # Realised must be closed trades only. The simulated NSE / BSE / MCX prices are paused meanwhile, so
+        # the figures stand still and can be compared to the rupee (the test user holds nothing else).
+        A.post(f"{B}/api/admin/feed/disconnect")
+        try:
+            time.sleep(1.5)
+            ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
+            page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(5000)
+            rep = next((x for x in aget("/api/admin/report").get("users", []) if x["id"] == uid), {})
+            for mode, label in (("all", "All Time"), ("day", "Daily")):
+                page.evaluate("(m) => { const b = document.querySelector(`#pdBar [data-pm=\"${m}\"]`); if (b) b.click(); }", mode); page.wait_for_timeout(2500)
+                row = page.evaluate("(id) => { const u = users.find(x => x.id === id); if (!u) return null; const x = pdRow(u); return {Unrealised: x.unrealised, Realised: x.realised_all, 'Net P&L': x.pnl}; }", uid)
+                page.evaluate("(id) => openDetail(id)", uid); page.wait_for_timeout(2500)
+                pan = page.evaluate("Object.fromEntries([...document.querySelectorAll('#dFunds .stat')].map(s => [s.querySelector('span').textContent.trim(), s.querySelector('b').textContent.trim()]))")
+                ok(f"Master {label}: the user panel shows the same Unrealised, Realised and Net P&L as the user's row",
+                   bool(row) and all(near(num(pan.get(k)), row[k], 1.5) for k in row), f"row {row} panel { {k: pan.get(k) for k in (row or {})} }")
+                if mode == "all":
+                    ok("Master All Time: Realised is closed trades only (the same figure as Performance and Excel)",
+                       bool(row) and bool(rep) and near(row["Realised"], rep.get("gross_profit", 0) + rep.get("gross_loss", 0), 0.06), f"{row and row['Realised']} vs {rep.get('gross_profit')} + {rep.get('gross_loss')}")
+            ctx.close()
+        finally:
+            A.post(f"{B}/api/admin/feed/reconnect"); time.sleep(1.5)
 
         # technical health
         import httpx

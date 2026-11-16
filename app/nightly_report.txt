@@ -1,18 +1,20 @@
-16 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: when a price feed dropped, went silent or had just come back, trades were still filled at the old price.
+17 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: in the first second after a market opens, an order could be filled at the previous session's closing price; and one account could freeze the site for everyone.
+
+Normal working: every screen and Excel file opened on computer and phone, markets open and shut. Yesterday's capacity change, site health card and carried options work. Three display faults fixed: the Master's user panel showed a different Net P&L than the user's row on Daily, Monthly and earlier weeks; All Time "Realised" included week-close valuations, unlike Performance and Excel; a user with no closed trade saw "Realised -₹0" in red.
 
 Tried tonight
-1. Exit while NSE, BSE, MCX or Currency prices are down: the position closed at the frozen price. Fixed.
-2. Order in the instant prices come back, every market: filled at the old price. 7,000 to 36,000 free coins in tests. Fixed.
-3. Crypto or forex prices connected but silent: orders kept filling at the last price. 14,000 to 70,000 free coins in tests. Fixed.
-4. Bought option carried over the weekly cut-off at a profit, then falling back: an account with 300 coins lost 575 and was never stopped. Fix waiting for you.
-5. Rounding with tiny lots, a frozen account's price connection, 2FA after a password reset: nothing to gain.
+1. Buy at the opening second on a morning that opens 1% higher: filled at yesterday's price. 19,000 to 280,000 free coins in tests. Fixed.
+2. One account sending 300 downloads at once: another user waited 32 seconds per click. Fixed.
+3. Exit pressed six times together with sales: nothing gained.
+4. Mixing intraday and overnight: nothing gained.
+5. Junk numbers into watchlist, margin, chart and search: refused.
 
 Markets attacked: NSE, BSE, MCX, Currency, Forex, Global, Crypto.
 
-Live now: while a market's prices are down or silent nothing is filled there, Exit included, and after they return an order waits for a fresh price. Honest trading unchanged, no account touched. A user cannot cause an outage, only pounce on one; the books cannot show if anyone did.
+Live now: an order waits for the first price of the new session (in the first two seconds it says try again). Each login gets at most 8 requests served at a time, so nobody can crowd others out. No account touched, no balance changed. Nobody could cause the opening trick, only use it; the books cannot show if anyone did.
 
-Daily check: added exit during an outage, silent prices, order right after prices return.
+Daily check: added the opening-second order in every market and the one-login limit. Browser check: four new checks.
 
-Waiting for you: branch security-fix/2026-11-16. A carried bought option would then be squared off if it falls too far: your call. To deploy, open Claude and say: put security-fix/2026-11-16 live
+Waiting for you: nothing. The 16 Nov branch is already live.
 
-Could not test: a real NSE outage (simulated only).
+Could not test: whether the real exchange feed shows yesterday's offers before the opening (proven with prices set by hand).

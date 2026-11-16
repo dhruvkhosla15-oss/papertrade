@@ -1710,6 +1710,16 @@ def set_setting_safe(key: str, value: str):
         db.close()
 
 
+def get_setting_safe(key: str) -> str:
+    db = SessionLocal()
+    try:
+        return get_setting(db, key) or ""
+    except Exception:
+        return ""
+    finally:
+        db.close()
+
+
 def _health() -> dict:
     """Everything the watchdog knows, in plain words for the Master's Settings page and the daily check."""
     db = SessionLocal()
@@ -1844,6 +1854,14 @@ async def backup_loop():
                         await asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
                             f"⚠️ limefx: today's backup ({today.name}) did not pass its check: {chk['why']}. The books themselves are not affected; tell Claude.")
                         today.rename(today.with_suffix(".bad"))          # so the next round makes a fresh one
+                elif (json.loads(get_setting_safe("backup_check") or "{}").get("file") != today.name):
+                    # today's backup was written before this check existed, or by an earlier start: open it once
+                    chk = await asyncio.get_event_loop().run_in_executor(None, _wd.check_backup, today, f)
+                    set_setting_safe("backup_check", json.dumps({**chk, "at": (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M")}))
+                    if not chk["ok"]:
+                        log.error("daily backup did not pass its check: %s", chk["why"])
+                        await asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
+                            f"⚠️ limefx: today's backup ({today.name}) did not pass its check: {chk['why']}. The books themselves are not affected; tell Claude.")
                 for old in sorted(d.glob("limefx-*.db"))[:-14]:
                     old.unlink(missing_ok=True)
                 if _tg_ready() and today.exists() and _tg_state().get("sent") != today.name:

@@ -4,7 +4,7 @@ from sqlalchemy import (create_engine, Column, Integer, String, Float, Boolean, 
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from .config import DB_URL
 
-engine = create_engine(DB_URL, pool_size=40, max_overflow=80, pool_timeout=60,
+engine = create_engine(DB_URL, pool_size=40, max_overflow=-1, pool_timeout=60,   # never make the site wait for a connection; main._Turnstile bounds how many are in use
                        connect_args={"check_same_thread": False, "timeout": 30} if DB_URL.startswith("sqlite") else {})
 
 

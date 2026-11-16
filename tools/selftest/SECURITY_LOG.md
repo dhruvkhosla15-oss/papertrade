@@ -370,3 +370,9 @@ the owner on 14 Nov 2026, before the first real cut-off; `security-fix/2026-11-1
 - Anything that is NOT urgent goes live after 11:55 pm IST or on a weekend (the nightly task at 12:40 am already fits). Anything URGENT (a loophole someone can use now, wrong money figures, the site or a market not working) goes live then and there, at any hour. When in doubt whether it is urgent: it is urgent if a user or the owner is being harmed or misled right now.
 - New tools on the private copy: `tools/selftest/load_test.py` (N users trading at once; never against the live site) and `tools/selftest/restore_drill.py` (backup → encrypt → decrypt → brand-new site → everything compared → safety check on the restored site).
 - The off-server copy is decrypted again on the server before it is sent, to prove it opens with the password.
+
+## 16 Nov 2026 (night) — capacity: orders no longer hold a database connection while they wait
+Load test found the private copy locking up at about 300 simultaneous users: every order waiting for a price
+or for its turn kept one of the 120 database connections. place_order, cancel_order, close_position and
+admin_squareoff now hand the connection back (db.rollback()) before they wait; everything is re-read under
+the lock as before (db.expire_all()). iPhone install hint reworded (Share button is in the bottom bar).

@@ -58,6 +58,26 @@ async def _bad_input(request, exc):
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=800)   # the app page is ~130 KB of text: ~75% smaller on the wire
 
+
+class _Turnstile:
+    """At most MAX page/API requests are worked on at the same moment; the rest wait their turn (a few
+    hundredths of a second) without holding a database connection. Without it, a few hundred people
+    refreshing together could take every database connection at once and the site would stop answering
+    (found by tools/selftest/load_test.py at ~300 simultaneous users). Price sockets are not counted."""
+    MAX = 80
+
+    def __init__(self, app_):
+        self.app = app_
+        self.sem = None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("path") == "/healthz":
+            return await self.app(scope, receive, send)
+        if self.sem is None:
+            self.sem = asyncio.Semaphore(self.MAX)
+        async with self.sem:
+            await self.app(scope, receive, send)
+
 _CSP = ("default-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
@@ -919,12 +939,14 @@ async def place_order(body: OrderIn, user: User = Depends(current_user), db: Ses
     ins = feed.instruments.get(body.token)
     if ins and not _feed_up(ins.exchange):
         raise HTTPException(400, "Price feed for this market is down. Orders will be rejected until the feed is back up.")
-    await _ensure_price(body.token, uid=user.id)
+    uid_ = user.id
+    db.rollback()      # hand the database connection back while this order waits for a price and for its turn
+    await _ensure_price(body.token, uid=uid_)
     # A contract nobody is streaming has a frozen price. Stream it for this order and wait for a new
     # price (some feeds publish only every few seconds); a fill or a resting order then keeps it streaming
     # on its own. The stream is kept half a minute so that a retry finds the price already live.
     if ins is not None and not feed.live(body.token):
-        if not _temp_stream(user.id, body.token):
+        if not _temp_stream(uid_, body.token):
             raise HTTPException(429, "Too many orders on contracts you are not viewing — open the contract, or wait half a minute")
         t0 = time.time()
         while not feed.live(body.token) and time.time() - t0 < 6.0:
@@ -972,6 +994,7 @@ def margin(token: int, side: str, lots: int, price: Optional[float] = None, leve
 
 @app.delete("/api/orders/{order_id}")
 async def cancel_order(order_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         try:
@@ -1010,6 +1033,7 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
     p = db.query(Position).filter_by(id=pos_id, user_id=user.id, is_closed=False).first()
     if not p or not p.qty:
         raise HTTPException(404, "position not found")
+    db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         # exit first; resting stops/targets are cancelled only once the exit has gone through — if the
@@ -2150,6 +2174,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
     if not u:
         raise HTTPException(404)
     done, errors = 0, []
+    db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
@@ -2878,3 +2903,6 @@ def _feed_status():
     if forex:
         s["forex"] = forex.status()
     return s
+
+
+app.add_middleware(_Turnstile)      # last = outermost: nothing below it runs before a turn is free

@@ -767,6 +767,31 @@ users["idle"].is_active = True; db.commit()
 A.set_default(db, {k: True for k in A.KEYS})
 check_running("after the access tests")
 
+# ---- a bought option carried over the cut-off at a profit: its whole carried value is blocked as margin ----
+at(day(W10, 4, 11)); px(ce=4300)
+for n, c in (("optbuyer", 1_000_000), ("optsmall", 400_000)):
+    mk_user(n, c); results[users[n].id] = 0.0
+    trade(n, O_CE, "BUY", 1)
+opos = lambda n: db.query(Position).filter_by(user_id=users[n].id, token=O_CE, is_closed=False).first()
+prem = opos("optbuyer").margin_blocked
+ok("carried option: a bought option blocks the premium paid", near(prem, opos("optbuyer").avg_price * 75, 1.0), str(prem))
+at(day(W10, 6, 20)); px(ce=9000)
+s = close(SUN(W10)); db.expire_all()
+carried_val = opos("optbuyer").avg_price * 75
+ok("carried option: after a profitable week the whole carried value is blocked, not just the first premium", near(opos("optbuyer").margin_blocked, carried_val, 0.02) and carried_val > prem * 1.5, f"{opos('optbuyer').margin_blocked} vs {carried_val}")
+ok("carried option: the account that can cover it is not short", not engine.funds(db, users["optbuyer"])["margin_short"])
+ok("carried option: the account that cannot cover the carried value is warned at the settlement", engine.funds(db, users["optsmall"])["margin_short"] and "Margin shortfall after weekly settlement" in D.get_setting(db, f"user_alerts_{users['optsmall'].id}", "[]"))
+W11 = W10 + timedelta(days=7)
+at(day(W11, 0, 10)); px(ce=50)                            # the option collapses on Monday
+f1 = engine.funds(db, users["optbuyer"])
+ok("carried option: when it collapses the loss stays inside what was blocked (Available Balance not below zero)", f1["available"] >= -0.01 and f1["equity"] > 0 and -f1["unrealised"] <= opos("optbuyer").margin_blocked + 0.01, str(f1))
+check_running("after the carried option collapsed")
+at(day(W11, 2, 11)); px(ce=6000); trade("optbuyer", O_CE, "SELL", 1)
+ok("carried option: closing it releases the margin", engine.funds(db, users["optbuyer"])["used_margin"] == 0)
+at(day(W11, 6, 20)); px(ce=2000); close(SUN(W11)); db.expire_all()
+if opos("optsmall"):
+    ok("carried option: after a losing week the blocked margin comes down to the new carried value", near(opos("optsmall").margin_blocked, opos("optsmall").avg_price * 75, 0.02), str(opos("optsmall").margin_blocked))
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

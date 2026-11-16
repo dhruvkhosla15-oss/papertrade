@@ -242,6 +242,12 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
             db.add(Ledger(user_id=user.id, amount=val, balance_after=user.balance, kind=VALUATION, note=note[:250], created_at=stamp))
             p.realised_pnl = round((p.realised_pnl or 0.0) + val, 2)
             p.avg_price = px; p.carried_week = we
+            # A BOUGHT option is now carried at the week-close price, so that whole value is what it can
+            # still lose. Block exactly that as its margin (before: only the premium first paid, so after a
+            # profitable week the paid-out profit was uncovered and the account could go below zero).
+            is_opt = (ins.instrument_type in ("CE", "PE")) if ins is not None else (p.symbol or "").upper().endswith(("CE", "PE"))
+            if is_opt and p.qty > 0:
+                p.margin_blocked = round(px * abs(p.qty) * vf, 2)
             valuation += val; carried += 1
             if p.exchange in CRYPTO:
                 valuation_crypto += val

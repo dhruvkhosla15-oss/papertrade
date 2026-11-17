@@ -756,6 +756,117 @@ class Probe:
         still = sum(1 for t in toks if t in self.feed._refcount)
         self.ok("those streams are dropped again after half a minute (the socket does not fill up for good)", still <= 2, f"{still} still streaming")
 
+    async def _leak_start(self, ub):
+        """An order that rests and is then cancelled must not leave its contract on the price socket.
+        Found 18 Nov 2026: every resting order and every fill kept its contract streaming until the next
+        restart; one account that rested and cancelled a far limit order on every option it could list left
+        2,655 streams behind in a minute and a half, at no cost. The socket holds 3,000; once it is full
+        nobody gets prices for a contract that is not already streaming.
+        Here: one far limit order on one option nobody is watching, cancelled at once. _leak_end looks a
+        minute and a half later (the engine gives streams back once a minute)."""
+        today = _ist().date().isoformat()
+        quiet = [i for i in self.feed.instruments.values()
+                 if i.exchange in ("NFO", "BFO", "MCX", "CDS", "CRYPTO") and i.instrument_type in ("CE", "PE") and (i.expiry or "") > today
+                 and i.token not in self.feed._refcount and self._feed_up(i) and self.engine.tradable_now(i)]
+        quiet.sort(key=lambda i: (i.exchange, i.expiry, i.symbol))
+        if len(quiet) < 6:
+            return None
+        c = self._client(ub)
+        try:
+            for ins in (quiet[len(quiet) // 2], quiet[len(quiet) // 3], quiet[(len(quiet) * 2) // 3]):
+                await c.get(f"/api/instrument/{ins.token}")            # streams it for half a minute and waits for a price
+                bid, ask, ltp = self._quote(ins.token)
+                ref = bid or ltp
+                if not ref or not ask:
+                    continue
+                band = float(ins.price_band_pct or 0)
+                px = max(float(ins.tick_size or 0.05), round(ref * (0.5 if not band else 1 - band / 100 * 0.6), 6))
+                if px >= ask:
+                    continue
+                st, o, d = await self._order(c, token=ins.token, side="BUY", lots=1, order_type="LIMIT", limit_price=px)
+                if st == 200 and o.get("status") == "OPEN":
+                    await c.delete(f"/api/orders/{o['id']}")
+                    return ins, time.time()
+                await self._flatten(c)
+            return None
+        finally:
+            await c.aclose()
+
+    async def _leak_end(self, leak):
+        self.area = "Price socket"
+        if not leak:
+            self.note("stream of a cancelled order: could not test", "no unwatched option took a resting order right now (market shut, feed down or no price)")
+            return
+        ins, t0 = leak
+        wait = 95 - (time.time() - t0)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        held = ins.token in self.feed._refcount and ins.token in getattr(self.engine, "_pins", {ins.token})
+        self.ok("an order that rested and was cancelled leaves nothing streaming (cancelled orders cannot fill the price socket)", not held,
+                f"{ins.symbol}: " + ("still kept streaming by the engine" if held else "stream given back"))
+
+    async def _doors(self, ua):
+        """Every Master address must ask for a Master login before it does anything. Checked two ways:
+        by looking at how each address is built (so a new address added without the lock is caught on the
+        day it goes live, without ever calling it), and by reading every Master page of figures as a test
+        user and as a visitor (reads only)."""
+        self.area = "Master doors"
+        from .auth import current_admin
+
+        def calls(dep):
+            return [dep.call] + [x for sub in dep.dependencies for x in calls(sub)]
+        unlocked, n, reads = [], 0, []
+        for r in self.app.routes:
+            path, dep = getattr(r, "path", ""), getattr(r, "dependant", None)
+            if dep is None or not path.startswith("/api/admin"):
+                continue
+            n += 1
+            if "/2fa/" in path:
+                continue                      # a user's own two-factor set-up answers under this name too
+            if current_admin not in calls(dep):
+                unlocked.append(path)
+            elif "GET" in (getattr(r, "methods", None) or ()):
+                reads.append(path.replace("{uid}", str(ua.id)))
+        self.ok(f"every Master address ({n}) asks for a Master login before it does anything", n >= 30 and not unlocked, ", ".join(unlocked[:5]))
+        got = []
+        for who, c in (("test user", self._client(ua)), ("visitor", self._client())):
+            try:
+                for path in reads:
+                    if "{" in path:
+                        continue
+                    r = await c.get(path)
+                    if r.status_code not in (401, 403):
+                        got.append(f"{who} {path} -> {r.status_code}")
+            finally:
+                await c.aclose()
+        self.ok(f"a user and a visitor are refused on every Master page of figures ({len(reads)} read)", len(reads) >= 15 and not got, "; ".join(got[:4]))
+
+    async def _offered(self, ua):
+        """Normal working: what the search box and the futures lists offer can be traded. A contract that
+        has expired (this afternoon, or yesterday while the server's own calendar day has not turned yet)
+        headed the lists until the next morning, and every order on it was refused (found 18 Nov 2026)."""
+        self.area = "Screens"
+        c = self._client(ua)
+        dead, n = [], 0
+        try:
+            for q in ("NIFTY", "BANKNIFTY", "SENSEX", "CRUDEOIL", "GOLD", "USDINR", "BTC"):
+                r = await c.get("/api/search", params={"q": q})
+                rows = r.json() if r.status_code == 200 else []
+                for ex in ("NFO", "BFO", "MCX", "CDS"):
+                    r = await c.get("/api/futures", params={"exchange": ex, "name": q})
+                    rows += r.json() if r.status_code == 200 else []
+                for x in rows:
+                    ins = self.feed.instruments.get(x.get("token"))
+                    n += 1
+                    if ins is not None and self.engine.expired(ins):
+                        dead.append(ins.symbol)
+        finally:
+            await c.aclose()
+        if n:
+            self.ok(f"search and the futures lists offer no contract that has already expired ({n} looked at)", not dead, ", ".join(sorted(set(dead))[:5]))
+        else:
+            self.note("offered contracts not checked", "search returned nothing")
+
     async def _old_login(self, ub):
         """A new password must end every older login (found 13 Nov 2026: a login kept working for a month
         after the Master reset the password). The test account's own session is used: mark its password as
@@ -1502,6 +1613,11 @@ class Probe:
             await self._wipe(balances=(0.0, 0.0))
             return {"at": f"{_ist():%Y-%m-%d %H:%M}", "secs": round(time.time() - t0, 1), "passed": 0, "failed": 1, "ok": False, "rows": self.rows}
         try:
+            leak = None
+            try:
+                leak = await self._leak_start(ub)
+            except Exception:
+                log.exception("probe stream check (start) crashed")
             for label, ins in self._targets():
                 if isinstance(ins, list):
                     ins = await self._pick(ins)
@@ -1553,6 +1669,13 @@ class Probe:
             except Exception as e:
                 log.exception("probe turns check crashed")
                 self.ok("the turns check ran to the end", False, f"{type(e).__name__}: {e}")
+            for name, fn in (("Master doors", lambda: self._doors(ua)), ("offered contracts", lambda: self._offered(ua)),
+                             ("cancelled-order stream", lambda: self._leak_end(leak))):
+                try:
+                    await fn()
+                except Exception as e:
+                    log.exception("probe %s check crashed", name)
+                    self.ok(f"the {name} check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

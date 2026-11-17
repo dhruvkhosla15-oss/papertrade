@@ -67,12 +67,104 @@ whole carried value; `security-fix/2026-11-14` was put live on 14 Nov 2026, `sec
 - Turns (17 Nov 2026): one test account sends 40 light requests at the same instant; the turnstile reports how many
   of them it worked on at once: never more than its limit for one login (8). `_one_login`, area "Capacity".
 
+- Streams of cancelled orders (18 Nov 2026): at the start of the run a test account rests one far limit order on one
+  option nobody is watching and cancels it at once; a minute and a half later the engine must not be keeping that
+  contract on the price socket any more. `_leak_start` / `_leak_end`, area "Price socket".
+- Master doors (18 Nov 2026): every address under /api/admin is looked at the way it is built (it must depend on
+  `current_admin`; a new address added without the lock fails on the day it goes live, without being called), and
+  every Master page of figures (GET only) is read as a test user and as a visitor: refused. `_doors`.
+- Screens (18 Nov 2026, normal working): what the search box and the futures lists offer for seven underlyings holds
+  no contract that has already expired. `_offered`. (At 9:35 pm on an expiry day the day's contracts are still in
+  the contract list, so the check bites on the live site.)
+
 ## Normal-working checks added to `site_check.py` (private copy, real browser)
+- 18 Nov 2026: search and the futures lists offer no expired contract (Indian date); the Master deletes an account
+  that has been through a weekly cut-off; the next account created (same number) has no pop-up, no finished week, no
+  position and no switch of the deleted one; the Site health rows show name and value apart. The NIFTY option the
+  check trades now comes from the option chain (which options the search lists first depends on the weekday).
 - 17 Nov 2026: no screen shows "-₹0" (nothing, with a minus sign); the Master summary Excel has whole paise only; with
   the simulated prices paused, the Master's user panel shows the same Unrealised / Realised / Net P&L as the user's
   row on All Time and on Daily; All Time "Realised" is closed trades only (equal to the server's closed-trade figure).
 
 ## Findings
+
+### 2026-11-18 (nightly review) — one loophole fix (price socket) and four normal-working faults, all live tonight
+PART 1, normal working
+- Self-test at the start: safety check 275 / 0, weekly simulation 6644 / 0, no server error, but the browser check
+  7 FAILED: every order on the first NIFTY future the search offered was refused "This contract has expired". That
+  was fault 1 below (it shows on the private copy on a night when the server's calendar day is still Tuesday).
+- FAULT 1, FIXED, live: **an expired contract stayed at the top of the search and of the futures list.** Both lists
+  go by the server's own calendar day and keep a contract through its whole expiry day: from 3:30 pm on its last day
+  (and until 5:30 am the next morning, when the server's day turns) the expired contract headed the list with a
+  price that stood still, and every order on it was refused. *Fix (base.py `search(skip=)`, main.py `/api/search`,
+  `/api/futures`):* a contract that `engine.expired` is not offered. Option-chain dates already did this.
+- FAULT 2, FIXED, live: **the Master's "Delete" did nothing for any account that had been through a weekly cut-off.**
+  The weekly record (week_settlements, since 13 Nov) blocked the delete in the database: the server answered "500",
+  nothing was deleted, and the Master's screen showed no message at all. Since the first cut-off (15 Nov) that was
+  every existing account. *Fix (main.py `admin_delete_user`, admin.html):* the account's weekly record goes with
+  its trades and ledger, as the confirmation text says ("and all their history"); a delete that fails now says so.
+  Other accounts' records are not touched (checked: the kept user's weeks, balance and positions identical).
+- FAULT 3 (also a leak), FIXED, live: **a new account received a deleted account's leftovers.** The database hands the
+  number of a deleted account out again when it was the newest one. Proven: user deleted, new user created: same
+  number, and the newcomer was shown the pop-up message the Master had written to the deleted user; the deleted
+  user's trading-access switches and day-start records were also still filed under the number. *Fix
+  (`_forget_number`):* pop-ups, switches, grace flag and day-start records are dropped when an account is deleted
+  AND when a new one is created (so leftovers of accounts deleted earlier cannot be inherited either). Never run for
+  an account that exists. If an account was created right after deleting the newest one since 14 Nov, look at its
+  trading-access switches once.
+- FAULT 4, FIXED, live: **Site health card unreadable.** Name and value of each row ran together ("Databaseanswering",
+  "Domain name limefx.invalid until 2027-11-09"): the row style existed only on the user page. Added to admin.html.
+- Recent changes used for real: yesterday's fixes (user panel = row in all four periods for three users, checked in
+  the browser with prices standing still; All Time Realised = closed trades; no "-₹0" on any screen; one login's 8
+  turns and the first price of a session through the daily check); orders, Exit and Cancel in all seven markets;
+  the Site health card; a carried position's exit note; a frozen account (screen logged out, order "Account
+  inactive") and a switched-off segment (three segments, the right message each, the rest still trades).
+- Screens: every Master tab and user screen at 1440 and 412 wide, with prices live and with every feed paused ("Price
+  feed down" bar, figures standing still), for a user trading in all seven markets, a brand-new user and a frozen
+  one. Studied most closely tonight: Performance, Shadow Book, Settings (site health, trading access, costs), the
+  user panel's trading access; user Pulse, Watchlist, Market, order ticket, Order Book, P&L, Account, the weekly pop-up.
+- Figures compared for three users with every feed paused (to the paisa): Master row, dashboard in four periods, user
+  panel, Weekly Settlement running and final, Performance, Shadow Book totals, the user's own report / weekly /
+  ledger / positions, and the Excel files (user and Master: all statements, P&L, ledger, order book; this week, last
+  week, all time; Master summary and all-users file). They agree. (Weekly on the dashboard holds two weeks on the
+  private copy, as noted on 17 Nov.)
+- Seen, NOT changed, for the owner to decide: on **All Time** (dashboard, Performance, Excel) "Unrealised" is Net
+  P&L + Commission − closed trades. After a carried position has been closed it still holds what that position was
+  valued at when the earlier week closed, so it is not the P&L of what is open now (user with open positions worth
+  −1,134 since entry: All Time Unrealised −872). Net P&L is right everywhere. Showing that part under Realised would
+  change the meaning of Realised on Performance and in the Excel files, so it was left alone.
+- Seen, not changed: the user's header "P&L today" is today's closed trades and commission plus the WHOLE open P&L,
+  while the Master's Daily shows the day's move only; the Performance ranking table needs sideways scrolling on a
+  1440 screen; a watchlist row without any price shows a lone "/" under the dash.
+
+PART 2, the hunt
+- LOOPHOLE (breaks the site for others), FIXED, live: **cancelled orders and closed positions kept their contracts on
+  the price socket for good.** Every fill and every resting order added a stream for its contract that was never
+  given back (until the next restart). The limits of 14 Nov covered refused orders only. Proven on the private copy:
+  one account looked at 1,200 options over the live socket, rested a limit order far below the market on each and
+  cancelled it (24 seconds, no coins used), did the same twice more: 2,655 contracts left streaming a minute and a
+  half later with no order and no position on the account (the copy lists no more options). The broker's socket holds
+  3,000; from 2,900 no screen gets prices for a contract that is not already streaming, from 2,980 orders on such
+  contracts are refused, and it stays so until a restart. Honest trading leaked the same way, slowly.
+  *Fix (engine.py `_pin` / `release_pins`):* the engine keeps a contract streaming once, and once a minute gives
+  back every contract that no open position and no resting order needs (as its own price or as the underlying of
+  an option). Same attack afterwards: 1,229 streams while the attacker looks, 29 a minute and a half after.
+  *Second half (engine.py `MAX_OPEN_CONTRACTS`):* orders left resting need their streams, so the same could be done
+  for a few coins of margin (and hundreds of resting orders slowed every order on the copy). One account may now
+  hold positions or resting orders on at most 200 different contracts; the next one is refused with a plain message.
+  Afterwards: 200 rest, 1,000 refused, 229 streams. Exits and orders on a contract already held are never counted.
+  Nobody could gain coins from this. A sign that it was used would be "No live price" complaints from many users
+  at once on a day with thousands of cancelled orders from one account.
+- Checked by hand in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): zero / negative / huge lots,
+  buy limit far above the market, a market order bigger than the visible book, Exit x6 (old attacks); a stop-loss
+  bigger than the position followed by an exit and by a flip; ledger = balance and nothing left blocked after each.
+  Thin options in NSE, BSE, MCX and Currency: a limit order for more lots than are offered at its price fills in
+  parts (remainder order), never above the limit, reservation freed on cancel. Crypto, Forex, Global: 1x then the
+  highest leverage, then selling one lot. All 58 Master addresses with every method as a user and as a visitor.
+- Nothing in any account was changed. Self-test twice on tonight's code: 279 / 0, browser check 217 / 0, weekly
+  simulation 0 failures, no server error.
+- Daily check: three new checks (two attacks, one normal-working). Browser check: four new checks.
+
 
 ### 2026-11-17 (nightly review) — two loophole fixes and three display faults, all live tonight
 PART 1, normal working
@@ -336,6 +428,17 @@ PART 2, the hunt
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- A limit order bigger than what is offered at its price (18 Nov 2026): fills in parts, the rest keeps resting with
+  its share of the reservation, never above the limit; cancelling the rest frees it. Nothing gained.
+- A stop-loss bigger than the position, then exit or flip (18 Nov 2026): after the exit the stop is cancelled; after a
+  flip it stays with the reservation for one lot only, but a fill is checked against Available Balance again.
+- 1x then the highest leverage in Forex and Global (18 Nov 2026): like crypto on 14 Nov, margin is released in
+  proportion and never drops below what the highest leverage needs.
+- Every Master address with every method as a user and as a visitor (18 Nov 2026): refused, except the page shell
+  /admin (no data without login), a user's own two-factor set-up under the Master's name for it, and the broker
+  login return address (already listed under open ideas).
+- Trading the stock or index "spot" rows (18 Nov 2026, read only): they are loaded as indices and refused.
+- Many logins of one account to get more turns (18 Nov 2026, read only): the turns are counted per account.
 - Mixing intraday and overnight on one contract (17 Nov 2026): a sale bigger than an overnight position, sent as
   intraday, leaves an intraday position with its full margin; adding the other kind is refused. Nothing gained.
 - Exit racing with market sales after the capacity change (17 Nov 2026): one Exit goes through, the others find no
@@ -367,6 +470,16 @@ PART 2, the hunt
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
+- (18 Nov 2026) 200 contracts per account: fifteen accounts acting together could still hold 3,000 streams with real
+  positions or resting orders. Accounts are created by the Master, so not pursued.
+- (18 Nov 2026) Resting orders on ONE contract are not limited in number; every price tick walks all of them. A few
+  thousand far limit orders on one busy contract might slow fills for everybody. Not measured.
+- (18 Nov 2026) The "nearest future" used as the underlying of MCX / Currency options (`index_token_for`) is picked by
+  date only: between a future's expiry and the next refresh of the contract list it is the expired one, whose price
+  stands still (short-option margin, option settlement). The markets are shut for most of that time; not provable on
+  the simulated contract list tonight.
+- (18 Nov 2026) All Time "Unrealised" after a carried position is closed, and "P&L today" in the user's header: see
+  Findings; waiting for the owner's wish, no branch.
 - The automatic closes (margin call, shortfall square-off) in the first seconds of a session still act on the last
   session's book until the first price arrives; a user cannot choose to be squared off, so no gain was found.
 - A flood of requests from many addresses without a login (public pages) is limited per address only; the address is
@@ -467,3 +580,16 @@ the lock as before (db.expire_all()). iPhone install hint reworded (Share button
 - `engine.session_opened(ins)`: when the session a contract trades in began (None for crypto, mid-week forex, or when
   exchange hours are not enforced, as on the private copy). `place_order` refuses until a price newer than that
   (plus `OPEN_SETTLE_SECS`, 2 s) is in memory. A new kind of market with its own opening must be added there.
+
+## 18 Nov 2026 — streams are given back, and what goes with a deleted account
+- `engine._pin(tokens)`: the only way the engine keeps a contract streaming for a position, a resting order or an
+  option's underlying (once per contract). `engine.release_pins(db)`: called at the end of every expiry pass (once a
+  minute, under the engine lock); gives back what no open position / OPEN order needs. New code that needs a price
+  kept alive for a position or an order must use `_pin`, never `feed.pin` (which is for the permanent ones: indices,
+  and the feeds' own always-on contracts). `place_order`'s "no price yet" stream is still a plain `feed.pin` that the
+  order endpoint gives back itself.
+- `engine.MAX_OPEN_CONTRACTS` (200): positions + resting orders on different contracts per account.
+- `main._forget_number(db, uid)`: everything filed under an account number that is not a row of the account itself.
+  A NEW per-account setting (`something_<uid>`) or table keyed by user must be added there, and a table with a
+  foreign key to users must be deleted in `admin_delete_user` (or the delete fails again).
+

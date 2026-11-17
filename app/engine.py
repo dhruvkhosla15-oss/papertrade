@@ -65,6 +65,41 @@ class Engine:
         self._unsettled_warned = set()    # positions already reported as impossible to settle (contract not listed)
         self._und_wait = {}               # underlying token -> first time a settlement found its price frozen
         self._und_pinned = set()          # underlyings this engine started streaming for a settlement
+        self._pins = set()                # contracts kept streaming because a position or a resting order needs their price
+
+    def _pin(self, tokens):
+        """Keep these contracts streaming: an open position or a resting order needs their live price.
+        Once per contract, and only while it is needed (see release_pins). Before 18 Nov 2026 every fill and
+        every resting order added one more stream that was never given back, so a contract stayed on the
+        price socket until the next restart even after the order was cancelled: one account that rested and
+        cancelled an order on every contract it could list left thousands of streams behind in a minute,
+        at no cost, and a full socket means no prices for anybody else's new contracts."""
+        new = [t for t in tokens if t and t not in self._pins and t in self.feed.instruments]
+        if new:
+            self._pins.update(new)
+            self.feed.pin(new)
+
+    def release_pins(self, db: Session) -> int:
+        """Give back the streams of contracts that no open position and no resting order needs any more
+        (their own price, or as the underlying an option is margined and settled against). Called once a
+        minute under the engine lock. What users are looking at has its own streams and is not touched."""
+        need, und_of = set(), {}
+        for p in db.query(Position).filter_by(is_closed=False).all():
+            need.add(p.token)
+            ins = self.feed.instruments.get(p.token)
+            if ins is not None:
+                if ins.name not in und_of:
+                    und_of[ins.name] = self.feed.index_token_for(ins.name)
+                if und_of[ins.name]:
+                    need.add(und_of[ins.name])
+        for (tok,) in db.query(Order.token).filter_by(status="OPEN").distinct().all():
+            need.add(tok)
+        gone = [t for t in self._pins if t not in need]
+        for t in gone:
+            self._pins.discard(t); self._und_pinned.discard(t); self._und_wait.pop(t, None)
+        if gone:
+            self.feed.unsubscribe(gone)
+        return len(gone)
 
     def set_event_callback(self, cb):
         self._event_cb = cb
@@ -181,6 +216,8 @@ class Engine:
             except Exception:
                 return True
         return True
+
+    MAX_OPEN_CONTRACTS = 200    # different contracts one account may hold positions or resting orders on at the same time
 
     OPEN_SETTLE_SECS = 2.0      # a price counts as this session's only when it arrived this long after the opening
 
@@ -497,6 +534,16 @@ class Engine:
             _no = _access.refusal(db, user, ins)
             if _no:
                 raise EngineError(_no)
+        if not _cur and not db.query(Order.id).filter_by(user_id=user.id, token=token, status="OPEN").first():
+            # A contract this account has neither a position nor a resting order on. Each such contract has
+            # to be kept on the price socket for as long as the position or the order lives, and the socket
+            # holds 3,000 for everybody: one account resting a tiny order on every contract it could list
+            # filled it for a few coins of margin (18 Nov 2026). Nobody trades this many at once by hand.
+            held = ({t for (t,) in db.query(Position.token).filter_by(user_id=user.id, is_closed=False)}
+                    | {t for (t,) in db.query(Order.token).filter_by(user_id=user.id, status="OPEN")})
+            if len(held) >= self.MAX_OPEN_CONTRACTS:
+                raise EngineError(f"You already have positions or pending orders on {len(held)} different contracts — "
+                                  "close or cancel some before opening another")
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
         if self.expired(ins):
@@ -614,7 +661,7 @@ class Engine:
                 order.status = "REJECTED"; order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{f['available']:,.2f}"
             else:
                 order.margin_blocked = need
-                self.feed.pin([token])
+                self._pin([token])
                 self._pending_tokens.add(token)
         db.commit()
         self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
@@ -766,12 +813,12 @@ class Engine:
         db.add(tr)
         if not user.is_admin and not (user.username or "").startswith("zz-probe-"):
             self._shadow_fill(db, tr, ins)
-        self.feed.pin([order.token])
+        self._pin([order.token])
         if ins.instrument_type in ("CE", "PE"):
             # an option is margined and, at expiry, settled against its underlying: keep that price live
             ut = self.feed.index_token_for(ins.name)
             if ut:
-                self.feed.pin([ut])
+                self._pin([ut])
 
     def _still_allowed(self, db: Session, o: Order, ins) -> bool:
         """A resting order was checked against the account's rules when it was placed. By the time it can
@@ -935,7 +982,8 @@ class Engine:
             self._pending_tokens |= {o.token for o in db.query(Order).filter_by(status="OPEN")}
             from .feed.base import INDEX_NAMES
             idx = [i.token for i in self.feed.instruments.values() if i.segment == "INDICES" and i.name in INDEX_NAMES]
-            self.feed.pin(list(toks) + idx)
+            self._pin(list(toks))             # given back when the position / order is gone
+            self.feed.pin(idx)                # the indices stay for good
         finally:
             db.close()
 
@@ -1376,7 +1424,7 @@ class Engine:
             first = self._und_wait.setdefault(ut, time.time())
             if time.time() - first < 180:
                 if ut not in self._und_pinned:
-                    self._und_pinned.add(ut); self.feed.pin([ut])
+                    self._und_pinned.add(ut); self._pin([ut])
                 return None, True
         else:
             self._und_wait.pop(ut, None)
@@ -1414,7 +1462,7 @@ class Engine:
                         und_of[ins.name] = self.feed.index_token_for(ins.name)
                     ut = und_of[ins.name]
                     if ut and ut in self.feed.instruments and ut not in self.feed._refcount:
-                        self.feed.pin([ut])
+                        self._pins.discard(ut); self._pin([ut])
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.expiry:
                         continue
@@ -1472,6 +1520,7 @@ class Engine:
                     if ins and self.expired(ins, now=n):
                         o.status = "CANCELLED"; o.reason = "contract expired"; o.margin_blocked = 0.0
                 db.commit()
+                self.release_pins(db)
             finally:
                 db.close()
 

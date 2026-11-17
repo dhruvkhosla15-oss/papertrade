@@ -747,7 +747,7 @@ def futures(exchange: str, name: str, user: Optional[User] = Depends(optional_us
     today = date.today().isoformat()
     items = sorted((i for i in feed.instruments.values()
                     if i.exchange == exchange and i.name == name and i.instrument_type == "FUT" and (i.expiry >= today or not i.expiry)
-                    and not feed.dead_weekly(i)),
+                    and not feed.dead_weekly(i) and not engine.expired(i)),   # an expired contract is not offered (18 Nov 2026)
                    key=lambda x: x.expiry)
     return [i.to_dict() for i in items]
 
@@ -913,7 +913,10 @@ def watchlist_remove(token: int, user: User = Depends(current_user), db: Session
 def search(q: str, user: User = Depends(current_user)):
     if len(q) < 2:
         return []
-    return [i.to_dict() for i in feed.search(q)]
+    # A contract that has expired (this afternoon, or yesterday while the server's own calendar day has not
+    # turned yet) is not offered: it used to head the list until the next morning and every order on it
+    # was refused "This contract has expired".
+    return [i.to_dict() for i in feed.search(q, skip=engine.expired)]
 
 
 @app.get("/api/instrument/{token}")
@@ -2141,6 +2144,19 @@ def admin_self_test_coins(admin: User = Depends(current_admin), db: Session = De
     return {"ok": True, "funds": engine.funds(db, admin)}
 
 
+def _forget_number(db, uid: int):
+    """Drop what is filed under an account number without belonging to any account: pop-up messages,
+    trading-access switches, the weekly-shortfall grace, day-start records. Used when an account is deleted
+    and again when a new one is created, because the database hands the number of a deleted account out
+    again and the newcomer must not start with someone else's leftovers (also those of accounts deleted
+    before 18 Nov 2026). Never called for an account that exists."""
+    from .db import DaySnap, Setting
+    db.query(DaySnap).filter_by(user_id=uid).delete()
+    for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_"):
+        db.query(Setting).filter_by(key=f"{k}{uid}").delete()
+    engine._margin_level.pop(uid, None); engine._neg_since.pop(uid, None); _temp_streams.pop(uid, None)
+
+
 @app.post("/api/admin/users")
 def admin_create_user(body: UserIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
@@ -2149,6 +2165,7 @@ def admin_create_user(body: UserIn, admin: User = Depends(current_admin), db: Se
     u = User(username=uname, display_name=body.display_name or uname, password_hash=hash_password(body.password),
              must_change_password=True)
     db.add(u); db.flush()
+    _forget_number(db, u.id)       # a brand-new account: nothing filed under its number can be its own
     if body.initial_coins:
         engine._ledger(db, u, body.initial_coins, "ADMIN_CREDIT", "initial allocation")
     db.commit()
@@ -2205,6 +2222,13 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     db.query(Trade).filter_by(user_id=uid).delete()
     db.query(Ledger).filter_by(user_id=uid).delete()
     db.query(Watch).filter_by(user_id=uid).delete()
+    # Everything else that is filed under this account's number goes with it (18 Nov 2026). The weekly
+    # record used to block the whole delete ("500", nothing happened on the Master's screen) for any
+    # account that had been through a weekly cut-off. And a number is handed out again: the next account
+    # created after deleting the newest one received its pop-up messages, trading-access switches and
+    # day-start records.
+    db.query(_weekly.WeekSettlement).filter_by(user_id=uid).delete()
+    _forget_number(db, uid)
     db.delete(u); db.commit()
     return {"ok": True}
 

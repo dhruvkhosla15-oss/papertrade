@@ -86,6 +86,10 @@ def main():
         def uget(path):
             x = U.get(f"{B}{path}"); return x.json() if x.status == 200 else {"_status": x.status}
 
+        # an account that will be deleted after the weekly cut-off (see "Master: deleting" further down)
+        lid = apost("/api/admin/users", {"username": "leaver", "password": "Site@12345", "display_name": "Leaver", "initial_coins": 100000}).get("id")
+        apost(f"/api/admin/users/{lid}/alert", {"title": "Private note", "text": "for the leaver only"})
+
         def order(tok, side, lots=1, **kw):
             x = U.post(f"{B}/api/orders", data={"token": tok, "side": side, "lots": lots, **kw})
             try:
@@ -96,10 +100,21 @@ def main():
 
         res = uget("/api/search?q=NIFTY")
         fut = next((x for x in res if x.get("instrument_type") == "FUT" and x.get("name") == "NIFTY"), None)
-        opt = next((x for x in res if x.get("instrument_type") == "CE" and x.get("name") == "NIFTY"), None)
+        # the option comes from the option chain: which options the search lists first depends on the day of the week
+        exps = uget("/api/expiries?exchange=NFO&name=NIFTY")
+        ces = [x for x in (uget(f"/api/chain?exchange=NFO&name=NIFTY&expiry={exps[0]}").get("instruments") or []) if x.get("instrument_type") == "CE"] if isinstance(exps, list) and exps else []
+        opt = ces[len(ces) // 2] if ces else None
         res2 = uget("/api/search?q=GOLD")
         mcx = next((x for x in res2 if x.get("instrument_type") == "FUT" and x.get("exchange") == "MCX"), None)
         ok("User: search finds futures and options", bool(fut and opt and mcx))
+        # a contract whose last day is over (in Indian time) is not offered: it used to head the list until the
+        # next morning and every order on it was refused "This contract has expired"
+        from datetime import datetime as _dt, timedelta as _td
+        ist_today = (_dt.utcnow() + _td(hours=5, minutes=30)).date().isoformat()
+        offered = list(res) + list(res2) + [x for nm, ex in (("NIFTY", "NFO"), ("BANKNIFTY", "NFO"), ("SENSEX", "BFO"), ("GOLD", "MCX"), ("USDINR", "CDS"))
+                                             for x in (uget(f"/api/futures?exchange={ex}&name={nm}") or [])]
+        gone = sorted({x.get("symbol") for x in offered if isinstance(x, dict) and x.get("expiry") and x["expiry"] < ist_today})
+        ok("User: search and the futures lists offer no contract that has already expired", len(offered) > 5 and not gone, gone[:4])
         for tok, side, lots in ((fut["token"], "BUY", 2), (mcx["token"], "SELL", 1), (opt["token"], "BUY", 1), (fut["token"], "SELL", 1)):
             st, tx = order(tok, side, lots); ok(f"User: {side} order is accepted", st == 200, tx); time.sleep(2.5)
         st, tx = order(fut["token"], "BUY", 1, order_type="LIMIT", limit_price=1.0)
@@ -280,6 +295,29 @@ def main():
             ctx.close()
         finally:
             A.post(f"{B}/api/admin/feed/reconnect"); time.sleep(1.5)
+
+        # Master: deleting an account that has been through a weekly cut-off works (the weekly record used to block
+        # it: "500", nothing happened on the screen), and the next account created, which is given the same
+        # number, starts clean: no pop-up message, weekly record or trading-access switch of the deleted one.
+        d = A.delete(f"{B}/api/admin/users/{lid}")
+        ok("Master: deleting a user who has been through a weekly cut-off works", d.status == 200, f"{d.status} {d.text()[:120]}")
+        nid = apost("/api/admin/users", {"username": "newcomer", "password": "Site@12345", "display_name": "Newcomer", "initial_coins": 100000}).get("id")
+        nctx = br.new_context(); N = nctx.request
+        N.post(f"{B}/api/login", data={"username": "newcomer", "password": "Site@12345"})
+        N.post(f"{B}/api/password", data={"old_password": "Site@12345", "new_password": "Site@67890"})
+        nme = N.get(f"{B}/api/me").json(); nwk = N.get(f"{B}/api/weekly").json()
+        ok("Master: a new account inherits nothing from a deleted one (no pop-up, no finished week, no positions)",
+           bool(nid) and not nme.get("alerts") and not nwk.get("weeks") and near(nme["funds"]["balance"], 100000) and not N.get(f"{B}/api/positions").json()
+           and not aget(f"/api/admin/access?uid={nid}").get("overrides"), f"id {lid}->{nid} alerts {nme.get('alerts')} weeks {nwk.get('weeks')}")
+        A.delete(f"{B}/api/admin/users/{nid}"); nctx.close()
+
+        # Site health card: the name and the value of every row stand apart (they ran together: "Domain name limefx.invalid until ...")
+        ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+        page.evaluate("document.querySelector('[data-nav=\"settings\"]').click()"); page.wait_for_timeout(2500)
+        gaps = page.evaluate("[...document.querySelectorAll('#hlBody .plrow')].map(r => r.querySelector('b').getBoundingClientRect().left - r.querySelector('span').getBoundingClientRect().right)")
+        ok("Master Settings: site health rows show the name and the value apart", len(gaps) >= 14 and min(gaps) >= 8, f"smallest gap {min(gaps) if gaps else None}px")
+        ctx.close()
 
         # technical health
         import httpx

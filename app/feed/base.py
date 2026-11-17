@@ -108,15 +108,18 @@ class PriceFeed:
                        if i.exchange == exchange and i.name == name and i.expiry == expiry),
                       key=lambda x: (x.instrument_type, x.strike))
 
-    def search(self, q: str, limit=30) -> List[Instrument]:
-        """Every word in the query must appear in the symbol (so 'NIFTY FUT', 'GOLDM', 'BANKNIFTY 52000 CE' all work)."""
+    def search(self, q: str, limit=30, skip=None) -> List[Instrument]:
+        """Every word in the query must appear in the symbol (so 'NIFTY FUT', 'GOLDM', 'BANKNIFTY 52000 CE' all work).
+        skip(instrument) -> True leaves a contract out (the caller passes "has expired": the date test below
+        goes by the server's own calendar day and keeps a contract all through its expiry day and night)."""
         words = [w for w in q.upper().split() if w]
         if not words:
             return []
         today = __import__("datetime").date.today().isoformat()
         out = [i for i in self.instruments.values()
                if (not i.expiry or i.expiry >= today)
-               and all(w in i.symbol or w in i.name for w in words)]
+               and all(w in i.symbol or w in i.name for w in words)
+               and not (skip and skip(i))]
         # Futures (and spot / perpetuals) first, options after — nearest-expiry weeklies used to crowd
         # the monthly future out of the list entirely. Within each group: nearest expiry, shortest symbol.
         rank = lambda i: 1 if i.instrument_type in ("CE", "PE") else 0

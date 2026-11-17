@@ -1,20 +1,25 @@
-17 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: in the first second after a market opens, an order could be filled at the previous session's closing price; and one account could freeze the site for everyone.
+18 Nov 2026 (IST). LOOPHOLE FOUND AND FIXED: one account could fill the live price line for everybody, at no cost, by placing and cancelling small orders on thousands of contracts.
 
-Normal working: every screen and Excel file opened on computer and phone, markets open and shut. Yesterday's capacity change, site health card and carried options work. Three display faults fixed: the Master's user panel showed a different Net P&L than the user's row on Daily, Monthly and earlier weeks; All Time "Realised" included week-close valuations, unlike Performance and Excel; a user with no closed trade saw "Realised -₹0" in red.
+Normal working: every screen and Excel file opened on computer and phone; three users' figures agreed across your tabs, their screens and every Excel file. Yesterday's fixes work. Four faults fixed:
+1. Delete user did nothing, with no message, for any account that had been through a Sunday settlement. Works again.
+2. An account created right after deleting the newest one received the deleted one's pop-up messages and trading switches.
+3. A contract that expired in the afternoon stayed on top of search and the futures list until morning.
+4. Site health card: names and values ran together.
 
 Tried tonight
-1. Buy at the opening second on a morning that opens 1% higher: filled at yesterday's price. 19,000 to 280,000 free coins in tests. Fixed.
-2. One account sending 300 downloads at once: another user waited 32 seconds per click. Fixed.
-3. Exit pressed six times together with sales: nothing gained.
-4. Mixing intraday and overnight: nothing gained.
-5. Junk numbers into watchlist, margin, chart and search: refused.
+1. Orders placed and cancelled on 2,655 contracts in 90 seconds: all stayed on the price line until the next restart. Fixed.
+2. The same with orders left waiting: now at most 200 different contracts per account.
+3. Limit order bigger than the offers at its price: nothing gained.
+4. Stop-loss bigger than the position: nothing gained.
+5. Mixing 1x and 500x in Forex and Global: nothing gained.
+6. Every Master address as a user and as a visitor: refused.
 
 Markets attacked: NSE, BSE, MCX, Currency, Forex, Global, Crypto.
 
-Live now: an order waits for the first price of the new session (in the first two seconds it says try again). Each login gets at most 8 requests served at a time, so nobody can crowd others out. No account touched, no balance changed. Nobody could cause the opening trick, only use it; the books cannot show if anyone did.
+Live now: a contract leaves the price line once no position or order needs it. No account touched, no balance changed. Nobody could gain coins from it.
 
-Daily check: added the opening-second order in every market and the one-login limit. Browser check: four new checks.
+Daily check: three new checks. Browser check: four new.
 
-Waiting for you: nothing. The 16 Nov branch is already live.
+Waiting for you: nothing. One thing to decide: on All Time, "Unrealised" still holds last week's result of positions closed since. Tell Claude if you want it under Realised.
 
-Could not test: whether the real exchange feed shows yesterday's offers before the opening (proven with prices set by hand).
+Could not test: the price line's limit of 3,000 itself (the test copy has fewer contracts).

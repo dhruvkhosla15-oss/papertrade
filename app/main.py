@@ -563,7 +563,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     except Exception:
         log.exception("week warning")
     return {"access": {"rows": [{"name": n, "fut": f, "opt": o} for n, f, o in _access.ROWS], "on": _access.effective(db, user)},
-            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status(),
+            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status() if user.is_admin else _feed_public(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}
@@ -847,7 +847,7 @@ def _ticker():
 def public_home():
     """What a visitor sees before logging in."""
     tick = _ticker()
-    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": _feed_status(),
+    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": _feed_public(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
@@ -1217,7 +1217,7 @@ async def ws_endpoint(ws: WebSocket):
                 feed.unsubscribe(list(gone))
                 c.tokens -= gone
             elif msg.get("type") == "ping":
-                await ws.send_text(json.dumps({"type": "pong", "feed": _feed_status()}))
+                await ws.send_text(json.dumps({"type": "pong", "feed": _feed_public()}))
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -3008,7 +3008,20 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
 
 @app.get("/api/feed/status")
 def feed_status(user: User = Depends(current_user)):
-    return _feed_status()
+    return _feed_status() if user.is_admin else _feed_public()
+
+
+def _feed_public():
+    """What the user app needs from the feeds, and no more: is each group of markets connected, and the
+    dollar rate. The full status (who supplies the prices, status texts, the broker account, diagnostics) is
+    for the Master only; it used to go to every user's browser and, through the public home address, to
+    visitors without a login (19 Nov 2026). The screens never showed it."""
+    s = _feed_status()
+    out = {"connected": bool(s.get("connected")), "paused": bool(s.get("paused"))}
+    for k in ("crypto", "forex"):
+        if isinstance(s.get(k), dict):
+            out[k] = {"connected": s[k].get("connected"), "paused": s[k].get("paused"), "usdinr": s[k].get("usdinr")}
+    return out
 
 
 def _feed_status():

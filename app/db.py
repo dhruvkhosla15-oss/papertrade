@@ -105,6 +105,7 @@ class Position(Base):
     carried_week = Column(String(10))                       # week_end (Sunday, YYYY-MM-DD) of the last weekly valuation
     last_mark = Column(Float)                               # last exit-side price seen, kept across restarts
     last_mark_at = Column(DateTime)
+    last_vf = Column(Float)                                 # rupee value of one point on one unit when last seen (crypto / forex), see engine.pvf
     is_closed = Column(Boolean, default=False)
     opened_at = Column(DateTime, default=now)
     updated_at = Column(DateTime, default=now, onupdate=now)
@@ -250,6 +251,10 @@ def init_db():
             con.execute(text("ALTER TABLE positions ADD COLUMN carried_week VARCHAR(10)"))
             con.execute(text("ALTER TABLE positions ADD COLUMN last_mark FLOAT"))
             con.execute(text("ALTER TABLE positions ADD COLUMN last_mark_at DATETIME"))
+    pcols = {c["name"] for c in inspect(engine).get_columns("positions")}
+    if "last_vf" not in pcols:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE positions ADD COLUMN last_vf FLOAT"))
     ocols = {c["name"] for c in inspect(engine).get_columns("orders")}
     if "carry_note" not in ocols:
         with engine.begin() as con:

@@ -1329,9 +1329,21 @@ class Probe:
                 from . import market_calendar as _cal
                 moved, zero, differ, rep_bad = [], [], [], []
                 per_user = {}
+                novf, unlisted = [], set()
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.qty:
                         continue
+                    if p.exchange in ("CRYPTO", "FOREX"):
+                        # 19 Nov 2026: a crypto / forex position whose contract is missing from the list (restart
+                        # while that exchange cannot be reached) is valued with the rupee factor kept for it;
+                        # before, with 1, which showed a BTC loss ten times too big and squared off other positions
+                        _i = self.feed.instruments.get(p.token)
+                        _live = self.engine.vf(_i) if _i is not None else None
+                        _age = (datetime.utcnow() - p.opened_at).total_seconds() if p.opened_at else 9e9
+                        if _i is None:
+                            unlisted.add(p.symbol)
+                        elif _live and _live > 0 and _age > 240 and (not p.last_vf or abs(p.last_vf / _live - 1) > 0.05):
+                            novf.append(f"{p.symbol} kept {p.last_vf}, live {_live:g}")
                     d = self.engine.position_dict(p)
                     per_user[p.user_id] = per_user.get(p.user_id, 0.0) + (d["unrealised"] or 0.0)
                     shut = self.engine.at_close_price(p)
@@ -1341,6 +1353,10 @@ class Probe:
                         zero.append(p.symbol)                       # would be shown at 0 P&L
                 self.ok("positions in a shut market (night, weekend, holiday) are valued at their closing price", not moved, ", ".join(sorted(set(moved))[:8]))
                 self.ok("no open position is shown without a price (it would read as zero P&L)", not zero, ", ".join(sorted(set(zero))[:8]))
+                self.ok("every open crypto / forex position has its rupee value per point kept, equal to the live one (used if its contract list is missing after a restart)",
+                        not novf, "; ".join(novf[:6]))
+                if unlisted:
+                    self.note("crypto / forex positions whose contract is not in the contract list right now (valued with the kept rupee factor)", ", ".join(sorted(unlisted)[:8]))
                 rows = {r["username"]: r for r in (M._admin_rows(db) if M else [])}
                 tol = lambda a, b: abs((a or 0) - (b or 0)) <= max(1.0, 0.002 * abs(b or 0))      # prices tick between two reads
                 for u in users:

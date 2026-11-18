@@ -99,6 +99,9 @@ class Engine:
             self._pins.discard(t); self._und_pinned.discard(t); self._und_wait.pop(t, None)
         if gone:
             self.feed.unsubscribe(gone)
+        # ...and make sure everything that IS needed is streaming: a contract list that arrived late (crypto
+        # exchange or broker not reachable when the site started) could not be asked for at the start
+        self._pin(list(need))
         return len(gone)
 
     def set_event_callback(self, cb):
@@ -179,6 +182,21 @@ class Engine:
         """Rupee value of a 1.0 price move per unit qty (1.0 for NSE/BSE/MCX; contract size x USDINR for crypto)."""
         f = getattr(self.feed, "value_factor", None)
         return f(ins) if f else 1.0
+
+    def pvf(self, p) -> Optional[float]:
+        """Rupee factor for valuing an open position. Normally the contract's own (vf). A crypto or forex /
+        Global contract can be missing from the contract list for a while (the site restarted while that
+        exchange could not be reached): its factor is then not 1 (BTC: about 0.1, a dollar pair: about 94),
+        and valuing the position as if it were showed a loss ten times too big and squared off the
+        account's other positions (found 19 Nov 2026). Then: the factor last seen for this position
+        (kept with its closing price, weekly.remember_marks), or None = unknown, do not value it."""
+        ins = self.feed.instruments.get(p.token)
+        if ins is not None:
+            return self.vf(ins)
+        if p.exchange in ("CRYPTO", "FOREX"):
+            v = getattr(p, "last_vf", None)
+            return float(v) if v and v > 0 else None
+        return 1.0
 
     def market_open(self, exchange: str) -> bool:
         if not ENFORCE_MARKET_HOURS:
@@ -433,9 +451,10 @@ class Engine:
         unreal_m = 0.0        # the part that counts against Available Balance
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             mk = self.value_price(p)
-            if mk is not None:
+            pf = self.pvf(p) if mk is not None else None
+            if mk is not None and pf is not None:
                 ins = self.feed.instruments.get(p.token)
-                u = (mk - p.avg_price) * p.qty * self.vf(ins)
+                u = (mk - p.avg_price) * p.qty * pf
                 unreal += u
                 # A BOUGHT option's whole premium is already blocked as its margin, so normally it can never
                 # lose more than that: its running loss does not eat into Available Balance a second time.
@@ -1539,10 +1558,10 @@ class Engine:
         mk = self.value_price(p)
         if ltp is None and mk is not None:
             ltp = mk                                  # last price seen, shown while the exchange is shut
-        vf = self.vf(self.feed.instruments.get(p.token))
-        unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty) else 0.0
+        vf = self.pvf(p) or 0.0                        # 0 = contract not listed and no factor remembered: not valued
+        unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty and vf) else 0.0
         lev = None
-        if p.exchange in ("CRYPTO", "FOREX") and p.margin_blocked and mk:
+        if p.exchange in ("CRYPTO", "FOREX") and p.margin_blocked and mk and vf:
             lev = round(abs(p.qty) * mk * vf / p.margin_blocked)      # effective leverage of the position
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf, "leverage": lev,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),

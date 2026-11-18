@@ -167,6 +167,12 @@ def remember_marks(engine, db, only: Optional[list] = None) -> int:
     for p in (db.query(Position).filter_by(is_closed=False).all() if only is None else only):
         if not p.qty:
             continue
+        if p.exchange in ("CRYPTO", "FOREX"):
+            # what one point is worth in rupees, for the time the contract is missing from the list (engine.pvf)
+            _ins = engine.feed.instruments.get(p.token)
+            _f = engine.vf(_ins) if _ins is not None else None
+            if _f and _f > 0 and math.isfinite(_f) and p.last_vf != _f:
+                p.last_vf = float(_f); n += 1
         if p.last_mark is not None and engine.at_close_price(p):
             continue                      # market shut: the closing price stays as it is until it reopens
         mk = _exit_quote(engine, p)
@@ -228,7 +234,8 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
             if not p.qty:
                 continue
             ins = engine.feed.instruments.get(p.token)
-            vf = engine.vf(ins) if ins else 1.0
+            # a crypto / forex contract that is not in the contract list has no known rupee factor (it is not 1)
+            vf = engine.vf(ins) if ins else (0.0 if p.exchange in ("CRYPTO", "FOREX") else 1.0)
             px = close_price(engine, p)
             if px is None or not vf or vf <= 0:      # no price, or no rupee conversion rate: never book a guess
                 unpriced += 1
@@ -329,9 +336,10 @@ def running_row(engine, db, user: User) -> dict:
             continue
         ins = engine.feed.instruments.get(p.token)
         px = close_price(engine, p)
-        if px is None:
+        pf = engine.pvf(p)
+        if px is None or pf is None:
             unpriced += 1; continue
-        val = (px - p.avg_price) * p.qty * (engine.vf(ins) if ins else 1.0)
+        val = (px - p.avg_price) * p.qty * pf
         valuation += val; carried += 1
         if p.exchange in CRYPTO:
             valuation_crypto += val

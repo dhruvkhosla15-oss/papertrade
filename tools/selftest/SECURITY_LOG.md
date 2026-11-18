@@ -11,7 +11,27 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-Nothing open. (`security-fix/2026-11-16`, a carried bought option's loss beyond its blocked premium counts against
+No branch is waiting. Decisions and wishes put to the owner on 19 Nov 2026 (do not build without his word; do not
+repeat in the report once he has answered):
+- Limits for the high-leverage markets: at the top leverage a move of 0.2% (Forex, Global) or 0.5% (Crypto) is the
+  whole account and a gap leaves it owing many times its coins (see Risk, 19 Nov). Options: lower top leverage, a cap
+  on position value as a multiple of coins, lower leverage over a weekend / daily break. Currency: below zero on a
+  gap above about 3%.
+- The crypto auto square-off charge is 0.05% of position value (77,598 coins on a full-size position) against 50
+  flat elsewhere: intended?
+- On an expiry day the price-feed login must be done before 12:30 pm (Currency), 3:30 pm (NSE / BSE) and the MCX close.
+- Activity record: say WHAT changed (amount, setting old / new, which switch, freeze vs password reset); lines for
+  backup / Excel downloads and Master logins; keep a deleted user's coin history. The Master's two-step secret is
+  stored readable in the database and on-server backups.
+- No terms, risk note or privacy note; the app does not state plainly that trading is in coins (wording for him and
+  his lawyer).
+- The nine items of "What confuses a new user"; bigger tap areas for the Excel links, period pills, "+ Watchlist";
+  dashboard cards show our side while the tables show the users' side, unlabelled; more decimals in the weekly
+  ledger note for forex pairs; Indian commas in coins messages.
+- Whether the login should take the same time for unknown names; a limit on orders per second per account; whether
+  the hosting overwrites the visitor's address header and limits request size.
+- Whether Site health should count requests that crash.
+(`security-fix/2026-11-16`, a carried bought option's loss beyond its blocked premium counts against
 Available Balance, is on main since 16 Nov 2026 together with the owner's rule that a carried bought option blocks its
 whole carried value; `security-fix/2026-11-14` was put live on 14 Nov 2026, `security-fix/2026-11-12` on 12 Nov 2026.)
 
@@ -77,7 +97,22 @@ whole carried value; `security-fix/2026-11-14` was put live on 14 Nov 2026, `sec
   no contract that has already expired. `_offered`. (At 9:35 pm on an expiry day the day's contracts are still in
   the contract list, so the check bites on the live site.)
 
+- Logins (19 Nov 2026, widened): a login dated before the test account was created is refused (a deleted account's
+  login on the next account); a logged-out login stops working while the account's other login goes on. `_dead_logins`.
+- Oversized input (19 Nov 2026), as a visitor: a 1.5 MB request with and without its length declared, a login with a
+  5,000-letter name (refused and not remembered), the price socket's size rule. `_oversize`, area "Capacity".
+- Pending orders (19 Nov 2026): the test account's own limit is lowered to three for a moment; three far limit orders
+  rest on the crypto perpetual, the fourth must be refused. `_resting_cap`, `engine.resting_cap_for`.
+- Books (19 Nov 2026): every open crypto / forex position older than four minutes (and the site up five minutes) has
+  its rupee value per point kept and within 5% of the live one; a note lists positions whose contract is not listed.
+- `weekly_sim.py` (19 Nov 2026): "missing contract: …" (7 checks) and "late list: …" (2 checks).
+
 ## Normal-working checks added to `site_check.py` (private copy, real browser)
+- 19 Nov 2026 (ten; each belongs to a fix of that night): text typed by the Master is shown as text; Master user
+  panel on a phone keeps every button on the screen; a message arriving while a pop-up is open stays; watchlist names
+  on a 360-wide phone; an empty search says so; light-theme price flash; the index message; a long error text in
+  Site health; the Ledger Statement's top line adds up; after deleting the account that made the newest trade the
+  next order goes through. The "all-time Excel Net" comparison reads the Master's figure before and after.
 - 18 Nov 2026: search and the futures lists offer no expired contract (Indian date); the Master deletes an account
   that has been through a weekly cut-off; the next account created (same number) has no pop-up, no finished week, no
   position and no switch of the deleted one; the Site health rows show name and value apart. The NIFTY option the
@@ -86,7 +121,269 @@ whole carried value; `security-fix/2026-11-14` was put live on 14 Nov 2026, `sec
   the simulated prices paused, the Master's user panel shows the same Unrealised / Realised / Net P&L as the user's
   row on All Time and on Daily; All Time "Realised" is closed trades only (equal to the server's closed-trade figure).
 
+## Sweep matrix (started 19 Nov 2026)
+One row per family (market × order type × account state × market state) and the date it was last really attacked.
+Each night: the 5 fresh ideas, plus the 10 rows that have waited longest. Add a row when a feature appears.
+
+| # | Market | Order type | Account state | Market state | Last attacked |
+|---|---|---|---|---|---|
+| 1 | NSE future | market / exit | normal | open | 19 Nov |
+| 2 | NSE future | limit (marketable, far, double exit) | normal | open | 19 Nov |
+| 3 | NSE future | stop-loss | normal | open | 18 Nov |
+| 4 | NSE option (thin) | market, book depth | normal | open | 18 Nov |
+| 5 | NSE option | stop-loss opening a short | normal | open | 19 Nov |
+| 6 | NSE option | limit, remainder | normal | open | 18 Nov |
+| 7 | NSE any | any | normal | shut / first instant of session | 17 Nov |
+| 8 | NSE any | exit / new | normal | feed down / just back | 16 Nov |
+| 9 | NSE any | any | normal | expiry minute | 15 Nov |
+| 10 | NSE future | market | normal | weekly cut-off in the same instant | 19 Nov |
+| 11 | NSE option | resting limit | at the 200-contract limit | open | 19 Nov |
+| 12 | BSE future | market / exit / limit | normal | open | 19 Nov |
+| 13 | BSE future | stop-loss + entry resting | frozen | open | 19 Nov |
+| 14 | BSE option (thin) | market / limit | normal | open | 18 Nov |
+| 15 | BSE any | any | segment switched off | open | 15 Nov |
+| 16 | BSE any | any | normal | shut / first instant / feed down | 17 Nov |
+| 17 | MCX future | market / exit / limit | normal | open | 19 Nov |
+| 18 | MCX future | intraday, stop-loss, flip | normal | open | 19 Nov |
+| 19 | MCX option (thin) | market / limit / stop-loss | normal | open | 18 Nov |
+| 20 | MCX future | any | normal | expiry (closing price) | 15 Nov |
+| 21 | MCX any | intraday | normal | square-off time / session end | never |
+| 22 | MCX any | any | margin shortfall | open | daily check |
+| 23 | Currency future | market / exit / limit | normal | open | 19 Nov |
+| 24 | Currency future | market | normal | weekly cut-off in the same instant | 19 Nov |
+| 25 | Currency option (thin) | limit, remainder | normal | open | 18 Nov |
+| 26 | Currency any | any | normal | last day after 12:30 | 13 Nov |
+| 27 | Currency any | any | segment switched off | open | 15 Nov |
+| 28 | Crypto perpetual | market / exit / limit | normal | open | 19 Nov |
+| 29 | Crypto perpetual | thousands of resting limits | normal | open | 19 Nov |
+| 30 | Crypto perpetual | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
+| 31 | Crypto perpetual | leverage 1x then highest | normal | open | 14 Nov |
+| 32 | Crypto option | market / limit | normal | expiry time, delisting | 12 Nov |
+| 33 | Crypto any | market | normal | weekly cut-off in the same instant | 19 Nov |
+| 34 | Crypto any | any | carried position after a cut-off | open | 14 Nov |
+| 35 | Forex | market / exit / limit | normal | open | 19 Nov |
+| 36 | Forex | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
+| 37 | Forex | leverage mix | normal | open | 18 Nov |
+| 38 | Forex | any | normal | weekend / Monday opening | 17 Nov |
+| 39 | Forex | any | conversion rate missing | open | never |
+| 40 | Global | market / exit / limit | normal | open | 19 Nov |
+| 41 | Global | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
+| 42 | Global | resting orders | normal | daily break / holiday of one contract | 11 Nov |
+| 43 | Global | stop-loss + position | account deleted | open | 19 Nov |
+| 44 | Global | any | first login, password not yet changed | open | 19 Nov |
+| 45 | any | any | short of margin in the weekly grace time | Monday before noon | 14 Nov |
+| 46 | any | bought option | carried over a cut-off at a profit | open | 16 Nov |
+| 47 | any | exit bigger than the position | segment switched off | open | 15 Nov |
+| 48 | any | any | options-only-until-flat account | open | never |
+| 49 | any | order above the exchange position limit, several resting | normal | open | never |
+| 50 | any | intraday and overnight mixed at the fill | normal | open | 19 Nov |
+| 51 | any | automatic square-off | normal | first seconds of a session / feed silent | never |
+| 52 | any | two logins of one account at once | normal | open | 18 Nov |
+| 53 | Crypto / Forex | any | normal | contract list missing after a restart | 19 Nov (Price) |
+
+Next in line (never attacked, or oldest): 21, 39, 48, 49, 51, then 42, 32, 26, 34, 31. Rows 15, 27, 47, 48 need a
+copy started with the trading-access switches enforced (`PT_ACCESS_ALL=0`).
+
+## Nightly rotations (so the next night knows where to go on)
+- Technology alarm: job stopped (19 Nov) → next: disk low → backup bad → domain renewal.
+- Price feed state (P6): disconnected, reconnecting, silent (16 Nov), contract list not loaded (19 Nov) → next: slow.
+- UX pop-ups (U3): Master's message, access switch, install banner (19 Nov) → next: weekly settlement, shortfall, liquidation.
+- Load figures (100 users, 60 s, fresh copy): 19 Nov: screens 31 ms, orders 57–69 ms median (yesterday's code the
+  same night: 30–51 / 43–84).
+
+## What confuses a new user (started 19 Nov 2026; work down it)
+1. No Stop-loss or Target button on a position (the way is Add → SELL → Stop-loss), and the position card does not
+   show that a stop or target is resting.
+2. Exit bursts six small messages ("OPEN", "Order placed", "CANCELLED" twice, "FILLED", "filled").
+3. The index and stock "spot" rows come first in Market search although they cannot be traded (explained since 19 Nov).
+4. The ticket of a shut market looks ready to trade; "closed" is only in the pill at the top until BUY is pressed.
+5. Opening the chart from the ticket closes the ticket; closing the chart does not bring it back.
+6. Nothing tells a user when the Master switches a segment on or off.
+7. "Margin required ₹0 (netting)" on an exit.
+8. Coins messages use 219,252.46 while the screens use 2,19,252.
+9. The ticket shows "exp" with no date for an index.
+All of these are layout or feature changes: under "Waiting for the owner".
+
 ## Findings
+
+### 2026-11-19 (officers' nightly audit, first night in this form) — one account-takeover loophole, four other loopholes and eleven faults, all live tonight
+Self-test at the start: safety check 279 / 0, browser check 217 / 0, weekly simulation 6644 / 0, no server error.
+On tonight's code, twice: safety check 286 / 0, browser check 227 / 0, weekly simulation 6653 / 0, no server error.
+(The officers worked side by side, each on its own private copy; the results were merged and tested together.)
+
+#### Technology
+- Fresh copy starts with no server error; `/healthz` 200; Site health: all eight jobs running, backup opened and
+  passed its check. Alarm of the night (rotation: job stopped → disk low → backup bad → domain renewal): **job
+  stopped** forced in-process (square-off job silent for 500 s): Telegram line sent once, `/healthz` 503.
+- Forced restart in the middle of trading (six accounts ordering without pause, `kill -9`): back in 11 s; 437 answered
+  orders all in the books, none doubled (439 filled orders, each with exactly one trade), ledger = balance for every
+  account, integrity check and foreign keys clean.
+- Load, 100 users for 60 s on a fresh copy: LOAD RESULT OK, no server error. Yesterday's code: screens 30–51 ms
+  median, orders 43–84 ms. Tonight's code: screens 31–32 ms, orders 57–69 ms (one run of 154 / 224 ms was the
+  machine, not the code: repeated three times alternating with yesterday's code). The median on this machine swings
+  by a factor of two from run to run; compare several runs before calling it slower.
+- Data: a backup taken in the middle of trading holds every table and all 109 accounts and passes the integrity
+  check; 20 planted old backups pruned to 14, the newest kept; the encrypted copy opens with its password and with
+  no other (wrong / empty: refused); passwords are hashes in the database and the backup. Fastest-growing tables:
+  ledger, then orders / trades, shadow_fills; day_snaps grows by one row per account per day. Nothing is pruned.
+- Deploy risk: no new package, no new environment variable. One database change tonight (`positions.last_vf`,
+  nullable, added at start-up): proven by starting tonight's code on a database made by yesterday's code (109
+  accounts, 560 positions): starts clean, column added, a login made under yesterday's code still works.
+- Known weaknesses (`pip-audit`): three reports, all in one library that the price-feed client pins to an old
+  version; all three concern its use as a web-socket SERVER (redirect header; message size limit), which the site
+  never does. It cannot be upgraded on its own (the client pins it). Not a finding; re-check when the client moves.
+- Repository and history searched for real passwords, tokens, keys: none.
+- Seen by the UI officer, not changed: Site health "Server errors" and the "5 errors in 10 minutes" alarm do not
+  count a request that crashes (only lines the site's own code logs). Counting them would make the known
+  junk-input "500"s raise alarms; listed under Waiting.
+
+#### Security
+- **LOOPHOLE (account takeover), FIXED, live: a deleted account's login worked on the next account created.** A login
+  is a signed account number, and the database hands a deleted account's number out again. Proven over the API (the
+  deleted user's login answered as the newcomer) and in-process with two-step login enforced: a deleted trainee's
+  old login became the second Master login created next, set up its own two-step code and created an account with
+  99,999,999 coins. *Fix (auth.py `session_current`, `make_token`):* a login older than its account is refused. It
+  needed the Master to delete the newest account and create another while the old login was under 30 days old.
+  Whether it was used cannot be told from the books; a sign would be a Master login nobody recognises.
+- **WEAKNESS, FIXED, live: "Log out" did not end the login** (a copy worked for 30 days). Now recorded as ended
+  (`logout_<number>`, last 40) and refused, on the price socket too.
+- **LOOPHOLE (no login needed, breaks the site), FIXED, live: oversized input.** One 200 MB request took 560 MB of
+  memory; megabyte-long login names stayed in memory; four visitor sockets sending 9 MB messages slowed everyone.
+  Now: requests over 1 MB refused, a login name over 64 letters that belongs to no account is not counted, a socket
+  message over 64 KB ends that connection.
+- **LOOPHOLE (breaks the site for others), FIXED, live: no limit on pending orders** (open idea of 18 Nov, measured):
+  one account with 4,650 resting orders that kept sending more made other users' clicks take 0.4–2.7 s. Now 500
+  pending orders per account (`engine.MAX_RESTING_ORDERS`); market orders and Exit are not counted. After: 30–170 ms.
+- **FAULT, FIXED, live: text typed by the Master ran as script** (display name on four Master tables, coin note on
+  the user's Ledger). Now shown as text.
+- Tried, no hole: 80 orders at once at the 200-contract limit; a weekly cut-off in the middle of 96 market orders
+  (NSE, Currency, Crypto); resting stop and limit across a silent feed and a 1% gap (Crypto, Forex, Global); deleting
+  an account with positions and resting orders; a first-login account before its password change; frozen account on
+  BSE; three stop-loss sells opening short NIFTY options; intraday on MCX with an oversized stop and a flip.
+- Old attacks by hand in all seven markets (NSE, BSE, MCX, Currency, Crypto, Forex, Global): zero / negative / huge
+  lots, order bigger than the book, Exit x6, buy limit above the market: all held.
+- No-login sweep: 98 addresses, five methods each, as visitor and as user: only public pages, login, logout,
+  `/healthz` and the public home / pulse / maintenance / underlyings data answer a visitor. Wrong passwords lock a
+  name after 5 tries; same message for unknown user and wrong password; cookie HttpOnly, SameSite, Secure over
+  https; no framing; two-step cannot be skipped; a password change kills older logins; a visitor's socket gets
+  public prices only.
+- Sweep matrix started (below): 13 rows run tonight.
+
+#### Accounts
+- Eight accounts (seven markets with 8 carried positions and trades after the cut-off; sold option; no trades; brand
+  new; frozen; segment off; two auto-squared-off) plus three deleted ones, prices standing still: Master row,
+  dashboard in four periods, Weekly Settlement running and final, Performance, Shadow Book, the user's own figures
+  and every Excel file (user and Master; this week, last week, all time), and the database: 844 comparisons, 0
+  mismatches after the fix below; again with NSE / BSE / MCX / Currency shut: 844 / 0.
+- Commission by hand after setting unusual rates (futures 0.037%, options 0.11%, flat fee 7, crypto 0.045%, forex
+  0.0061%, auto square-off 33 flat / 0.07% crypto): nine trades in all markets agree with trade record, ledger and
+  the estimate before the order. Coins added / removed: one ledger line each, Allocated follows everywhere; after
+  the cut-off coins went back to Allocated. Frozen account stays in totals, marked; a deleted account leaves every
+  total by exactly its figures.
+- **FAULT, FIXED, live: after the Master deleted the account that made the newest trade, every NSE / BSE / MCX order
+  of every user failed ("500")** until a crypto / forex / currency trade used the number up: the deleted account's
+  Shadow Book line stayed behind and collided with the next trade's number. Reachable since 18 Nov (Delete works
+  again). *Fix:* the lines go with the account; a leftover line is replaced. Nothing was half-booked.
+- **FAULT, FIXED, live: the line above the Ledger Statement (Excel) did not add up after a cut-off with carried
+  positions** (weekly valuation counted under Realised and again under Unrealised). Realised there = closed trades.
+- The existing check "all-time Excel Net = the Master's figure" could fail when prices moved between its two
+  readings; it now reads the Master's figure before and after.
+
+#### Price
+- P1 fills in all seven markets: market orders at the live exit side, a limit never better than the book, refused
+  while shut, on a holiday (24 Nov), at a weekend, in a Global contract's break and in the opening second. P2: with
+  hours enforced and two restarts, every shut position sits on its closing price on every screen and in Excel, P&L
+  identical 25 s apart and after a restart. P3: carried at the week-close price, original average kept. P4
+  (in-process, stale last trades planted): currency at the spot rate, NIFTY / SENSEX futures at the index, crude
+  future at the exit side of the book, crude option against the middle of the future's book, BTC option at its own
+  time; expired contracts refuse orders. P5: one rupee factor per contract on ticket, user and Master screens;
+  remembered through 12 s of silence.
+- P6, state of the night (rotation: disconnected → silent → reconnecting → **contract list not loaded**): two faults.
+- **FAULT (takes coins), FIXED, live: a crypto or forex position whose contract is missing from the list was valued
+  as if one point were one rupee.** After a restart while the crypto exchange could not be reached, a BTC loss of
+  26,938 showed as 237,481, Available Balance went below zero and the account's NIFTY future was squared off with
+  the charge; the weekly cut-off would have booked it. *Fix:* `positions.last_vf` (kept once a minute),
+  `engine.pvf(p)`; unknown = not valued, left unpriced at the cut-off; the crypto list is retried every minute while
+  empty. With the contract listed every figure is worked out exactly as before.
+- **FAULT (wrong payout), FIXED, live: a contract reaching expiry while its exchange's contract list is not loaded
+  (no price-feed login yet that day) was settled at the previous day's close.** Now it waits for the list (one error
+  line in Site health). If the login only happens the next day it still settles at the last price seen.
+- Not exercised: stock futures at the cash price (simulation only).
+
+#### UI
+- N2: the new Master Settings list of waiting pop-ups and the error list (c8978fd) used for real at 1440, 820, 412
+  and 360 wide with none / one / many / day-old pop-ups and long texts: does what it says.
+- Every Master tab and user screen at 1440 and 412, prices live and markets shut; closely: Master Settings, Users
+  table and user panel on a phone, Weekly Settlement on a phone; user Positions (carried), Ledger, Watchlist,
+  search, pop-ups, sheets, install banner; 360 and 820; light and dark; every button on them pressed.
+- FAULTS FIXED, live: Master user panel on a phone hid "Delete" and the close button off the right edge; a long
+  error text ran off the Site health card; on a 360-wide phone a watchlist name ran under its price; in the light
+  theme a changing price flashed white on pale; three close buttons enlarged to 36 px.
+- Seen, not changed (design): see "Waiting for the owner".
+
+#### User experience
+- U1: brand-new user on a phone, every step from first login to logging in again: 0.1–2.1 s each, none over 3 s.
+- U2 refusals reworded (wording only): "NFO market is closed" → "The NSE market is closed right now — it opens again
+  today at 9:15 am"; "lots must be 1..500" → "Enter a number of lots between 1 and 500"; "limit_price required" /
+  "trigger_price required" → "Enter a limit price for a Limit order" / "Enter a trigger price for a Stop-loss
+  order"; "Order not open" → "This order is no longer open — it was already filled or cancelled"; "No remaining
+  counterparty quantity…" → "Nothing left to buy at the moment — the offers on the screen have already been taken;
+  wait a moment for new ones". Clear as they are: feed down, not enough coins, segment not activated, freeze
+  quantity, too many orders, leverage, price band, frozen account.
+- Dead ends closed: tapping BUY on an index itself now explains it cannot be traded and where to go; a search with
+  no match says so.
+- **FAULT, FIXED, live: a message that arrived while a pop-up was open was cleared unseen** by OK (a square-off
+  notice could be lost so). OK now clears only what that pop-up showed.
+- U3: Master's message pop-up once, right user only; install banner wording for both phones reads well; there is no
+  pop-up when the Master changes trading access (listed under Waiting).
+
+#### Compliance (housekeeping, not a legal opinion)
+- C1: a user never reaches a Master address; the two-step login cannot be skipped (password alone gives a 5-minute
+  pre-login refused everywhere); a second Master login behaves the same and his actions are recorded under his name;
+  no password or two-step secret in the server log or activity record. The two-step secret is stored readable in
+  the database and on-server backups (the off-server copy is encrypted).
+- C2: every changing Master action leaves a line (who, when, from where, which address). None for: backup download,
+  Excel downloads, looking at a user, Master logins. The line never says WHAT changed (amount, setting and old / new
+  value, which switch; freeze and password reset read the same). A deleted account's coin history goes with it.
+- **FAULT, FIXED, live: the activity list named the wrong user** for lines about a deleted account whose number was
+  given out again. Now "account since deleted".
+- C3: held: username, display name, password hash, two-step secret, balance, orders, trades, positions, ledger,
+  watchlist, weekly / day-start records, pop-up texts, access switches, Master name and address in the activity
+  record. No e-mail, phone or address. One user's data never in another's screens, files or socket. A deleted user
+  is gone from every table keyed by account.
+- **FAULT, FIXED, live: the full price-feed status (provider name, broker account number, diagnostics) went to every
+  user's browser and to visitors without login.** No screen showed it. Now Master only.
+- C4: charges before the order and in P&L match the Master's settings; no provider name on a user screen; nothing
+  promises profit. The app shows amounts with the rupee sign and does not state plainly that trading is in coins;
+  no terms, risk note or privacy note exist (Waiting).
+
+#### Risk
+- R1 (in-process, 1,000,000 coins, 80% used): on a slide the order is warning → shortfall message → square-off; on
+  a gap the warning is skipped; only the lots needed (NIFTY 10% gap: 1 of 3), worst loser first, one charge per
+  system order (a slide makes several orders). Bought options never go below zero.
+- Net Balance after a 10% gap against the position (10 lakh coins): NSE +450,628; BSE +356,707; MCX +357,326;
+  Currency −1,672,882; Crypto (200x) −15,134,681; Global (500x) −16,848,881; Forex (500x) −39,024,556. Smaller gaps:
+  Forex 0.5% → −1,034,629; Crypto 1% → −744,986; Global 1% → −796,593; Currency 5% → −342,573.
+- R2: thin book: one lot per pass, one charge each; stop-loss in a gap fills at the new bid; a market that opens 10%
+  lower closes 1 of 3 lots at the first price; shortfall after the cut-off (Sunday warning, Monday 9:15, noon) holds.
+- R3: largest position for 5,000,000 coins: NIFTY 22 lots (40M), crude 71 lots, USDINR 1,965 lots (166M), BTC 125,000
+  lots (937M, position limit), EURUSD 23,654 lots (2.5 billion), US500 250 lots (limit). All coins gone at a move of
+  12% (NSE / BSE), 8–16% (MCX), 3% (Currency), 0.5% (Crypto), 0.2% (Forex / Global). Many accounts on one side change
+  nothing for others except sharing the visible quantity of a thin book.
+- Also seen (Accounts): an account squared off far below zero is back at its Allocated coins after the weekly
+  cut-off (by design).
+
+#### Release
+- Independent reviewer (fresh, saw only the diff, the rules and D): **approved, nothing held.** Three points:
+  (1) the two price fixes change figures only when a contract list is missing, and the 500-pending-orders limit is
+  a new limit: the owner is told in the report; (2) an account with a login name over 64 letters would have been
+  locked out by the oversized-name rule: changed so that only names belonging to no account are turned away;
+  (3) the new "kept factor" books check could have failed in the first minute after a restart: it now waits five
+  minutes. Remarks kept for later: order reasons on the user's own Order Book are not escaped (server text only);
+  "Log out" remembers the last 40 per account; an expired position on an exchange whose list never loads waits.
+- More than five normal-working checks were added tonight (ten browser checks, one books check) because the owner's
+  rule of 18 Nov (every fix keeps its own check) outranks the nightly cap; each passed in three full runs.
+
 
 ### 2026-11-18 (nightly review) — one loophole fix (price socket) and four normal-working faults, all live tonight
 PART 1, normal working
@@ -428,6 +725,15 @@ PART 2, the hunt
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Orders at the same instant at the edge of the 200-contract limit (19 Nov 2026): exactly 200 held.
+- A weekly cut-off in the middle of a burst of market orders (19 Nov 2026): the books stay exact.
+- Resting stop / limit across a silent feed and a gap in Crypto, Forex, Global (19 Nov 2026): filled at the new prices.
+- Deleting an account that has resting orders and positions (19 Nov 2026): nothing left, no server error.
+- A stop-loss that opens a short option, several at once (19 Nov 2026): each reserves full margin.
+- A half-finished two-step login used as a session (19 Nov 2026): refused everywhere.
+- The "nearest future" as the underlying of MCX / Currency options after that future expired (19 Nov 2026, open idea
+  of 18 Nov): only Currency, 12:30–5 pm on the monthly expiry day; margin for a sold option 4,242 instead of 4,298
+  after a 2% move; no coins move on it.
 - A limit order bigger than what is offered at its price (18 Nov 2026): fills in parts, the rest keeps resting with
   its share of the reservation, never above the limit; cancelling the rest frees it. Nothing gained.
 - A stop-loss bigger than the position, then exit or flip (18 Nov 2026): after the exit the stop is cancelled; after a
@@ -470,6 +776,20 @@ PART 2, the hunt
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
+- (19 Nov 2026) The login answers in about 16 ms for a name that does not exist and about 330 ms for one that does.
+- (19 Nov 2026) A visitor who sets the forwarded-address header himself gets a fresh address each time on the private
+  copy, so the per-address login limit and turns do not hold him (the 5-tries-per-name lock does).
+- (19 Nov 2026) One login sending orders without pause (all refused) costs every other user about 50 ms per click.
+- (19 Nov 2026) Logins from before 19 Nov have no id: logging one out ends every login of that account made in the
+  same second. "Log out" remembers the last 40 per account.
+- (19 Nov 2026) Order reasons / carry notes on the user's own Order Book are not escaped (server-written text only).
+- (19 Nov 2026) With a contract unlisted, a bought crypto option's loss counts in full against Available Balance (the
+  instrument type is not known then); a new position with no kept factor is not valued until the list returns.
+- (19 Nov 2026) An option whose underlying has no price after the three-minute wait falls back to its own last
+  trade; a position whose expiry day passed with no feed login settles the next day at the last price seen; an
+  expired position on an exchange whose list never loads waits (one error line).
+- (19 Nov 2026) A new position value that depends on the contract must go through `engine.pvf(p)`, not `engine.vf`.
+- (Done 19 Nov 2026: resting orders on one contract, now 500 per account; the "nearest future" idea, see above.)
 - (18 Nov 2026) 200 contracts per account: fifteen accounts acting together could still hold 3,000 streams with real
   positions or resting orders. Accounts are created by the Master, so not pursued.
 - (18 Nov 2026) Resting orders on ONE contract are not limited in number; every price tick walks all of them. A few

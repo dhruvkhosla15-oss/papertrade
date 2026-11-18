@@ -593,3 +593,12 @@ the lock as before (db.expire_all()). iPhone install hint reworded (Share button
   A NEW per-account setting (`something_<uid>`) or table keyed by user must be added there, and a table with a
   foreign key to users must be deleted in `admin_delete_user` (or the delete fails again).
 
+
+## Owner's decisions, 18 Nov 2026 (do not raise again, do not change)
+- All Time "Unrealised" keeps the week-close result of a carried position even after that position is later
+  closed. The owner's reason: a position carried from Friday to Monday is not closed at the week-end, so the
+  week-close result is a valuation, not a realised trade; that is why the two are kept apart. This is DECIDED:
+  it is not a fault, do not move it under Realised, and do not list it under "Waiting for you" again.
+- Every loophole or fault that was ever fixed must keep its own check in the daily safety check (app/probe.py)
+  or the browser check (site_check.py), and those run in full every night and twice a day on the live site.
+  If you find a past fix in this log that has no check of its own, adding one is tonight's first job.

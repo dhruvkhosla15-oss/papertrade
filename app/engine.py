@@ -1482,11 +1482,24 @@ class Engine:
                     ut = und_of[ins.name]
                     if ut and ut in self.feed.instruments and ut not in self.feed._refcount:
                         self._pins.discard(ut); self._pin([ut])
+                listed = {i.exchange for i in self.feed.instruments.values()}
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.expiry:
                         continue
                     ins = self.feed.instruments.get(p.token)
                     if self.expired(ins, p.exchange, p.expiry, n):
+                        if ins is None and p.exchange not in ("CRYPTO", "FOREX") and p.exchange not in listed:
+                            # The contract list of this exchange is not loaded at all (the site restarted in
+                            # the night and the day's broker login has not been done). Without it the engine
+                            # knows neither the strike nor the underlying, and has seen no price today:
+                            # settling now would pay yesterday's closing price, whatever happened today (an
+                            # option that expired worthless was paid out at yesterday's premium, found
+                            # 19 Nov 2026). Wait for the list; with it the contract settles the usual way.
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s yet: today's %s contract list is not loaded (price feed login needed)",
+                                          p.symbol, p.user_id, p.exchange)
+                            continue
                         if ins is None and p.exchange in ("CRYPTO", "FOREX"):
                             # Without the contract we know neither its strike nor what one point is worth
                             # in rupees; settling anyway would use the last quote times 1 (ten times too

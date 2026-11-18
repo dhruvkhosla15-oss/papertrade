@@ -831,6 +831,27 @@ ok("missing contract: the weekly cut-off books nothing for it and leaves it as i
 feed.instruments[F_BTC] = _ins
 if _tick: feed.prices[F_BTC] = _tick
 
+# ---- an option reaches its expiry while the day's contract list is not loaded (19 Nov 2026) --------------
+# The site restarts every night; until the day's price-feed login there is no contract list. An option that
+# expired meanwhile was settled like a future, at the previous day's closing price: one that expired
+# worthless was paid out at yesterday's premium. Now it waits for the list and settles against the index.
+W13 = W12 + timedelta(days=7)
+O_LATE = 31; _exp = (W13 + timedelta(days=1)).isoformat()
+feed.instruments[O_LATE] = Instrument(O_LATE, "NIFTY28JAN30000CE", "NIFTY", "NFO", "NFO-OPT", "CE", _exp, 30000, 75, 0.05)
+at(day(W13, 0, 15)); feed.set(I_NIFTY, 30300); feed.set(F_NIFTY, 30300); feed.set(O_LATE, 400)
+trade("nolist", O_LATE, "BUY", 1); W.remember_marks(engine, db); db.expire_all()
+_lp = lambda: db.query(Position).filter_by(user_id=_u.id, token=O_LATE, is_closed=False).first()
+_bal = _u.balance
+_all, _px = dict(feed.instruments), dict(feed.prices)
+feed.instruments.clear(); feed.prices.clear()             # night restart, no login on the expiry day
+at(day(W13, 1, 15, 45)); asyncio.get_event_loop().run_until_complete(engine._settle_expired()); db.expire_all()
+ok("late list: an option is not settled while its exchange's contract list is not loaded", _lp() is not None and near(_u.balance, _bal, 0.01), f"balance {_u.balance} vs {_bal}")
+feed.instruments.update(_all); feed.prices.update(_px); feed.set(I_NIFTY, 29900)       # the login is done after the close: the index closed below the strike
+at(day(W13, 1, 16, 0)); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=_u.id, token=O_LATE).order_by(Trade.id.desc()).first()
+ok("late list: once the list is there it settles against the index (worthless), not at yesterday's premium", _lp() is None and _lt.price == 0.0 and near(_u.balance, _bal - 400.05 * 75, 1.0),
+   f"settled at {_lt.price}, balance {_u.balance}")
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

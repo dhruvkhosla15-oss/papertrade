@@ -663,6 +663,24 @@ def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admi
     return {"ok": True, "pending": len(_user_alerts(db, u))}
 
 
+@app.get("/api/admin/alerts")
+def admin_alerts_waiting(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Read-only: the pop-ups every user has not pressed OK on yet, oldest first, with how long each has
+    been waiting. Nothing is changed or cleared by looking."""
+    out, now = [], time.time()
+    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
+        for a in _user_alerts(db, u):
+            try:
+                secs = max(0.0, now - int(a.get("id")) / 1000)
+            except Exception:
+                secs = None
+            out.append({"user_id": u.id, "username": u.username, "display_name": u.display_name,
+                        "title": str(a.get("title") or "")[:60], "at": str(a.get("text") or "").split("\n")[0][:30],
+                        "hours": round(secs / 3600, 1) if secs is not None else None})
+    out.sort(key=lambda x: -(x["hours"] or 0))
+    return out
+
+
 @app.post("/api/alerts/ack")
 def ack_alerts(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """The user pressed OK on the pop-up: their pending alerts (e.g. 'Position liquidated') are cleared."""
@@ -1840,6 +1858,9 @@ def _health() -> dict:
         "disk": _wd.disk(config.DATA_DIR), "db_mb": round(f.stat().st_size / 1e6, 1) if f and f.exists() else None,
         "errors_hour": len(_wd.errors_since(3600)), "errors_day": len(_wd.errors_since(86400)),
         "last_error": (lambda e: {"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]} if e else None)(_wd._errors[-1] if _wd._errors else None),
+        # every error of the last 24 hours, newest first (kept in memory: the list starts again after a restart)
+        "errors": [{"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]}
+                   for e in reversed(_wd.errors_since(86400))][:100],
         "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
                    "offsite_on": _tg_ready(), "offsite_last": off.get("sent"), "offsite_opens": off.get("opens"), "offsite_error": off.get("error") or ""},
         "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),

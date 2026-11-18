@@ -159,6 +159,7 @@ def main():
                                  ("Master: summary", A, "/api/admin/summary.xlsx")):
             wb = xl(req, path)
             ok(f"Excel: {label} downloads and opens", wb is not None and len(wb.sheetnames) >= 1, path)
+        _b = next((x for x in aget("/api/admin/report").get("users", []) if x["username"] == "sitecheck"), {}).get("total_pnl")
         wb = xl(U, "/api/export.xlsx")
         if wb is not None:
             need = ["Order Book", "P&L Statement", "Summary", "Daily Net P&L", "Weekly Settlement", "Open Positions", "Ledger Statement"]
@@ -169,10 +170,25 @@ def main():
                bool(tot) and near(tot[8] + tot[9] + tot[10], tot[11], 0.05), str(tot))
             a = aget(f"/api/admin/report")
             au = next((x for x in a.get("users", []) if x["username"] == "sitecheck"), {})
-            ok("Excel: all-time Net P&L (Settlement) = the Master's all-time figure for the user", bool(tot) and near(tot[11], au.get("total_pnl"), max(60.0, abs(au.get("total_pnl", 0)) * 0.01)), f"{tot and tot[11]} vs {au.get('total_pnl')}")
+            # prices keep moving while the file is built: the Master's figure is read right before and right after it,
+            # and the file must lie between the two (it failed now and then on a busy machine with one reading only)
+            _a = au.get("total_pnl"); _lo, _hi = (min(_a, _b), max(_a, _b)) if None not in (_a, _b) else (0, 0)
+            _tol = max(60.0, abs(_a or 0) * 0.01)
+            ok("Excel: all-time Net P&L (Settlement) = the Master's all-time figure for the user", bool(tot) and None not in (_a, _b) and _lo - _tol <= tot[11] <= _hi + _tol, f"{tot and tot[11]} vs {_b} before / {_a} after")
             _, lrow = sheet_rows(wb, "Ledger Statement")
             body = [x for x in lrow if x[2] != "Closing Balance" and isinstance(x[3], (int, float))]
             ok("Excel: ledger balances run on without a gap", all(near(y[4], x[4] + y[3], 0.011) for x, y in zip(body, body[1:])))
+            # the line above the ledger: Realised + Unrealised (Open Positions) + Commission = NET P&L (SETTLEMENT), with
+            # Realised = closed trades as on the P&L sheet (the weekly valuation of positions still open used to be
+            # counted under Realised AND under Unrealised, so the line did not add up after a cut-off)
+            head = next((c.value for r in wb["Ledger Statement"].iter_rows(min_row=1, max_row=4) for c in r if isinstance(c.value, str) and "NET P&L (SETTLEMENT)" in c.value), "")
+
+            def _hv(label):
+                m = re.search(re.escape(label) + r"\s*([-+−]?[\d,]+(?:\.\d+)?)", head)
+                return float(m.group(1).replace(",", "").replace("−", "-")) if m else None
+            hr, hu, hc, hn = _hv("Realised"), _hv("Unrealised (Open Positions)"), _hv("Commission"), _hv("NET P&L (SETTLEMENT)")
+            ok("Excel: the Ledger Statement's top line adds up and its Realised is the P&L sheet's Realised",
+               None not in (hr, hu, hc, hn) and near(hr + hu + hc, hn, 0.03) and bool(tot) and near(hr, tot[8], 0.03), head[:260])
             _, wrow = sheet_rows(wb, "Weekly Settlement")
             ok("Excel: Weekly Settlement sheet has the final week with the same result", any(x[1] == "FINAL" and near(x[5], fin.get("result"), 0.02) for x in wrow), str(wrow[:2]))
         if we:
@@ -309,7 +325,26 @@ def main():
         ok("Master: a new account inherits nothing from a deleted one (no pop-up, no finished week, no positions)",
            bool(nid) and not nme.get("alerts") and not nwk.get("weeks") and near(nme["funds"]["balance"], 100000) and not N.get(f"{B}/api/positions").json()
            and not aget(f"/api/admin/access?uid={nid}").get("overrides"), f"id {lid}->{nid} alerts {nme.get('alerts')} weeks {nwk.get('weeks')}")
+        # The next order after the Master deletes the account that made the newest trade: that trade's number is
+        # handed out again, and its Shadow Book line used to stay behind and block the new trade: every NSE / BSE /
+        # MCX order of every user failed with a server error until a crypto / forex / currency trade used the number up.
+        def _try(req, side):
+            st = 0
+            for _ in range(5):
+                try:
+                    st = req.post(f"{B}/api/orders", data={"token": fut["token"], "side": side, "lots": 1}).status
+                except Exception:
+                    st = 599             # the server dropped the connection after its error
+                if st in (200, 500, 599):
+                    break
+                time.sleep(1.2)          # "no live price yet" right after the simulated prices were switched on again
+            return st
+        apost(f"/api/admin/users/{nid}/coins", {"amount": 900000, "note": "margin for one lot"})
+        s_new = _try(N, "BUY"); time.sleep(0.5)
         A.delete(f"{B}/api/admin/users/{nid}"); nctx.close()
+        s_buy = _try(U, "BUY"); s_sell = _try(U, "SELL")
+        ok("Master: after deleting the account that made the newest trade, the next order on the site still goes through",
+           (s_new, s_buy, s_sell) == (200, 200, 200), f"newcomer's order {s_new}, then the user's BUY {s_buy} and SELL {s_sell}")
 
         # Site health card: the name and the value of every row stand apart (they ran together: "Domain name limefx.invalid until ...")
         ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())

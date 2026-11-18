@@ -600,7 +600,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     except Exception:
         log.exception("week warning")
     return {"access": {"rows": [{"name": n, "fut": f, "opt": o} for n, f, o in _access.ROWS], "on": _access.effective(db, user)},
-            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status(),
+            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status() if user.is_admin else _feed_public(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}
@@ -884,7 +884,7 @@ def _ticker():
 def public_home():
     """What a visitor sees before logging in."""
     tick = _ticker()
-    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": _feed_status(),
+    return {"watchlist": [i.to_dict() for i in _default_watch_instruments()], "ticker": tick, "feed": _feed_public(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)()}
 
@@ -1268,7 +1268,7 @@ async def ws_endpoint(ws: WebSocket):
                 feed.unsubscribe(list(gone))
                 c.tokens -= gone
             elif msg.get("type") == "ping":
-                await ws.send_text(json.dumps({"type": "pong", "feed": _feed_status()}))
+                await ws.send_text(json.dumps({"type": "pong", "feed": _feed_public()}))
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -2197,13 +2197,19 @@ def admin_backups(admin: User = Depends(current_admin)):
 @app.get("/api/admin/audit")
 def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     from .db import AdminLog
-    names = {u.id: u.username for u in db.query(User).all()}
+    names = {u.id: (u.username, u.created_at) for u in db.query(User).all()}
 
-    def nice(a: str) -> str:
+    def nice(a: str, at) -> str:
+        # The number of a deleted account is handed out again: a line is only about the account that holds
+        # the number today if that account already existed when the line was written. Otherwise the line
+        # is about an account deleted since (it used to be shown under the newcomer's name).
         import re as _re
         m = _re.search(r"/users/(\d+)", a)
-        return a + (f"  ({names.get(int(m.group(1)), '?')})" if m else "")
-    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action), "ip": r.ip}
+        if not m:
+            return a
+        nm, born = names.get(int(m.group(1)), (None, None))
+        return a + (f"  ({nm})" if nm and (not born or not at or at >= born) else "  (account since deleted)")
+    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action, r.created_at), "ip": r.ip}
             for r in db.query(AdminLog).order_by(AdminLog.id.desc()).limit(200)]
 
 
@@ -2293,6 +2299,10 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404)
+    # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
+    # blocked the next trade on the site, which is given the same number (19 Nov 2026)
+    from .db import ShadowFill
+    db.query(ShadowFill).filter(ShadowFill.trade_id.in_(db.query(Trade.id).filter_by(user_id=uid))).delete(synchronize_session=False)
     db.query(Trade).filter_by(user_id=uid).delete()
     db.query(Ledger).filter_by(user_id=uid).delete()
     db.query(Watch).filter_by(user_id=uid).delete()
@@ -2743,7 +2753,10 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
                   "Auto Square-off Charge" if (l.note or "").startswith("Auto square-off charge") else "Auto Square-off" if (l.note or "").startswith("Auto square-off") else kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
-        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION", "WEEKLY_SETTLEMENT")), 2)
+        # Realised = closed trades, as on every other sheet. The weekly valuation of positions still open is not a
+        # closed trade and is already inside "Unrealised (Open Positions)" below: counted here as well, the three
+        # parts of this line did not add up to its NET P&L for any period holding a cut-off with carried positions.
+        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION", "WEEKLY_SETTLEMENT", "WEEKLY_VALUATION")), 2)
         cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
         wset = round(sum(l.amount for l in led if l.kind == "WEEKLY_SETTLEMENT"), 2)
         closing = (led[-1].balance_after if led else opening) if not many else None
@@ -3048,7 +3061,20 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
 
 @app.get("/api/feed/status")
 def feed_status(user: User = Depends(current_user)):
-    return _feed_status()
+    return _feed_status() if user.is_admin else _feed_public()
+
+
+def _feed_public():
+    """What the user app needs from the feeds, and no more: is each group of markets connected, and the
+    dollar rate. The full status (who supplies the prices, status texts, the broker account, diagnostics) is
+    for the Master only; it used to go to every user's browser and, through the public home address, to
+    visitors without a login (19 Nov 2026). The screens never showed it."""
+    s = _feed_status()
+    out = {"connected": bool(s.get("connected")), "paused": bool(s.get("paused"))}
+    for k in ("crypto", "forex"):
+        if isinstance(s.get(k), dict):
+            out[k] = {"connected": s[k].get("connected"), "paused": s[k].get("paused"), "usdinr": s[k].get("usdinr")}
+    return out
 
 
 def _feed_status():

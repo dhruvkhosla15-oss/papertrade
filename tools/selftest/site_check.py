@@ -319,6 +319,32 @@ def main():
         ok("Master Settings: site health rows show the name and the value apart", len(gaps) >= 14 and min(gaps) >= 8, f"smallest gap {min(gaps) if gaps else None}px")
         ctx.close()
 
+        # Text typed by the Master (a user's display name, the note on coins) is shown as text, never run as part of the
+        # page (19 Nov 2026: a name with markup in it ran as script on the Master's Performance tab, a coin note on the
+        # user's Ledger tab)
+        mark = '<img src=x onerror="window.__x=(window.__x||0)+1">'
+        A.post(f"{B}/api/admin/users", data={"username": "sitemark", "password": "Mark@12345", "display_name": mark, "initial_coins": 1000})
+        mk = next((x for x in aget("/api/admin/users") if x.get("username") == "sitemark"), {})
+        A.post(f"{B}/api/admin/users/{mk.get('id')}/coins", data={"amount": 5, "note": mark})
+        ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+        for nav in ("perf", "shadow", "settings", "weekly", "trainees"):
+            page.evaluate("(n) => document.querySelector(`[data-nav=\"${n}\"]`).click()", nav); page.wait_for_timeout(1500)
+        page.evaluate("(() => { const r = [...document.querySelectorAll('tr.clickable')].find(x => x.textContent.includes('sitemark')); if (r) r.click(); })()"); page.wait_for_timeout(2500)
+        ran_m = page.evaluate("[window.__x || 0, document.querySelectorAll('img[src=x]').length]")
+        ctx.close()
+        mctx = br.new_context(viewport={"width": 412, "height": 900}); M = mctx.request
+        M.post(f"{B}/api/login", data={"username": "sitemark", "password": "Mark@12345"})
+        M.post(f"{B}/api/password", data={"old_password": "Mark@12345", "new_password": "Mark@67890"})
+        page = mctx.new_page(); page.goto(f"{B}/"); page.wait_for_timeout(4000)
+        page.evaluate("(async () => { try { if (typeof loadLedger === 'function') await loadLedger(); } catch (e) {} })()"); page.wait_for_timeout(1500)
+        ran_u = page.evaluate("[window.__x || 0, document.querySelectorAll('img[src=x]').length, (document.querySelector('#ledTbl')?.textContent || '').includes('onerror')]")
+        mctx.close()
+        ok("Text typed by the Master (display name, coin note) is shown as text, not run by the Master's or the user's page",
+           bool(mk.get("id")) and ran_m == [0, 0] and ran_u[:2] == [0, 0] and ran_u[2] is True, f"Master page {ran_m}, user page {ran_u}")
+        if mk.get("id"):
+            A.delete(f"{B}/api/admin/users/{mk['id']}")
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

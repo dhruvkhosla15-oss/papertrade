@@ -406,9 +406,10 @@ class LoginIn(BaseModel):
 @app.post("/api/login")
 def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
-    if len(uname) > 64:
-        # no account has a longer name. Not counted as a wrong try: the counters are kept by name, and a
-        # visitor sending megabyte-long names filled the server's memory with them (19 Nov 2026)
+    if len(uname) > 64 and not db.query(User.id).filter_by(username=uname).first():
+        # a name this long that belongs to no account. Not counted as a wrong try: the counters are kept by
+        # name, and a visitor sending megabyte-long names filled the server's memory with them (19 Nov 2026).
+        # (An account that really has such a name logs in the usual way.)
         raise HTTPException(401, "Wrong username or password")
     # a device that has logged in to this account before answers only for its own wrong tries
     keys = (_user_key(request, uname),) if _known_device(request, uname) else (_user_key(request, uname), "ip:" + _client_ip(request)[:64])

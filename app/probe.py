@@ -1461,11 +1461,12 @@ class Probe:
                         # while that exchange cannot be reached) is valued with the rupee factor kept for it;
                         # before, with 1, which showed a BTC loss ten times too big and squared off other positions
                         _i = self.feed.instruments.get(p.token)
+                        _up = time.time() - _wd.STARTED       # the factor is first kept a minute after a restart
                         _live = self.engine.vf(_i) if _i is not None else None
                         _age = (datetime.utcnow() - p.opened_at).total_seconds() if p.opened_at else 9e9
                         if _i is None:
                             unlisted.add(p.symbol)
-                        elif _live and _live > 0 and _age > 240 and (not p.last_vf or abs(p.last_vf / _live - 1) > 0.05):
+                        elif _live and _live > 0 and _age > 240 and _up > 300 and (not p.last_vf or abs(p.last_vf / _live - 1) > 0.05):
                             novf.append(f"{p.symbol} kept {p.last_vf}, live {_live:g}")
                     d = self.engine.position_dict(p)
                     per_user[p.user_id] = per_user.get(p.user_id, 0.0) + (d["unrealised"] or 0.0)

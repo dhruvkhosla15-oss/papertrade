@@ -67,6 +67,8 @@ class SimFeed(PriceFeed):
         pass
 
     def value_factor(self, ins):
+        if ins is None:                                   # like the real feeds: a contract that is not listed counts as 1
+            return 1.0
         return ins.multiplier * self.usdinr if ins.exchange == "CRYPTO" else 1.0
 
 
@@ -791,6 +793,64 @@ ok("carried option: closing it releases the margin", engine.funds(db, users["opt
 at(day(W11, 6, 20)); px(ce=2000); close(SUN(W11)); db.expire_all()
 if opos("optsmall"):
     ok("carried option: after a losing week the blocked margin comes down to the new carried value", near(opos("optsmall").margin_blocked, opos("optsmall").avg_price * 75, 0.02), str(opos("optsmall").margin_blocked))
+
+# ---- a crypto contract that is missing from the contract list (19 Nov 2026) -----------------------------
+# The site restarted while the crypto exchange could not be reached: no crypto contract list. A position on
+# such a contract was valued as if one point were worth one rupee (BTC: about ten times too much); the
+# invented loss squared off the account's OTHER positions, and the weekly cut-off would have booked it.
+W12 = W11 + timedelta(days=7)
+at(day(W12, 1, 11)); px(nifty=30000, btc=90000)
+mk_user("nolist", 600_000); results[users["nolist"].id] = 0.0
+trade("nolist", F_BTC, "BUY", 200); trade("nolist", F_NIFTY, "BUY", 1)
+px(btc=85500)                                             # a real loss the coins cover easily; closing price and rupee factor are kept
+_u = users["nolist"]; db.expire_all()
+f0 = engine.funds(db, _u)
+_bp = lambda: db.query(Position).filter_by(user_id=_u.id, token=F_BTC, is_closed=False).first()
+_np = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=_u.id, token=F_NIFTY, is_closed=False))
+ok("missing contract: the rupee factor of a crypto position is kept with its closing price", near(_bp().last_vf or 0, engine.vf(feed.instruments[F_BTC]), 1e-9), str(_bp().last_vf))
+_ins = feed.instruments.pop(F_BTC); _tick = feed.prices.pop(F_BTC, None)        # restart without the crypto contract list
+db.expire_all(); f1 = engine.funds(db, _u)
+ok("missing contract: the position is valued as before, not with a rupee factor of 1", near(f1["unrealised"], f0["unrealised"], 1.0) and not f1["margin_short"],
+   f"{f1['unrealised']} vs {f0['unrealised']}")
+ok("missing contract: the position screen shows the same figure", near(engine.position_dict(_bp())["unrealised"], (_bp().last_mark - _bp().avg_price) * _bp().qty * _bp().last_vf, 0.02))
+run(engine._check_liquidations()); db.expire_all()
+ok("missing contract: no other position of the account is squared off for an invented loss", _np() == 75 and _bp().qty == 200, f"nifty {_np()}")
+_keep = _bp().last_vf; _bp().last_vf = None; db.commit(); db.expire_all()     # opened seconds before the restart: no factor kept yet
+f2 = engine.funds(db, _u)
+ok("missing contract: without a remembered factor the position is not valued at all (never a guess)",
+   near(f2["unrealised"], f0["unrealised"] - (_bp().last_mark - _bp().avg_price) * 200 * _keep, 1.0) and engine.position_dict(_bp())["unrealised"] == 0.0 and W.running_row(engine, db, _u)["unpriced"] == 1, str(f2))
+run(engine._check_liquidations()); db.expire_all()
+ok("missing contract: and still nothing is squared off", _np() == 75 and _bp().qty == 200)
+_bp().last_vf = _keep; db.commit()
+_avg = _bp().avg_price
+at(datetime.combine(SUN(W12), datetime.max.time()).replace(microsecond=0))
+W.close_week(engine, db, SUN(W12)); db.commit(); db.expire_all()
+_r = db.query(WeekSettlement).filter_by(week_end=SUN(W12).isoformat(), user_id=_u.id).first()
+ok("missing contract: the weekly cut-off books nothing for it and leaves it as it is", _r is not None and _r.unpriced == 1 and _bp().avg_price == _avg and _bp().carried_week is None,
+   f"unpriced {_r.unpriced if _r else None}, avg {_bp().avg_price} vs {_avg}")
+feed.instruments[F_BTC] = _ins
+if _tick: feed.prices[F_BTC] = _tick
+
+# ---- an option reaches its expiry while the day's contract list is not loaded (19 Nov 2026) --------------
+# The site restarts every night; until the day's price-feed login there is no contract list. An option that
+# expired meanwhile was settled like a future, at the previous day's closing price: one that expired
+# worthless was paid out at yesterday's premium. Now it waits for the list and settles against the index.
+W13 = W12 + timedelta(days=7)
+O_LATE = 31; _exp = (W13 + timedelta(days=1)).isoformat()
+feed.instruments[O_LATE] = Instrument(O_LATE, "NIFTY28JAN30000CE", "NIFTY", "NFO", "NFO-OPT", "CE", _exp, 30000, 75, 0.05)
+at(day(W13, 0, 15)); feed.set(I_NIFTY, 30300); feed.set(F_NIFTY, 30300); feed.set(O_LATE, 400)
+trade("nolist", O_LATE, "BUY", 1); W.remember_marks(engine, db); db.expire_all()
+_lp = lambda: db.query(Position).filter_by(user_id=_u.id, token=O_LATE, is_closed=False).first()
+_bal = _u.balance
+_all, _px = dict(feed.instruments), dict(feed.prices)
+feed.instruments.clear(); feed.prices.clear()             # night restart, no login on the expiry day
+at(day(W13, 1, 15, 45)); asyncio.get_event_loop().run_until_complete(engine._settle_expired()); db.expire_all()
+ok("late list: an option is not settled while its exchange's contract list is not loaded", _lp() is not None and near(_u.balance, _bal, 0.01), f"balance {_u.balance} vs {_bal}")
+feed.instruments.update(_all); feed.prices.update(_px); feed.set(I_NIFTY, 29900)       # the login is done after the close: the index closed below the strike
+at(day(W13, 1, 16, 0)); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=_u.id, token=O_LATE).order_by(Trade.id.desc()).first()
+ok("late list: once the list is there it settles against the index (worthless), not at yesterday's premium", _lp() is None and _lt.price == 0.0 and near(_u.balance, _bal - 400.05 * 75, 1.0),
+   f"settled at {_lt.price}, balance {_u.balance}")
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

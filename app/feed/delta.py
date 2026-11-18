@@ -293,11 +293,15 @@ class DeltaCrypto:
 
     async def _refresh_loop(self):
         while True:
-            await asyncio.sleep(3600)
+            # no list at all (the exchange could not be reached when the site started): try again every
+            # minute, not once an hour; until it is there no crypto contract can be traded or streamed
+            await asyncio.sleep(3600 if self.items else 60)
             try:
                 old = set(self.items)
                 await self._loop.run_in_executor(None, self.refresh_products)
                 new = set(self.items) - old
+                if not old and self.items:
+                    self.feed.pin([t for t, i in self.items.items() if i.instrument_type == "FUT"])   # as start() does
                 if new and self._ws:
                     pass  # new expiries get subscribed when someone opens them
             except Exception as e:

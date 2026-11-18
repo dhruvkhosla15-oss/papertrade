@@ -2240,6 +2240,10 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404)
+    # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
+    # blocked the next trade on the site, which is given the same number (19 Nov 2026)
+    from .db import ShadowFill
+    db.query(ShadowFill).filter(ShadowFill.trade_id.in_(db.query(Trade.id).filter_by(user_id=uid))).delete(synchronize_session=False)
     db.query(Trade).filter_by(user_id=uid).delete()
     db.query(Ledger).filter_by(user_id=uid).delete()
     db.query(Watch).filter_by(user_id=uid).delete()
@@ -2690,7 +2694,10 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
                   "Auto Square-off Charge" if (l.note or "").startswith("Auto square-off charge") else "Auto Square-off" if (l.note or "").startswith("Auto square-off") else kinds.get(l.kind, l.kind),
                   l.amount, l.balance_after, l.note] for l in led]
         cr = round(sum(l.amount for l in led if l.kind == "ADMIN_CREDIT"), 2); dr = round(sum(l.amount for l in led if l.kind == "ADMIN_DEBIT"), 2)
-        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION", "WEEKLY_SETTLEMENT")), 2)
+        # Realised = closed trades, as on every other sheet. The weekly valuation of positions still open is not a
+        # closed trade and is already inside "Unrealised (Open Positions)" below: counted here as well, the three
+        # parts of this line did not add up to its NET P&L for any period holding a cut-off with carried positions.
+        pnl = round(sum(l.amount for l in led if l.kind not in ("ADMIN_CREDIT", "ADMIN_DEBIT", "COMMISSION", "WEEKLY_SETTLEMENT", "WEEKLY_VALUATION")), 2)
         cmm = round(sum(l.amount for l in led if l.kind == "COMMISSION"), 2)
         wset = round(sum(l.amount for l in led if l.kind == "WEEKLY_SETTLEMENT"), 2)
         closing = (led[-1].balance_after if led else opening) if not many else None

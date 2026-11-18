@@ -1201,6 +1201,10 @@ class Engine:
                 return
             db.flush()
             from .db import ShadowFill
+            # The database hands the number of a deleted account's newest trade out again, and that trade's
+            # line here used to stay behind: the next trade then got the same number, this line could not be
+            # stored and the whole ORDER failed ("500"), for every user, again and again (19 Nov 2026).
+            db.query(ShadowFill).filter_by(trade_id=tr.id).delete()
             db.add(ShadowFill(trade_id=tr.id, side=ours, price=round(px, 4), bid=t.get("bid"), ask=t.get("ask"), basis=basis))
         except Exception:
             log.exception("shadow fill record failed (ignored)")

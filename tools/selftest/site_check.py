@@ -319,6 +319,34 @@ def main():
         ok("Master Settings: site health rows show the name and the value apart", len(gaps) >= 14 and min(gaps) >= 8, f"smallest gap {min(gaps) if gaps else None}px")
         ctx.close()
 
+        # Master's user panel on a phone: Delete and the close button used to sit off the right edge of the screen
+        # (the row of buttons did not wrap), so the panel could only be left by scrolling it sideways.
+        ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+        page.evaluate("(id) => openDetail(id)", uid); page.wait_for_timeout(2500)
+        off = page.evaluate("""() => { const box = document.querySelector('#detail .box');
+            const out = [...box.querySelectorAll(':scope > .row button')].filter(b => !b.classList.contains('hidden') && b.getBoundingClientRect().right > window.innerWidth).map(b => b.textContent.trim());
+            if (box.scrollWidth > box.clientWidth + 2) out.push('panel scrolls sideways'); return out; }""")
+        ok("Master (phone) user panel: every button, the close button included, is on the screen", not off, off)
+        ctx.close()
+
+        # A message that arrives while a pop-up is still on the screen must not be cleared unseen when OK is
+        # pressed on the first one (OK used to clear everything waiting, shown or not).
+        A.post(f"{B}/api/admin/users/{uid}/alert", data={"title": "First note", "text": "shown now"})
+        ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(uctx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/")
+        for _ in range(40):
+            page.wait_for_timeout(500)
+            if page.evaluate("!!document.querySelector('.mpop button')"):
+                break
+        seen = page.evaluate("(document.querySelector('.mpop') || {}).innerText || ''")
+        A.post(f"{B}/api/admin/users/{uid}/alert", data={"title": "Second note", "text": "arrived while the first was open"})
+        page.evaluate("(() => { const b = document.querySelector('.mpop button'); if (b) b.click(); })()"); page.wait_for_timeout(2000)
+        left = [a.get("title") for a in (uget("/api/me").get("alerts") or [])]
+        ok("User: a message that arrives while a pop-up is open stays until it has been shown itself",
+           "First note" in seen and left == ["Second note"], f"shown {seen[:80]!r}, still waiting {left}")
+        U.post(f"{B}/api/alerts/ack"); ctx.close()
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

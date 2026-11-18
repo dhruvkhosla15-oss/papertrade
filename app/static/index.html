@@ -173,7 +173,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .pwa{position:fixed;left:12px;right:12px;max-width:440px;margin:0 auto;bottom:calc(74px + env(safe-area-inset-bottom));z-index:15;background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 .pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
 .pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
-.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0}
+.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0;min-width:36px;min-height:36px;margin-right:-8px}
 .bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
@@ -678,7 +678,7 @@ async function refreshFunds(){try{const m=await api('/me');state.me=m;state.mark
 function showAlerts(list){if(!list||!list.length||document.querySelector('.mpop'))return;
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';
   d.innerHTML=`<div class="box" style="max-height:80vh;overflow:auto">`+list.map(a=>`<b style="font-size:16px;color:#f87171">${esc(a.title)}</b><p class="small" style="margin:8px 0 14px;line-height:1.55;white-space:pre-line">${esc(a.text)}</p>`).join('')+`<button style="width:100%">OK</button></div>`;
-  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST'});}catch(e){}};document.body.appendChild(d);}
+  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:list.map(a=>a&&a.id).filter(x=>x!=null).map(String)})});}catch(e){}};document.body.appendChild(d);}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
@@ -892,6 +892,7 @@ let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!stat
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
     const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%${j.commission_flat?' + ₹'+j.commission_flat:''})`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
+  if(state.sel&&state.sel.segment==='INDICES'){toast((state.sel.name||state.sel.symbol)+' itself cannot be bought or sold here. Go to Market and choose one of its futures or options.',1);return;}
   {const m=accBlocked(state.sel,state.side);if(m){accPop(m);return;}}
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype,validity:state.otype==='MARKET'?'DAY':(state.validity||'DAY'),product:state.product||'NRML'};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);

@@ -380,6 +380,68 @@ def main():
         if mk.get("id"):
             A.delete(f"{B}/api/admin/users/{mk['id']}")
 
+        # Master's user panel on a phone: Delete and the close button used to sit off the right edge of the screen
+        # (the row of buttons did not wrap), so the panel could only be left by scrolling it sideways.
+        ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+        page.evaluate("(id) => openDetail(id)", uid); page.wait_for_timeout(2500)
+        off = page.evaluate("""() => { const box = document.querySelector('#detail .box');
+            const out = [...box.querySelectorAll(':scope > .row button')].filter(b => !b.classList.contains('hidden') && b.getBoundingClientRect().right > window.innerWidth).map(b => b.textContent.trim());
+            if (box.scrollWidth > box.clientWidth + 2) out.push('panel scrolls sideways'); return out; }""")
+        ok("Master (phone) user panel: every button, the close button included, is on the screen", not off, off)
+        ctx.close()
+
+        # A message that arrives while a pop-up is still on the screen must not be cleared unseen when OK is
+        # pressed on the first one (OK used to clear everything waiting, shown or not).
+        A.post(f"{B}/api/admin/users/{uid}/alert", data={"title": "First note", "text": "shown now"})
+        ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(uctx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/")
+        for _ in range(40):
+            page.wait_for_timeout(500)
+            if page.evaluate("!!document.querySelector('.mpop button')"):
+                break
+        seen = page.evaluate("(document.querySelector('.mpop') || {}).innerText || ''")
+        A.post(f"{B}/api/admin/users/{uid}/alert", data={"title": "Second note", "text": "arrived while the first was open"})
+        page.evaluate("(() => { const b = document.querySelector('.mpop button'); if (b) b.click(); })()"); page.wait_for_timeout(2000)
+        left = [a.get("title") for a in (uget("/api/me").get("alerts") or [])]
+        ok("User: a message that arrives while a pop-up is open stays until it has been shown itself",
+           "First note" in seen and left == ["Second note"], f"shown {seen[:80]!r}, still waiting {left}")
+        U.post(f"{B}/api/alerts/ack"); ctx.close()
+
+        # Small-phone and light-theme display faults of 19 Nov 2026, and two dead ends for a new user.
+        for t in (fut["token"], mcx["token"]):
+            U.post(f"{B}/api/watchlist", data={"token": t})
+        ctx = br.new_context(viewport={"width": 360, "height": 800}); ctx.add_cookies(uctx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/"); page.wait_for_timeout(5000)
+        page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('watch', 'watch')"); page.wait_for_timeout(2500)
+        over = page.evaluate("""() => [...document.querySelectorAll('#wlist .wl-item')].map(r => { const s = r.querySelector('.sym'), pr = r.querySelector('b.num'); if (!s || !pr) return null;
+            const g = document.createRange(); g.selectNodeContents(s); const a = g.getBoundingClientRect(), b = pr.getBoundingClientRect();
+            return a.right > b.left + 1 && a.bottom > b.top && a.top < b.bottom ? s.textContent.trim() : null; }).filter(Boolean)""")
+        rows = page.evaluate("document.querySelectorAll('#wlist .wl-item').length")
+        ok("User (360-wide phone) Watchlist: no contract name runs under its price", rows >= 2 and not over, f"{rows} rows, overlapping {over}")
+        page.evaluate("showTab('market')"); page.wait_for_timeout(1200); page.fill("#search", "zzzzqq"); page.wait_for_timeout(2500)
+        ok("User: a search that finds nothing says so", "No matching contract" in page.evaluate("document.querySelector('#searchRes').innerText"))
+        page.fill("#search", "")
+        page.evaluate("document.documentElement.setAttribute('data-theme', 'light')")
+        ok("User (light theme): a flashing price keeps its dark text", page.evaluate("""() => { const e = document.createElement('b'); e.className = 'fu'; document.body.appendChild(e);
+            const n = getComputedStyle(e).animationName; e.remove(); return n; }""") == "flashUpL")
+        idx = next((x for x in res if x.get("segment") == "INDICES"), None)
+        if idx:
+            page.evaluate("document.documentElement.removeAttribute('data-theme')")
+            page.evaluate("async (t) => { const i = await api('/instrument/' + t); openSheet(i, 'BUY'); window._said = ''; new MutationObserver(m => m.forEach(x => x.addedNodes.forEach(n => { if (n.classList && n.classList.contains('toast')) window._said += n.textContent; }))).observe(document.body, {childList: true}); }", idx["token"])
+            page.wait_for_timeout(1500); page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1200)
+            ok("User: trying to buy an index itself gets a plain message", "cannot be bought or sold" in page.evaluate("window._said || ''"), page.evaluate("window._said || ''"))
+        ctx.close()
+        ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+        page.evaluate("document.querySelector('[data-nav=\"settings\"]').click()"); page.wait_for_timeout(2000)
+        page.evaluate("""(async () => { const real = window.api; window.api = async (p, ...r) => { const x = await real(p, ...r);
+            if (p === '/admin/health') { x.errors = [{at: '19 Nov, 01:00 AM', where: 'app', what: 'could not store ' + 'x'.repeat(170)}]; x.errors_hour = x.errors_day = 1; x.last_error = x.errors[0]; } return x; };
+            await loadHealth(); window.api = real; })()"""); page.wait_for_timeout(1500)
+        w = page.evaluate("[document.documentElement.scrollWidth, window.innerWidth, document.querySelector('#hlBody').innerText.includes('xxxxxxxx')]")
+        ok("Master (phone) Settings: a long error text stays inside the Site health card", w[2] and w[0] <= w[1] + 2, f"page {w[0]} wide on a {w[1]} screen, error shown {w[2]}")
+        ctx.close()
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

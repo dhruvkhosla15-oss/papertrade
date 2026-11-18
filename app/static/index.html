@@ -19,6 +19,8 @@
 @keyframes flashUp{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}
 @keyframes flashDn{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
 .fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}
+@keyframes flashUpL{0%{background:rgba(34,197,94,.4)}100%{background:transparent}}@keyframes flashDnL{0%{background:rgba(239,68,68,.35)}100%{background:transparent}}
+:root[data-theme="light"] .fu{animation-name:flashUpL}:root[data-theme="light"] .fd{animation-name:flashDnL}
 .ticker{display:flex;gap:14px;overflow-x:auto;white-space:nowrap;font-size:12px;padding:6px 14px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}
 .ticker::-webkit-scrollbar{display:none}.ticker b{margin-left:4px}.ticker span{flex:0 0 auto}
 .thbtn{background:none;border:1px solid var(--line);color:var(--mut);width:26px;height:26px;padding:0;border-radius:999px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
@@ -163,7 +165,7 @@ td:first-child,th:first-child{text-align:left}
 .sym{font-weight:600}
 .small{font-size:12px}
 h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
-.wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}#wlist .wl-item .sym{overflow-wrap:anywhere}
 .drag{color:var(--mut);cursor:grab;padding:4px 6px 4px 0;touch-action:none;user-select:none;font-size:14px;letter-spacing:-2px;flex:0 0 auto}
 .wl-item.dragging{opacity:.45;background:var(--seg)}.wl-item.over-top{box-shadow:inset 0 2px 0 var(--acc)}.wl-item.over-bot{box-shadow:inset 0 -2px 0 var(--acc)}
 .banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}.banner.soft{background:#3f3a12;color:#fde68a}.banner b{color:#fff}
@@ -171,7 +173,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .pwa{position:fixed;left:12px;right:12px;max-width:440px;margin:0 auto;bottom:calc(74px + env(safe-area-inset-bottom));z-index:15;background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 .pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
 .pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
-.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0}
+.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0;min-width:36px;min-height:36px;margin-right:-8px}
 .bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
@@ -409,7 +411,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 <!-- DOWNLOAD SHEET -->
 <div id="dlSheet" class="sheet hidden">
   <div class="box">
-    <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>Download Reports</b><button class="ghost small" id="dlClose" style="padding:4px 10px;flex:0 0 auto">✕</button></div>
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>Download Reports</b><button class="ghost small" id="dlClose" style="padding:8px 12px;flex:0 0 auto">✕</button></div>
     <div class="small mut" style="margin-bottom:6px">Period</div>
     <div class="dlp" id="dlPresets"><button data-p="today">Today</button><button data-p="week">This week</button><button data-p="month" class="active">This month</button><button data-p="lastmonth">Last month</button><button data-p="all">All history</button><button data-p="custom">Pick dates</button></div>
     <div class="row hidden" id="dlCustom" style="margin-top:8px"><input type="date" id="dlFrom"><span class="mut">to</span><input type="date" id="dlTo"></div>
@@ -676,7 +678,7 @@ async function refreshFunds(){try{const m=await api('/me');state.me=m;state.mark
 function showAlerts(list){if(!list||!list.length||document.querySelector('.mpop'))return;
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';
   d.innerHTML=`<div class="box" style="max-height:80vh;overflow:auto">`+list.map(a=>`<b style="font-size:16px;color:#f87171">${esc(a.title)}</b><p class="small" style="margin:8px 0 14px;line-height:1.55;white-space:pre-line">${esc(a.text)}</p>`).join('')+`<button style="width:100%">OK</button></div>`;
-  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST'});}catch(e){}};document.body.appendChild(d);}
+  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:list.map(a=>a&&a.id).filter(x=>x!=null).map(String)})});}catch(e){}};document.body.appendChild(d);}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
@@ -807,7 +809,7 @@ function onPrices(ticks){
 }
 let st;$('#search').oninput=()=>{clearTimeout(st);st=setTimeout(async()=>{const q=$('#search').value.trim();if(q.length<2){$('#searchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
-  $('#searchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><span class="num" id="p${i.token}">—</span></div>`).join('');
+  $('#searchRes').innerHTML=!r.length?'<div class="small mut" style="padding:10px 4px">No matching contract found. Check the spelling, or pick one from the lists below.</div>':r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.exchange} · lot ${i.lot_size}</span></span><span class="num" id="p${i.token}">—</span></div>`).join('');
   $$('#searchRes .wl-item').forEach(el=>el.onclick=()=>{openSheet(r.find(x=>x.token==el.dataset.tok));$('#searchRes').innerHTML='';$('#search').value='';});
   sub(r.map(i=>i.token));onPrices(r.map(i=>state.prices[i.token]).filter(Boolean));},300);};
 
@@ -890,6 +892,7 @@ let mt;function updateMargin(){clearTimeout(mt);mt=setTimeout(async()=>{if(!stat
   try{const j=await api(`/margin?token=${state.sel.token}&side=${state.side}&lots=${lots}${price?'&price='+price:''}${state.lev?'&leverage='+state.lev:''}`);
     const ex=state.sel.exchange;$('#oMargin').textContent=money(ex,j.margin,usdOn(ex)?2:0)+(j.margin<j.full_margin?' (netting)':'');$('#oCommLbl').textContent=`Commission (${j.commission_pct}%${j.commission_flat?' + ₹'+j.commission_flat:''})`;$('#oComm').textContent=j.commission?money(ex,j.commission):'—';$('#oAvail').textContent=money(ex,state.funds?.available,usdOn(ex)?2:0);$('#oMargin').className='num '+(j.margin>(state.funds?.available||0)?'dn':'');}catch(e){}},150);}
 $('#oSubmit').onclick=async()=>{
+  if(state.sel&&state.sel.segment==='INDICES'){toast((state.sel.name||state.sel.symbol)+' itself cannot be bought or sold here. Go to Market and choose one of its futures or options.',1);return;}
   {const m=accBlocked(state.sel,state.side);if(m){accPop(m);return;}}
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype,validity:state.otype==='MARKET'?'DAY':(state.validity||'DAY'),product:state.product||'NRML'};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
@@ -953,7 +956,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
     ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':(GNAME[w.symbol]||dsym(w.exchange,w.symbol))}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):(GNAME[w.symbol]?'Global · '+w.symbol:({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange))+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${(w.segment==='INDICES'&&w.kind!=='stock')?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
-    ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:4px 8px;flex:0 0 auto">✕</button>`}</div>`).join('');
+    ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:8px 12px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
   $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel||e.target.classList.contains('drag')||state._dragged)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
     if(w.segment==='INDICES'){showTab('market');$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
@@ -962,7 +965,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
 let wst;$('#wsearch').oninput=()=>{clearTimeout(wst);wst=setTimeout(async()=>{const q=$('#wsearch').value.trim();if(q.length<2){$('#wsearchRes').innerHTML='';return;}
   const r=await api('/search?q='+encodeURIComponent(q));
-  $('#wsearchRes').innerHTML=r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.segment==='INDICES'?(i.kind==='stock'?'NSE stock · spot':'spot'):i.exchange+' · lot '+i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
+  $('#wsearchRes').innerHTML=!r.length?'<div class="small mut" style="padding:10px 4px">No matching contract found. Check the spelling.</div>':r.map(i=>`<div class="wl-item" data-tok="${i.token}"><span><span class="sym">${dsym(i.exchange,i.symbol)}</span> <span class="small mut">${i.segment==='INDICES'?(i.kind==='stock'?'NSE stock · spot':'spot'):i.exchange+' · lot '+i.lot_size}</span></span><button class="ghost small" style="padding:6px 10px">+ Add</button></div>`).join('');
   $$('#wsearchRes .wl-item').forEach(el=>el.onclick=()=>{addWatch(+el.dataset.tok);$('#wsearchRes').innerHTML='';$('#wsearch').value='';});},300);};
 
 // ---------- positions / orders ----------

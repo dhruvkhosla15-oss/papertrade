@@ -718,15 +718,25 @@ def admin_alerts_waiting(admin: User = Depends(current_admin), db: Session = Dep
     return out
 
 
+class AckIn(BaseModel):
+    ids: Optional[List[str]] = None
+
+
 @app.post("/api/alerts/ack")
-def ack_alerts(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """The user pressed OK on the pop-up: their pending alerts (e.g. 'Position liquidated') are cleared."""
+def ack_alerts(body: Optional[AckIn] = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The user pressed OK on the pop-up: the alerts that pop-up showed (e.g. 'Position liquidated') are
+    cleared. The page says which ones it showed; a message that arrived while the pop-up was still on the
+    screen stays and is shown next (it used to be cleared unseen). A page that sends no list clears all."""
     try:
         engine.week_grace_seen(db, user)
     except Exception:
         log.exception("week grace")
-    if _user_alerts(db, user):
-        set_setting(db, f"user_alerts_{user.id}", "[]"); db.commit()
+    cur = _user_alerts(db, user)
+    if cur:
+        shown = None if body is None or body.ids is None else {str(x) for x in body.ids}
+        keep = [] if shown is None else [a for a in cur if str(a.get("id")) not in shown]
+        if len(keep) != len(cur):
+            set_setting(db, f"user_alerts_{user.id}", json.dumps(keep)); db.commit()
     return {"ok": True}
 
 

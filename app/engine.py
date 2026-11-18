@@ -198,6 +198,18 @@ class Engine:
             return float(v) if v and v > 0 else None
         return 1.0
 
+    @staticmethod
+    def _closed_text(exchange: str) -> str:
+        """The refusal a user reads when a market is shut: its everyday name and when it opens again."""
+        name = {"NFO": "NSE", "BFO": "BSE", "MCX": "MCX", "CDS": "Currency"}.get(exchange, exchange)
+        try:
+            from .market_calendar import status, ist_now
+            o = datetime.fromisoformat(status(exchange)["opens_at"])
+            day = "today" if o.date() == ist_now().date() else "on " + o.strftime("%A")
+            return f"The {name} market is closed right now — it opens again {day} at {o.strftime('%I:%M %p').lstrip('0').lower()}"
+        except Exception:
+            return f"The {name} market is closed right now"
+
     def market_open(self, exchange: str) -> bool:
         if not ENFORCE_MARKET_HOURS:
             return True
@@ -331,8 +343,8 @@ class Engine:
         if not levels and limit_price is not None:
             raise EngineError("limit not marketable")
         if not levels:
-            raise EngineError("No remaining counterparty quantity at the moment — the visible "
-                              f"{'offers' if side == 'BUY' else 'bids'} have already been taken; wait for the book to refresh")
+            raise EngineError(f"Nothing left to {'buy' if side == 'BUY' else 'sell into'} at the moment — the "
+                              f"{'offers' if side == 'BUY' else 'bids'} on the screen have already been taken; wait a moment for new ones")
         remaining, cost = qty, 0.0
         for lvl in levels:
             price, avail = lvl[0], lvl[1]
@@ -544,7 +556,7 @@ class Engine:
             raise EngineError(f"You already hold {ins.symbol} as {held} — add to it as {held}, or exit it first")
         max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
         if lots < 1 or lots > max_lots:
-            raise EngineError(f"lots must be 1..{max_lots}")
+            raise EngineError(f"Enter a number of lots between 1 and {max_lots}")
         # Trading access: a segment that is not activated on the account takes no NEW exposure. Reducing or
         # closing what is already held is always allowed (the auto square-off and expiry never come here).
         from . import access as _access
@@ -577,7 +589,7 @@ class Engine:
             if resting >= cap:
                 raise EngineError(f"You already have {resting} pending orders — cancel some before placing another")
         if not self.market_open(ins.exchange):
-            raise EngineError(f"{ins.exchange} market is closed")
+            raise EngineError(self._closed_text(ins.exchange))
         if self.expired(ins):
             raise EngineError("This contract has expired — open positions in it are settled automatically")
         cry = getattr(self.feed, "crypto", None)
@@ -623,9 +635,9 @@ class Engine:
             # and sold seconds later at the new price (loophole of 17 Nov 2026). Wait for the first price.
             raise EngineError("No live price yet for this contract — the market has just opened, try again in a second")
         if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
-            raise EngineError("limit_price required")
+            raise EngineError("Enter a limit price for a Limit order")
         if order_type == "SL" and (trigger_price is None or trigger_price <= 0):
-            raise EngineError("trigger_price required")
+            raise EngineError("Enter a trigger price for a Stop-loss order")
         if order_type == "SL" and ltp:
             # Like the exchange: a sell SL must trigger below the market, a buy SL above it. A trigger on
             # the wrong side would fire instantly as a market order — not what a stop is for.
@@ -718,7 +730,7 @@ class Engine:
     def cancel_order(self, db: Session, user: User, order_id: int):
         o = db.query(Order).filter_by(id=order_id, user_id=user.id).first()
         if not o or o.status != "OPEN":
-            raise EngineError("Order not open")
+            raise EngineError("This order is no longer open — it was already filled or cancelled")
         o.status = "CANCELLED"; o.margin_blocked = 0.0
         db.commit()
         self._emit(user.id, {"type": "order", "order": self.order_dict(o)})

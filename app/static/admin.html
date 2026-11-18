@@ -86,9 +86,10 @@ a{color:var(--acc)}
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:760px){#nav-perf .bar{width:100%}#nav-perf #presets{flex-wrap:wrap;overflow:visible;border:0;gap:6px}#nav-perf #presets button{border:1px solid var(--line);border-radius:999px;flex:1 1 auto}#nav-perf #presets button.active{border-color:var(--acc)}#nav-perf #pUser{width:100%!important;min-width:0}#nav-perf #customRange{width:100%}#nav-perf #customRange input{flex:1 1 auto}}
 @media(max-width:700px){main{padding:12px 10px}th,td{padding:6px 5px;font-size:12px}}
+@media(max-width:760px){#detail .box>.row:first-child>div{flex:1 1 100%!important;min-width:0}}
 .accsw{position:relative;display:inline-block;width:44px;height:24px;vertical-align:middle;cursor:pointer}.accsw input{opacity:0;width:0;height:0;position:absolute}.accsw span{position:absolute;inset:0;border-radius:99px;background:#2a3856;transition:.15s}.accsw span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#8ea0bd;transition:.15s}.accsw input:checked+span{background:#84cc16}.accsw input:checked+span:after{left:23px;background:#0b1220}
 #accDefault td,#accDefault th,#dAccess td,#dAccess th,#accOne td,#accOne th{text-align:center}
-#hlBody .plrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:5px 2px;border-bottom:1px solid var(--line)}#hlBody .plrow:last-child{border-bottom:0}#hlBody .plrow span{color:var(--mut)}#hlBody .plrow b{text-align:right;font-weight:600}
+#hlBody .plrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:5px 2px;border-bottom:1px solid var(--line)}#hlBody .plrow:last-child{border-bottom:0}#hlBody .plrow span{color:var(--mut)}#hlBody .plrow b{text-align:right;font-weight:600;min-width:0;overflow-wrap:anywhere}
 #alBody .alrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:6px 2px;border-bottom:1px solid var(--line)}#alBody .alrow:last-child{border-bottom:0}#alBody .alrow>b{text-align:right;font-weight:600;white-space:nowrap}
 </style>
 </head>

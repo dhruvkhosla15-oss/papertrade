@@ -2146,13 +2146,19 @@ def admin_backups(admin: User = Depends(current_admin)):
 @app.get("/api/admin/audit")
 def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     from .db import AdminLog
-    names = {u.id: u.username for u in db.query(User).all()}
+    names = {u.id: (u.username, u.created_at) for u in db.query(User).all()}
 
-    def nice(a: str) -> str:
+    def nice(a: str, at) -> str:
+        # The number of a deleted account is handed out again: a line is only about the account that holds
+        # the number today if that account already existed when the line was written. Otherwise the line
+        # is about an account deleted since (it used to be shown under the newcomer's name).
         import re as _re
         m = _re.search(r"/users/(\d+)", a)
-        return a + (f"  ({names.get(int(m.group(1)), '?')})" if m else "")
-    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action), "ip": r.ip}
+        if not m:
+            return a
+        nm, born = names.get(int(m.group(1)), (None, None))
+        return a + (f"  ({nm})" if nm and (not born or not at or at >= born) else "  (account since deleted)")
+    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action, r.created_at), "ip": r.ip}
             for r in db.query(AdminLog).order_by(AdminLog.id.desc()).limit(200)]
 
 

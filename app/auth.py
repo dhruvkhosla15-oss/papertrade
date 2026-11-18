@@ -1,4 +1,7 @@
+import calendar
+import json
 import os
+import secrets
 import time
 import jwt
 from fastapi import Request, HTTPException, Depends
@@ -23,23 +26,88 @@ def verify_password(p: str, h: str) -> bool:
 
 def make_token(user: User) -> str:
     now = int(time.time())
-    return jwt.encode({"uid": user.id, "adm": user.is_admin, "iat": now, "exp": now + SESSION_SECS},
-                      SECRET_KEY, algorithm="HS256")
+    # "sid" tells one login from another made in the same second (so that logging out ends this login only)
+    # and "at" is the exact moment (see session_current: a login must be younger than its account)
+    return jwt.encode({"uid": user.id, "adm": user.is_admin, "iat": now, "exp": now + SESSION_SECS, "sid": secrets.token_hex(6),
+                       "at": round(time.time(), 6)}, SECRET_KEY, algorithm="HS256")
 
 
 SESSION_SECS = 30 * 86400
 
 
+def _started(data: dict) -> float:
+    """When a login was made. Logins from before 13 Nov 2026 carry no start time; theirs is worked out from the expiry."""
+    return float(data.get("iat") or (int(data.get("exp") or 0) - SESSION_SECS))
+
+
+def _login_id(data: dict) -> str:
+    return str(data.get("sid") or f"t{int(_started(data))}")
+
+
+_ended: dict = {}        # account number -> logins of it that were logged out (kept in settings "logout_<number>")
+ENDED_KEPT = 40          # per account; a login lasts 30 days, nobody logs out this often
+
+
+def ended_logins(uid: int) -> list:
+    got = _ended.get(uid)
+    if got is None:
+        from .db import get_setting
+        db = SessionLocal()
+        try:
+            got = json.loads(get_setting(db, f"logout_{uid}") or "[]")
+        except Exception:
+            got = []
+        finally:
+            db.close()
+        _ended[uid] = got = [str(x) for x in got][-ENDED_KEPT:]
+    return got
+
+
+def end_login(db: Session, data: dict):
+    """Log out: this login stops working on the server, not only in the browser that asked. Before
+    19 Nov 2026 "Log out" only removed the login from that browser; a copy of it kept working for up to
+    30 days."""
+    from .db import set_setting
+    uid = int(data["uid"])
+    got = [x for x in ended_logins(uid) if x != _login_id(data)] + [_login_id(data)]
+    _ended[uid] = got = got[-ENDED_KEPT:]
+    set_setting(db, f"logout_{uid}", json.dumps(got))
+
+
 def session_current(data: dict, user: User) -> bool:
-    """False for a login made before the account's password was last changed or reset. A new password
-    must end every older login: otherwise someone who once got into an account (a shared phone, a
-    borrowed password) keeps trading on it for a month, whatever the owner or the Master does.
-    Logins from before this rule carry no start time; theirs is worked out from the expiry."""
+    """False for a login that no longer counts for this account:
+    - made before the account's password was last changed or reset. A new password must end every older
+      login: otherwise someone who once got into an account (a shared phone, a borrowed password) keeps
+      trading on it for a month, whatever the owner or the Master does;
+    - made before the account itself was created. The database hands the number of a deleted account out
+      again, and a login is only a signed account number: until 19 Nov 2026 the login of a deleted account
+      was accepted as the next account created, a new Master login included;
+    - logged out (see end_login)."""
+    try:
+        started = _started(data)
+    except (TypeError, ValueError):
+        return False
+    created = getattr(user, "created_at", None)
+    if created is not None:
+        try:
+            born = calendar.timegm(created.timetuple())
+            exact = data.get("at")
+            if isinstance(exact, (int, float)) and not isinstance(exact, bool):
+                if exact < born + created.microsecond / 1e6:
+                    return False
+            elif started < born:        # logins from before 19 Nov 2026 know their start to the second only
+                return False
+        except Exception:
+            pass
+    try:
+        if _login_id(data) in ended_logins(user.id):
+            return False
+    except Exception:
+        pass
     changed = getattr(user, "pw_changed_at", None) or 0
     if not changed:
         return True
     try:
-        started = data.get("iat") or (int(data.get("exp") or 0) - SESSION_SECS)
         return float(started) >= float(changed)
     except (TypeError, ValueError):
         return False

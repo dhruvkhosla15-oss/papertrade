@@ -894,6 +894,129 @@ class Probe:
                     db.close()
             await c.aclose()
 
+    async def _dead_logins(self, ub):
+        """Two more kinds of login that must not work (both found 19 Nov 2026).
+        A login from before the account existed: the database hands the number of a deleted account out
+        again, and a login is a signed account number, so the login of a deleted account was accepted as
+        the next account created (a new Master login included). The test account's own number is used: a
+        login dated an hour before the test account was created must be turned away.
+        A login that was logged out: "Log out" only removed it from that browser; a copy kept working for
+        30 days. One login of the test account is logged out and must stop working; another login of the
+        same account must go on working."""
+        self.area = "Logins"
+        import calendar
+        import jwt as _jwt
+        from .config import SECRET_KEY
+        db = SessionLocal()
+        try:
+            u = db.get(User, ub.id)
+            created = calendar.timegm(u.created_at.timetuple()) if u is not None and u.created_at else None
+        finally:
+            db.close()
+        anon = self._client()
+        try:
+            if created is None:
+                self.note("login older than its account not tested", "the test account has no creation time")
+            else:
+                now = int(time.time())
+                older = _jwt.encode({"uid": ub.id, "adm": False, "iat": created - 3600, "exp": now + 600}, SECRET_KEY, algorithm="HS256")
+                same = _jwt.encode({"uid": ub.id, "adm": False, "iat": created, "exp": now + 600}, SECRET_KEY, algorithm="HS256")
+                r1 = await anon.get("/api/me", headers={"authorization": "Bearer " + older})
+                r2 = await anon.get("/api/me", headers={"authorization": "Bearer " + same})
+                if r2.status_code != 200:
+                    self.note("login older than its account not tested", f"a login as old as the test account answered {r2.status_code}")
+                else:
+                    self.ok("a login made before its account existed is refused (a deleted account's login on the next account)",
+                            r1.status_code == 401, f"login dated an hour before the test account was created: {r1.status_code}")
+            t1, t2 = make_token(ub), make_token(ub)
+            h1, h2 = {"authorization": "Bearer " + t1}, {"authorization": "Bearer " + t2}
+            b1 = await anon.get("/api/me", headers=h1)
+            b2 = await anon.get("/api/me", headers=h2)
+            if b1.status_code != 200 or b2.status_code != 200:
+                self.note("log out not tested", f"the test logins answered {b1.status_code}/{b2.status_code}")
+            else:
+                await anon.post("/api/logout", headers=h1)
+                a1 = await anon.get("/api/me", headers=h1)
+                a1o = await anon.post("/api/orders", json={"token": 1, "side": "BUY", "lots": 1}, headers=h1)
+                a2 = await anon.get("/api/me", headers=h2)
+                self.ok("a login that was logged out stops working; the account's other login goes on",
+                        a1.status_code == 401 and a1o.status_code == 401 and a2.status_code == 200,
+                        f"logged-out login {a1.status_code}/{a1o.status_code}, other login {a2.status_code}")
+        finally:
+            await anon.aclose()
+
+    async def _oversize(self):
+        """Nobody, with or without a login, may make the server swallow huge input (found 19 Nov 2026: a
+        visitor's 200 MB request took 560 MB of memory, megabyte-long usernames stayed in memory for a quarter
+        of an hour each, and many-megabyte messages on the price socket made every screen slow). As a visitor:
+        a request that declares 1.5 MB and one that sends it without declaring it, a login with a 5,000-letter
+        username, and the price socket's own size rule. Nothing is stored; no account is involved."""
+        self.area = "Capacity"
+        try:
+            from . import main as _m
+        except Exception:
+            self.note("oversized input not tested", "site module not reachable"); return
+        anon = self._client()
+        try:
+            big = b'{"username":"a","password":"' + b"x" * 1_500_000 + b'"}'
+            r1 = await anon.post("/api/login", content=big, headers={"content-type": "application/json"})
+
+            async def chunks():
+                yield b'{"username":"a","password":"'
+                for _ in range(15):
+                    yield b"x" * 100_000
+                yield b'"}'
+            r2 = await anon.post("/api/login", content=chunks(), headers={"content-type": "application/json"})
+            self.ok("an oversized request is turned away unread", r1.status_code == 413 and r2.status_code in (400, 413, 422),
+                    f"1.5 MB with its length declared: {r1.status_code}; without: {r2.status_code}")
+            name = "zz" + secrets.token_hex(4) + "y" * 5000
+            r3 = await anon.post("/api/login", json={"username": name, "password": "x"})
+            kept = [k for k in list(getattr(_m, "_fails", {})) if len(str(k)) > 200]
+            self.ok("a login with an endless username is refused and not remembered", r3.status_code == 401 and not kept,
+                    f"answer {r3.status_code}, wrong-try counters with a name longer than 200 letters: {len(kept)}")
+            fn = getattr(_m, "_ws_msg_ok", None)
+            self.ok("the price socket does not read an oversized message", bool(fn) and fn("x" * 2_000_000) is False and fn('{"type":"ping"}') is True,
+                    "size rule in place" if fn else "no size rule on the price socket")
+        finally:
+            await anon.aclose()
+
+    async def _resting_cap(self, ins, ub):
+        """One account may not pile up pending orders without end (found 19 Nov 2026: some 4,500 resting
+        orders of one account on one contract, with more being sent, made every user's click take up to
+        2.7 seconds). The limit for the test account alone is lowered to three for a moment; three far
+        limit orders of one lot rest, the fourth must be refused, a market order must still go through
+        the same rule untouched (it is refused only for its zero size), and everything is cancelled."""
+        self.area = "Capacity"
+        name = "pending orders of one account are limited in number"
+        eng = self.engine
+        if not hasattr(eng, "resting_cap_for") or not hasattr(eng, "MAX_RESTING_ORDERS"):
+            self.ok(name, False, "no limit on the number of pending orders"); return
+        qb, _qa, ql = self._quote(ins.token)
+        bid = qb or ql
+        if not bid or not self._feed_up(ins) or not eng.tradable_now(ins):
+            self.note("limit on pending orders not tested", f"{ins.symbol} is shut or has no price"); return
+        tick = getattr(ins, "tick_size", 0) or 0.05
+        band = (getattr(ins, "price_band_pct", 0) or 0)
+        far = bid * (1 - (min(band, 6) / 2 if band else 3) / 100)
+        far = max(tick, round(round(far / tick) * tick, 6))
+        c = self._client(ub)
+        codes, why = [], ""
+        try:
+            await self._flatten(c)
+            eng.resting_cap_for[ub.id] = 3
+            for _ in range(4):
+                st, o, d = await self._order(c, token=ins.token, side="BUY", lots=1, order_type="LIMIT", limit_price=far)
+                codes.append(st); why = d
+            resting = [o for o in (await self._orders(c) or []) if o["status"] == "OPEN"]
+        finally:
+            eng.resting_cap_for.pop(ub.id, None)
+            await self._flatten(c)
+            await c.aclose()
+        if codes[:3] != [200, 200, 200]:
+            self.note("limit on pending orders not tested", f"the three test orders on {ins.symbol} answered {codes[:3]} ({why[:60]})"); return
+        self.ok(name, codes[3] == 400 and "pending orders" in why and len(resting) == 3,
+                f"{ins.symbol}: three rest, the fourth answered {codes[3]} ({why[:50]}); {len(resting)} resting (the limit for real accounts is {eng.MAX_RESTING_ORDERS})")
+
     async def _attack(self, label, ins, ua, ub):
         self.area = label
         T = ins.token
@@ -1659,6 +1782,15 @@ class Probe:
             except Exception as e:
                 log.exception("probe login check crashed")
                 self.ok("the login check ran to the end", False, f"{type(e).__name__}: {e}")
+            cap_ins = next((i for lb, i in self._targets() if lb == "Crypto" and i is not None and not isinstance(i, list)), None)
+            for name, fn in (("dead logins", lambda: self._dead_logins(ub)), ("oversized input", self._oversize),
+                             ("pending-order limit", (lambda: self._resting_cap(cap_ins, ub)) if cap_ins is not None else
+                              (lambda: asyncio.sleep(0, self.note("limit on pending orders not tested", "no crypto contract listed"))))):
+                try:
+                    await fn()
+                except Exception as e:
+                    log.exception("probe %s check crashed", name)
+                    self.ok(f"the {name} check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 await self._stream_flood(ub)
             except Exception as e:

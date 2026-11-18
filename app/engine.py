@@ -218,6 +218,8 @@ class Engine:
         return True
 
     MAX_OPEN_CONTRACTS = 200    # different contracts one account may hold positions or resting orders on at the same time
+    MAX_RESTING_ORDERS = 500    # pending (limit / stop-loss) orders one account may have resting at the same time
+    resting_cap_for: dict = {}  # account number -> a lower limit; only the daily check sets it, for its own test account
 
     OPEN_SETTLE_SECS = 2.0      # a price counts as this session's only when it arrived this long after the opening
 
@@ -544,6 +546,17 @@ class Engine:
             if len(held) >= self.MAX_OPEN_CONTRACTS:
                 raise EngineError(f"You already have positions or pending orders on {len(held)} different contracts — "
                                   "close or cancel some before opening another")
+        if order_type != "MARKET":
+            # Every resting order is looked at on each price of its contract and counted again for every
+            # new order of its account, all inside the one queue that every user's orders go through. One
+            # account that rested some 4,500 orders on one contract (168,000 coins of margin, given back on
+            # cancel) and kept sending more made every click of every user take 0.4 to 2.7 seconds
+            # (19 Nov 2026). Nobody places this many by hand: 200 contracts with a stop and a target each
+            # are 400.
+            cap = self.resting_cap_for.get(user.id, self.MAX_RESTING_ORDERS)
+            resting = db.query(Order.id).filter_by(user_id=user.id, status="OPEN").count()
+            if resting >= cap:
+                raise EngineError(f"You already have {resting} pending orders — cancel some before placing another")
         if not self.market_open(ins.exchange):
             raise EngineError(f"{ins.exchange} market is closed")
         if self.expired(ins):

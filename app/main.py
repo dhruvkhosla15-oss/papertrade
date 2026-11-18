@@ -73,6 +73,7 @@ class _Turnstile:
     MAX = 80
     PER = 8
     QUEUE = 200
+    MAX_BODY = 1_000_000    # bytes in one request
     last = None             # the instance in use (the daily check looks at it)
 
     def __init__(self, app_):
@@ -107,6 +108,29 @@ class _Turnstile:
             return await self.app(scope, receive, send)
         if self.sem is None:
             self.sem = asyncio.Semaphore(self.MAX)
+        # Nothing this site is sent is large (the biggest is a watchlist order). Without a limit a visitor
+        # with no login could post hundreds of megabytes to any address and the server kept all of it in
+        # memory while reading it (19 Nov 2026: one 200 MB request took 560 MB).
+        try:
+            declared = int(dict(scope.get("headers") or []).get(b"content-length", b"0") or 0)
+        except ValueError:
+            declared = 0
+        if declared > self.MAX_BODY:
+            body = b'{"detail":"Request too large"}'
+            await send({"type": "http.response.start", "status": 413,
+                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"connection", b"close")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        got = [0]
+        inner_receive = receive
+
+        async def receive():      # a body sent without its length is cut off at the same limit
+            m = await inner_receive()
+            if m.get("type") == "http.request":
+                got[0] += len(m.get("body") or b"")
+                if got[0] > self.MAX_BODY:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+            return m
         who = self._who(scope)
         ent = self.mine.get(who)
         if ent is None:
@@ -382,8 +406,12 @@ class LoginIn(BaseModel):
 @app.post("/api/login")
 def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
+    if len(uname) > 64:
+        # no account has a longer name. Not counted as a wrong try: the counters are kept by name, and a
+        # visitor sending megabyte-long names filled the server's memory with them (19 Nov 2026)
+        raise HTTPException(401, "Wrong username or password")
     # a device that has logged in to this account before answers only for its own wrong tries
-    keys = (_user_key(request, uname),) if _known_device(request, uname) else (_user_key(request, uname), "ip:" + _client_ip(request))
+    keys = (_user_key(request, uname),) if _known_device(request, uname) else (_user_key(request, uname), "ip:" + _client_ip(request)[:64])
     _throttle_check(*keys)
     u = db.query(User).filter_by(username=uname).first()
     if not u or not verify_password(body.password, u.password_hash):
@@ -537,7 +565,16 @@ def admins_password(uid: int, body: AdminPwIn, request: Request, response: Respo
 
 
 @app.post("/api/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    # end the login itself, not only this browser's copy of it (a copy kept elsewhere worked for 30 days more)
+    tok = request.cookies.get(COOKIE) or request.headers.get("authorization", "").replace("Bearer ", "")
+    data = decode_token(tok) if tok else None
+    if data and "uid" in data and not data.get("pre2fa"):
+        try:
+            from .auth import end_login
+            end_login(db, data)
+        except Exception:
+            log.exception("could not end the login")
     response.delete_cookie(COOKIE)
     return {"ok": True}
 
@@ -1157,6 +1194,17 @@ def list_ledger(from_: Optional[str] = Query(None, alias="from"), to: Optional[s
 
 
 # ---- websocket ------------------------------------------------------------------------------
+WS_MSG_MAX = 65536      # characters in one message on the price socket (a subscription to a few hundred contracts is a few thousand)
+
+
+def _ws_msg_ok(raw: str) -> bool:
+    """A message on the price socket is a short list of contracts. Anyone, with no login, could send
+    messages of many megabytes one after the other: reading each one held the whole server for a third of
+    a second, and with four such connections every user's screen took 0.2 to 1.2 seconds per click
+    (19 Nov 2026). An oversized message now ends that connection unread."""
+    return len(raw) <= WS_MSG_MAX
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     tok = ws.cookies.get(COOKIE) or ws.query_params.get("token")
@@ -1184,7 +1232,10 @@ async def ws_endpoint(ws: WebSocket):
     pump = asyncio.create_task(pump_events())
     try:
         while True:
-            msg = json.loads(await ws.receive_text())
+            raw = await ws.receive_text()
+            if not _ws_msg_ok(raw):
+                await ws.close(1009); break
+            msg = json.loads(raw)
             if msg.get("type") == "subscribe":
                 toks = [int(t) for t in msg.get("tokens", [])]
                 if allowed is not None:
@@ -2173,8 +2224,10 @@ def _forget_number(db, uid: int):
     before 18 Nov 2026). Never called for an account that exists."""
     from .db import DaySnap, Setting
     db.query(DaySnap).filter_by(user_id=uid).delete()
-    for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_"):
+    for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_", "logout_"):
         db.query(Setting).filter_by(key=f"{k}{uid}").delete()
+    from . import auth as _auth
+    _auth._ended.pop(uid, None)
     engine._margin_level.pop(uid, None); engine._neg_since.pop(uid, None); _temp_streams.pop(uid, None)
 
 

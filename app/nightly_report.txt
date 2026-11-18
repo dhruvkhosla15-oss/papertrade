@@ -1,14 +1,14 @@
 LIMEFX OFFICERS' NIGHTLY AUDIT, 19 NOV 2026 (IST): LOOPHOLE FOUND AND FIXED. A DELETED USER'S OLD LOGIN COULD BE ACCEPTED AS THE NEXT ACCOUNT YOU CREATED, EVEN A NEW MASTER LOGIN. NOW REFUSED.
 
-Technology: clean. Site starts with no errors, all 8 jobs running, backup complete and opens only with its password. Forced restart mid-trading: no order lost or doubled. 100 users: screens 31 ms, orders about 60 ms, same as yesterday's code. The job-stopped alarm fires. Software weaknesses: 3 reports in one price library, in a part the site never uses. No real passwords in the code.
+Technology: clean. Site starts with no errors, all 8 jobs running, backup complete and opens only with its password. Forced restart mid-trading: no order lost or doubled. 100 users: screens 31 ms, orders about 60 ms, same as yesterday's code. The job-stopped alarm fires. Software weaknesses: none that apply. No real passwords in the code.
 
-Security: found, fixed. Besides the login above (it needed you to delete the newest account and create another; if you ever see a Master login you do not know, tell me): Log out now really ends the login. A visitor could fill the server's memory with huge requests: refused. One account could slow everyone with thousands of pending orders: now 500 at most (new limit). Text typed by a Master no longer runs as part of a page. All 7 markets attacked (NSE, BSE, MCX, Currency, Forex, Global, Crypto), 13 sweep rows, no-login sweep clean. Nobody gained coins.
+Security: found, fixed. Besides the login above (it needed you to delete the newest account and create another; if you ever see a Master login you do not know, tell me): Log out now really ends the login. A visitor could fill the server's memory with huge requests: refused. One account could slow everyone with thousands of pending orders: now 500 at most (new limit). Text typed by a Master no longer runs as part of a page. All 7 markets attacked, 13 sweep rows, no-login sweep clean. Nobody gained coins.
 
 Accounts: found, fixed. All screens and Excel files agreed for 8 accounts; commission by hand matched. Fixed: after you deleted the user who made the latest trade, every NSE, BSE and MCX order failed until a crypto, forex or currency trade came (possible since 18 Nov); the top line of the ledger Excel did not add up after a weekly cut-off.
 
 Price: found, fixed. Fills, closing, carried, expiry and rupee rates right in all 7 markets. Two faults when a contract list is missing after a restart: a crypto position showed a loss ten times too big and got other positions squared off; an option expiring before the day's price login was paid at yesterday's price. Normal days are worked out exactly as before.
 
-UI: found, fixed. All screens on computer, tablet, two phones, light and dark. On a phone the Master's user panel hid Delete and close; a long error ran off Site health; watchlist names ran under prices; prices flashed unreadable in light theme.
+UI: found, fixed. All screens on computer, tablet and phones, light and dark. On a phone the Master's user panel hid Delete and close; a long error ran off Site health; watchlist names ran under prices; prices flashed unreadable in light theme.
 
 Risk: rules held (warning, shortfall, square-off of only the lots needed, worst first, one charge per order). After a 10% gap, 10 lakh coins end above zero in NSE, BSE, MCX but about 17 lakh below in Currency, 1.5 crore in Crypto, 1.7 crore in Global, 3.9 crore in Forex. Proposed: lower top leverage or a size cap there.
 
@@ -18,7 +18,7 @@ Compliance: found, fixed. The activity list named the wrong user after a delete;
 
 Release: approved by an independent reviewer, nothing held; his 3 points were corrected and re-tested.
 
-Daily checks added: dead logins, oversized requests, pending-order limit, kept rupee value; 10 browser checks; 9 simulation checks.
+Daily checks added: 4, plus 10 browser and 9 simulation checks.
 
 Waiting for you (no branch): leverage limits; crypto square-off charge is 0.05% of value, others 50 flat: intended?; on expiry days do the price login before 12:30 pm; a Stop-loss/Target button on positions; fuller activity record; terms and notes.
 

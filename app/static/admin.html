@@ -89,6 +89,7 @@ a{color:var(--acc)}
 .accsw{position:relative;display:inline-block;width:44px;height:24px;vertical-align:middle;cursor:pointer}.accsw input{opacity:0;width:0;height:0;position:absolute}.accsw span{position:absolute;inset:0;border-radius:99px;background:#2a3856;transition:.15s}.accsw span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#8ea0bd;transition:.15s}.accsw input:checked+span{background:#84cc16}.accsw input:checked+span:after{left:23px;background:#0b1220}
 #accDefault td,#accDefault th,#dAccess td,#dAccess th,#accOne td,#accOne th{text-align:center}
 #hlBody .plrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:5px 2px;border-bottom:1px solid var(--line)}#hlBody .plrow:last-child{border-bottom:0}#hlBody .plrow span{color:var(--mut)}#hlBody .plrow b{text-align:right;font-weight:600}
+#alBody .alrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:6px 2px;border-bottom:1px solid var(--line)}#alBody .alrow:last-child{border-bottom:0}#alBody .alrow>b{text-align:right;font-weight:600;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -261,6 +262,9 @@ a{color:var(--acc)}
   <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Site health <span id="hlBadge" class="pill OPEN" style="vertical-align:middle">…</span></h2><button class="ghost" id="hlRefresh">Refresh</button></div>
     <p class="small mut" style="margin:4px 0 10px">The technical side: is everything that runs in the background alive, is there space, are errors being logged, does the backup open. Problems are also sent to Telegram.</p>
     <div id="hlBody" class="small"></div></div>
+  <div class="card"><h2 style="margin:0">Pop-ups waiting for users <span id="alBadge" class="pill OPEN" style="vertical-align:middle">…</span></h2>
+    <p class="small mut" style="margin:4px 0 10px">Messages a user has not pressed OK on yet (position liquidated, margin reminder, a notice you sent). Looking here changes nothing. One waiting for more than a day means that user has not opened the app since.</p>
+    <div id="alBody" class="small"></div></div>
   <div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:260px"><h2 style="margin:0">Trading access — default for every user</h2><p class="small mut" style="margin:4px 0 0">New users start with this. Changing it changes every user, except the switches you set on a user yourself. A switch that is off stops new trades only: prices and charts stay visible and a position already held can always be exited.</p></div>
     <div style="flex:0 0 auto;display:flex;gap:8px"><button class="ghost" id="accResetAll">Reset all users to default</button><button id="accSaveDef">Save</button></div></div>
     <div id="accDefault" style="margin-top:8px"></div>
@@ -427,7 +431,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function'){accFillUsers();loadHealth();}if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function'){accFillUsers();loadHealth();loadAlerts();}if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -696,12 +700,17 @@ async function loadHealth(){const el=$('#hlBody');if(!el)return;try{const h=awai
     +row('Disk space',dk.free_mb!=null?`${dk.free_mb.toLocaleString('en-IN')} MB free (${dk.free_pct}%)`:'—',dk.free_pct==null?undefined:dk.free_pct>=10)
     +row('Books size',h.db_mb!=null?h.db_mb+' MB':'—')
     +row('Server errors','last hour '+h.errors_hour+' · last 24 h '+h.errors_day+(h.last_error?` · latest ${esc(h.last_error.at)}: ${esc(h.last_error.what).slice(0,90)}`:''),h.errors_hour<5)
+    +((h.errors||[]).length?`<details style="margin:2px 0 6px"><summary class="mut" style="cursor:pointer">Show all ${h.errors.length} error${h.errors.length>1?'s':''} of the last 24 hours</summary><div style="max-height:260px;overflow:auto;margin-top:6px">${h.errors.map(e=>`<div style="padding:4px 0;border-top:1px solid var(--line,rgba(128,128,128,.25));overflow-wrap:anywhere"><b>${esc(e.at)}</b> <span class="mut">${esc(e.where)}</span><br>${esc(e.what)}</div>`).join('')}</div></details>`:'')
     +row('Latest backup',bk.latest?esc(bk.latest)+` · ${bk.kept} kept`:'none yet',!!bk.latest)
     +row('Backup opened and checked',ck.file?(ck.ok?`complete · ${ck.users} accounts, ${ck.ledger} ledger lines (${esc(ck.at||'')})`:'FAILED: '+esc(ck.why||'')):'after the next daily backup',ck.file?!!ck.ok:undefined)
     +row('Copy kept off the server',bk.offsite_on?('on'+(bk.offsite_last?' · last sent '+esc(bk.offsite_last):' · nothing sent yet')+(bk.offsite_opens?' · opens with the password':'')+(bk.offsite_error?' · last problem: '+esc(bk.offsite_error).slice(0,80):'')):'OFF',!!bk.offsite_on&&!bk.offsite_error)
     +row('Telegram alerts',h.telegram?'on':'OFF',!!h.telegram)
     +(h.domain?row('Domain name limefx.in',`valid until ${esc(h.domain.expires)} · ${h.domain.days_left} days left (GoDaddy)`,h.domain.days_left>30):'');}catch(e){el.textContent='Could not read the site health: '+e.message;}}
-$('#hlRefresh').onclick=loadHealth;
+async function loadAlerts(){const el=$('#alBody');if(!el)return;try{const a=await api('/admin/alerts');const old=a.filter(x=>x.hours!=null&&x.hours>=24).length;
+  const b=$('#alBadge');b.textContent=!a.length?'NONE WAITING':old?old+' OVER A DAY':a.length+' WAITING';b.className='pill '+(old?'REJECTED':a.length?'OPEN':'FILLED');
+  const wait=h=>h==null?'—':h<1?Math.max(1,Math.round(h*60))+' min':h<24?Math.round(h)+' h':Math.floor(h/24)+' d '+Math.round(h%24)+' h';
+  el.innerHTML=a.length?a.map(x=>`<div class="alrow"><span style="overflow-wrap:anywhere"><b>${esc(x.display_name||x.username)}</b> <span class="mut">${esc(x.username)}</span> · ${esc(x.title)} <span class="mut">(${esc(x.at)})</span></span><b class="${x.hours!=null&&x.hours>=24?'dn':''}" style="white-space:nowrap">waiting ${wait(x.hours)}</b></div>`).join(''):'<span class="mut">No user has a pop-up waiting.</span>';}catch(e){el.textContent='Could not read the waiting pop-ups: '+e.message;}}
+$('#hlRefresh').onclick=()=>{loadHealth();loadAlerts();};
 /* ---- trading access switches ---- */
 const ACC={def:null,usr:null};
 function accSw(k,on,scope){return `<label class="accsw"><input type="checkbox" data-acc="${scope}" data-k="${k}"${on?' checked':''}><span></span></label>`;}

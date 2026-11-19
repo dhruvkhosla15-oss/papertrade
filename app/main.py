@@ -370,7 +370,7 @@ async def startup():
     asyncio.create_task(daystart_loop())
     asyncio.create_task(feed_watch_loop())
     asyncio.create_task(weekly_loop())
-    _wd.install()
+    _wd.install(config.DATA_DIR)
     asyncio.create_task(watchdog_loop())
 
 
@@ -1921,7 +1921,12 @@ def _health() -> dict:
         "disk": _wd.disk(config.DATA_DIR), "db_mb": round(f.stat().st_size / 1e6, 1) if f and f.exists() else None,
         "errors_hour": len(_wd.errors_since(3600)), "errors_day": len(_wd.errors_since(86400)),
         "last_error": (lambda e: {"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]} if e else None)(_wd._errors[-1] if _wd._errors else None),
-        # every error of the last 24 hours, newest first (kept in memory: the list starts again after a restart)
+        # the same errors with identical ones folded into one line (how many, first and last time)
+        "error_groups": [{"where": g["where"], "what": g["what"], "count": g["count"],
+                          "first": (datetime.utcfromtimestamp(g["first"]) + IST).strftime("%d %b, %I:%M %p"),
+                          "last": (datetime.utcfromtimestamp(g["last"]) + IST).strftime("%d %b, %I:%M %p")}
+                         for g in _wd.error_groups(86400)],
+        # every error of the last 24 hours, newest first (saved beside the database: a restart keeps them)
         "errors": [{"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]}
                    for e in reversed(_wd.errors_since(86400))],
         # true only if the in-memory store itself is full (more than 20,000 errors since the restart): older ones were dropped

@@ -938,3 +938,7 @@ only Reconnect (which reuses the dead login) and retried for two hours (about 30
 in a row stop the retrying, the card says "Zerodha refused the login", needs_login becomes true, one Telegram
 message with the login link is sent, and the login button is always shown. The login's day is the Indian day
 (the server clock is UTC). Tested directly on the feed class (the private copy runs on simulated prices).
+
+## 19 Nov 2026 (night, owner request) — errors kept through a restart
+The health page lost the day's errors at every restart. Errors are now also written to errors.jsonl beside the database
+(kept 7 days) and read back at start; the health answer gains "error_groups" (identical errors folded: count, first, last).

@@ -252,6 +252,17 @@ class Engine:
         """The most lots one order may carry."""
         return max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
 
+    def rupee_known(self, ins) -> bool:
+        """False while a crypto / forex / Global contract has no rupee value per point (its conversion rate
+        is missing). Nothing may fill then: a fill would book a profit or loss of zero and block a margin
+        of zero, whatever the price did (tried 20 Nov 2026 with the rate taken away by hand: a stop-loss
+        closed a losing position at a loss of 0.00 and two resting orders opened positions with no margin).
+        New orders are refused in that state anyway; this is for resting orders and the automatic closes."""
+        try:
+            return self.vf(ins) > 0
+        except Exception:
+            return False
+
     MAX_OPEN_CONTRACTS = 200    # different contracts one account may hold positions or resting orders on at the same time
     MAX_RESTING_ORDERS = 500    # pending (limit / stop-loss) orders one account may have resting at the same time
     resting_cap_for: dict = {}  # account number -> a lower limit; only the daily check sets it, for its own test account
@@ -946,7 +957,7 @@ class Engine:
                         # order (stop-loss and target, or the same exit placed twice). It must stay
                         # cancelled: filling it anyway opened a position the other way round.
                         continue
-                    if not self.tradable_now(ins):
+                    if not self.tradable_now(ins) or not self.rupee_known(ins):
                         continue
                     if (o.order_type == "LIMIT" and not o.limit_price) or (o.order_type == "SL" and not o.trigger_price):
                         o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — order had no valid price"
@@ -1096,7 +1107,7 @@ class Engine:
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
         ins = self.feed.instruments.get(p.token)
-        if not ins or not self.tradable_now(ins):
+        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins):
             return False
         side = "SELL" if p.qty > 0 else "BUY"
         try:
@@ -1358,7 +1369,7 @@ class Engine:
         rows = []
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not p.qty or not self.tradable_now(ins):
+            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins):
                 continue
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
@@ -1417,7 +1428,7 @@ class Engine:
         closed, detail, charged = 0, [], 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not self.tradable_now(ins):
+            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins):
                 continue
             side = "SELL" if p.qty > 0 else "BUY"
             try:

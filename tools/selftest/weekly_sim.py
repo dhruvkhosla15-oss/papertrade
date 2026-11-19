@@ -852,6 +852,60 @@ _lt = db.query(Trade).filter_by(user_id=_u.id, token=O_LATE).order_by(Trade.id.d
 ok("late list: once the list is there it settles against the index (worthless), not at yesterday's premium", _lp() is None and _lt.price == 0.0 and near(_u.balance, _bal - 400.05 * 75, 1.0),
    f"settled at {_lt.price}, balance {_u.balance}")
 
+# ---- the rupee conversion rate goes missing (20 Nov 2026) --------------------------------------------------
+# With no rate a crypto / forex / Global contract is worth nothing per point. New orders are refused then;
+# resting orders and the automatic closes were not: a stop-loss closed a losing position at a loss of 0.00
+# and a resting buy opened a position with a margin of 0.00. Now nothing fills until the rate is back.
+at(day(W13, 2, 11)); feed.set(F_BTC, 85000)
+mk_user("norate", 600_000); results[users["norate"].id] = 0.0
+trade("norate", F_BTC, "BUY", 100)
+trade("norate", F_BTC, "SELL", 100, order_type="SL", trigger_price=84000.0)
+_u2 = users["norate"]
+_q = lambda: db.query(Position).filter_by(user_id=_u2.id, token=F_BTC, is_closed=False).first()
+_rate = feed.usdinr; feed.usdinr = 0.0; feed.set(F_BTC, 83000)
+engine._consumed.clear(); run(engine._process_pending(F_BTC, 83000.0)); run(engine._check_liquidations()); db.expire_all()
+ok("no conversion rate: a resting stop-loss does not fill (it would book a loss of nothing)",
+   _q() is not None and _q().qty == 100 and db.query(Trade).filter_by(user_id=_u2.id).count() == 1, f"position {_q().qty if _q() else 0}")
+feed.usdinr = _rate
+engine._consumed.clear(); run(engine._process_pending(F_BTC, 83000.0)); db.expire_all()
+_t2 = db.query(Trade).filter_by(user_id=_u2.id).order_by(Trade.id.desc()).first()
+ok("no conversion rate: once the rate is back the stop-loss fills and books the real loss", _q() is None and (_t2.realised_pnl or 0) < -15000,
+   f"realised {_t2.realised_pnl}")
+
+# ---- the exchange's position limit holds when resting orders fill (20 Nov 2026) ----------------------------
+# The limit was checked when an order was placed, against the position of that moment: four resting buy
+# orders of 200, each within a limit of 250, left a position of 800.
+F_LIM = 32
+feed.instruments[F_LIM] = Instrument(F_LIM, "LIMUSD", "LIM", "CRYPTO", "CRYPTO-FUT", "FUT", "", 0, 1, 0.5, multiplier=0.001, init_margin_pct=10.0, pos_limit=250)
+feed.set(F_LIM, 1000.0)
+mk_user("limit", 600_000); results[users["limit"].id] = 0.0
+for _ in range(4):
+    trade("limit", F_LIM, "BUY", 200, order_type="LIMIT", limit_price=990.0)
+feed.set(F_LIM, 985.0); engine._consumed.clear(); run(engine._process_pending(F_LIM, 985.0)); db.expire_all()
+_lq = sum(p.qty for p in db.query(Position).filter_by(user_id=users["limit"].id, token=F_LIM, is_closed=False))
+_lo = db.query(Order).filter_by(user_id=users["limit"].id, status="OPEN").count()
+_lf = engine.funds(db, users["limit"])
+ok("position limit: resting orders together do not take a position past the exchange's limit", _lq == 250, f"position {_lq}, limit 250")
+ok("position limit: what no longer fits is cancelled and keeps no margin reserved",
+   _lo == 0 and near(_lf["used_margin"], sum(p.margin_blocked for p in db.query(Position).filter_by(user_id=users["limit"].id, is_closed=False)), 0.01),
+   f"{_lo} still resting, used {_lf['used_margin']}")
+
+# ---- Exit closes a position of more than 500 lots (20 Nov 2026) ---------------------------------------------
+# One order carries at most 500 lots; Exit sent the whole position as one order and was refused ("Enter a
+# number of lots between 1 and 500") for a position built with several orders. Now it goes in slices.
+feed.set(F_SILVERM, feed.prices[F_SILVERM]["ltp"])
+mk_user("bigpos", 2_000_000_000); results[users["bigpos"].id] = 0.0
+trade("bigpos", F_SILVERM, "BUY", 400); trade("bigpos", F_SILVERM, "BUY", 400)
+_bq = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=users["bigpos"].id, token=F_SILVERM, is_closed=False))
+_bid = db.query(Position).filter_by(user_id=users["bigpos"].id, token=F_SILVERM, is_closed=False).first().id
+engine._consumed.clear()
+try:
+    run(M.close_position(_bid, users["bigpos"], db)); _berr = ""
+except Exception as e:
+    _berr = str(getattr(e, "detail", e)); db.rollback()
+db.expire_all()
+ok("Exit closes a position of 800 lots in one press", _bq() == 0, f"left {_bq() // 5} lots {_berr}")
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

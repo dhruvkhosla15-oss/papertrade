@@ -497,12 +497,12 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-// ---- crypto display currency (contracts are USD-quoted on Delta; INR view = USD x live USDINR) ----
+// ---- crypto display currency (contracts are USD-quoted on the crypto exchange; INR view = USD x live USDINR) ----
 const GNAME={US500:'S&P 500',US30:'Dow Jones 30',USTEC:'Nasdaq 100',US2000:'Russell 2000',UK100:'UK 100',DE40:'Germany 40',STOXX50:'Euro Stoxx 50',JP225:'Japan 225',AUS200:'Australia 200',HK50:'Hong Kong 50',XTIUSD:'WTI Crude Oil',XBRUSD:'Brent Crude Oil',XNGUSD:'Natural Gas',XPTUSD:'Platinum',XPDUSD:'Palladium'};   // contracts listed under Global
 const GGRP=n=>/^US(500|30|TEC|2000)$/.test(n)?'US index':/^X(TI|BR|NG)/.test(n)?'Energy':/^XP/.test(n)?'Metal':'World index';const gOrd=n=>{const i=Object.keys(GNAME).indexOf(n);return i<0?99:i;};
-const isCryptoTok=t=>+t>=5e9&&+t<6e9;   // Delta tokens live at 5e9+, forex at 6e9+
+const isCryptoTok=t=>+t>=5e9&&+t<6e9;   // crypto tokens live at 5e9+, forex at 6e9+
 let CCCY=(()=>{try{return localStorage.getItem('lfx_cccy')||'INR'}catch(e){return 'INR'}})();
-const inrOn=()=>CCCY==='INR'&&!!state.usdinr;   // ₹ view only when Delta's rate is known
+const inrOn=()=>CCCY==='INR'&&!!state.usdinr;   // ₹ view only when the crypto exchange's rupee rate is known
 const cRate=()=>inrOn()?state.usdinr:1;
 const cp=(ex,v)=>(v==null||ex!=='CRYPTO')?v:v*cRate();                     // convert one USD value for display
 const cpx=(ex,v)=>v==null?'—':(ex==='CRYPTO'?(inrOn()?'₹':'$'):'')+fmt(cp(ex,v));

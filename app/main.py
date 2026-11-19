@@ -2377,7 +2377,9 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
     mp = {ex: engine.margin_pct(db, ex) for ex in ("NFO", "BFO", "MCX", "STK", "CDS", "CRYPTO")}
     for g in config.MCX_GROUP_LABELS:
         v = get_setting(db, f"margin_pct_{g}"); mp[g] = float(v) if v else config.DEFAULT_MARGIN_PCT[g]
-    return {"margin_pct": mp, "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db), "market_status": _market_status(),
+    from .feed.base import MAX_LEVERAGE as _maxlev
+    return {"margin_pct": mp, "min_margin_pct": {"CRYPTO": round(100.0 / _maxlev["CRYPTO"], 4), "FOREX": round(100.0 / _maxlev["FOREX"], 4)},   # what the Settings page tells the Master (display only)
+            "mcx_groups": config.MCX_GROUP_LABELS, "mcx_option_factor": engine.mcx_option_factor(db), "market_status": _market_status(),
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "commission_pct_options": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_options")),
             "commission_flat": float(get_setting(db, "commission_flat") or 0),

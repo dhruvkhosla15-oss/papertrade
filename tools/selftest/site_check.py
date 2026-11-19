@@ -352,7 +352,26 @@ def main():
         page.evaluate("document.querySelector('[data-nav=\"settings\"]').click()"); page.wait_for_timeout(2500)
         gaps = page.evaluate("[...document.querySelectorAll('#hlBody .plrow')].map(r => r.querySelector('b').getBoundingClientRect().left - r.querySelector('span').getBoundingClientRect().right)")
         ok("Master Settings: site health rows show the name and the value apart", len(gaps) >= 14 and min(gaps) >= 8, f"smallest gap {min(gaps) if gaps else None}px")
+        # Settings, crypto margin: what the Master is told is what a new position really needs. After the 50x
+        # rule of 19 Nov 2026 the card still said "BTC/ETH 0.5% = 200x" and showed 0.5 in the box.
+        sr = aget("/api/search?q=BTCUSD")
+        btc = next((x for x in (sr if isinstance(sr, list) else []) if x.get("symbol") == "BTCUSD"), None)
+        cm = page.evaluate("[(document.querySelector('#mCRYPTO') || {}).value, ((document.querySelector('#mCRYPTO') || {}).parentElement || {}).innerText || '']")
+        if btc is None:
+            ok("Master Settings: the crypto margin note does not promise more than 50x", not re.search(r"\b(100|200|500)\s*[×x]", cm[1]), cm)
+        else:
+            need = float(btc.get("init_margin_pct") or 0); top = max(btc.get("leverage_options") or [1])
+            ok("Master Settings: the crypto margin box and note say what a new position really needs",
+               near(cm[0], need, 1e-6) and f"{need:g}%" in cm[1] and f"{top:g}×" in cm[1] and not re.search(r"\b(100|200|500)\s*[×x]", cm[1]),
+               f"box {cm[0]!r}, note {cm[1]!r}; a new BTCUSD position needs {need}% (top leverage {top}x)")
         ctx.close()
+        # The user page as it is sent to any visitor (also its source) names no price-feed provider. ("Delta" as
+        # the name of an option figure on the chain is not one: only the provider names in other spellings count.)
+        import httpx as _hx
+        src = _hx.get(f"{B}/", timeout=20).text
+        named = [(m.group(0), src[max(0, m.start() - 40):m.end() + 40].replace("\n", " ")) for m in
+                 re.finditer(r"zerodha|kite|c-?trader|ic ?markets|spotware|on Delta|Delta's|Delta (?:exchange|tokens|feed|rate)", src, re.I)]
+        ok("User page: its source names no price-feed provider", len(src) > 20000 and not named, named[:3])
 
         # Text typed by the Master (a user's display name, the note on coins) is shown as text, never run as part of the
         # page (19 Nov 2026: a name with markup in it ran as script on the Master's Performance tab, a coin note on the

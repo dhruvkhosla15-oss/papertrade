@@ -994,6 +994,51 @@ try:
 finally:
     time.time = _rt
 
+# ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
+# On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
+# offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.
+from app.feed.kite import KiteFeed                         # noqa: E402
+import app.probe as _PB                                    # noqa: E402
+_tg, _told = _PB._telegram, []
+_PB._telegram = lambda m: _told.append(m)
+try:
+    _kf = KiteFeed("fake-key", "fake-secret"); _kf.set_access_token("fake-token", __import__("app.feed.kite", fromlist=["ist_today"]).ist_today())
+    ok("feed login: a login of today counts until the broker refuses it", _kf.token_valid_today() and not _kf.status()["needs_login"])
+    _r = [_kf._maybe_refused(None, "connection was refused: 403 - Forbidden") for _ in range(2)]
+    ok("feed login: two refusals are still retried", _r == [False, False] and not _kf.refused)
+    _kf._maybe_refused(None, "connection was refused: 403 - Forbidden"); time.sleep(0.3)
+    _st = _kf.status()
+    ok("feed login: the third refusal stops the retrying and asks for a fresh login", _kf.refused and _st["needs_login"] and _st["refused"] and not _st["can_reconnect"] and not _kf.reconnect(), str({k: _st.get(k) for k in ("needs_login", "refused", "can_reconnect")}))
+    ok("feed login: the owner is told once, with the way to log in", len(_told) == 1 and "/auth/kite/login" in _told[0], str(len(_told)))
+    _kf._maybe_refused(None, "403"); _kf._on_close(None, 1006, "403"); time.sleep(0.2)
+    ok("feed login: further refusals send no further message", len(_told) == 1, str(len(_told)))
+    ok("feed login: an ordinary disconnection is not taken for a refusal", KiteFeed("k", "s")._maybe_refused(None, "connection lost (1006)") is False)
+    _kf.set_access_token("fake-token-2", __import__("app.feed.kite", fromlist=["ist_today"]).ist_today())
+    ok("feed login: a fresh login clears the refusal", not _kf.refused and _kf.token_valid_today())
+finally:
+    _PB._telegram = _tg
+
+# Site health used to forget the day's errors at every restart and showed 300 identical lines one by one.
+import logging as _lg                                      # noqa: E402
+from app import watchdog as _WD                            # noqa: E402
+_wd_file, _wd_err = _WD._err_file, list(_WD._errors)
+try:
+    _WD._err_file = __import__("pathlib").Path(tempfile.mkdtemp(prefix="lfx-errs-")) / "errors.jsonl"; _WD._errors.clear()
+    _h = _WD._ErrorCounter(level=_lg.ERROR)
+    for _m in ("same thing went wrong", "same thing went wrong", "same thing went wrong", "something else <b>went</b> wrong\nsecond line"):
+        _h.emit(_lg.LogRecord("engine", _lg.ERROR, __file__, 1, _m, None, None))
+    _h.emit(_lg.LogRecord("engine", _lg.WARNING, __file__, 1, "only a warning", None, None))
+    _WD._errors.clear(); _WD._load_errors()                # what a restart does
+    _g = _WD.error_groups(86400)
+    ok("site health: the errors of before a restart are still there after it", len(_WD.errors_since(86400)) == 4, str(len(_WD.errors_since(86400))))
+    ok("site health: identical errors are folded into one line with their number", sorted(x["count"] for x in _g) == [1, 3] and all(x["first"] <= x["last"] for x in _g), str(_g)[:200])
+    with open(_WD._err_file, "a") as _f:
+        _f.write('not json\n[1, "old", "an error of long ago"]\n')
+    _WD._errors.clear(); _WD._load_errors()
+    ok("site health: a broken line or an error past its keeping time is left out, the rest is kept", len(_WD._errors) == 4, str(len(_WD._errors)))
+finally:
+    _WD._err_file = _wd_file; _WD._errors.clear(); _WD._errors.extend(_wd_err)
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

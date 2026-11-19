@@ -34,7 +34,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("app")
 logging.getLogger("httpx").setLevel(logging.WARNING)   # its INFO lines print full request URLs
 
-app = FastAPI(title="LimeFX")
+# No self-describing pages: /docs, /redoc and /openapi.json answered any visitor with the complete list of
+# the site's addresses, the Master's included, their parameters and the notes written above each (which name
+# the price-feed providers). Nothing on the site uses them (found 20 Nov 2026).
+app = FastAPI(title="LimeFX", docs_url=None, redoc_url=None, openapi_url=None)
 from . import probe as _probe
 from . import weekly as _weekly
 from . import access as _access
@@ -1206,6 +1209,11 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
         ins_ = feed.instruments.get(p.token)
         fz = FREEZE_QTY.get(ins_.name) if ins_ and ins_.exchange in ("NFO", "BFO") else None
         chunk = max(1, fz // p.lot_size) if fz else 10 ** 9
+        if ins_:
+            # ...and never in slices bigger than one order may be: a position of more than 500 lots built
+            # with several orders (Currency, stock futures, MCX) could not be closed with Exit at all, the
+            # answer was "Enter a number of lots between 1 and 500" (found 20 Nov 2026)
+            chunk = min(chunk, engine.max_lots(ins_))
         side_ = "SELL" if p.qty > 0 else "BUY"
         left = abs(p.qty) // p.lot_size
         o = None
@@ -2437,7 +2445,16 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
         for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
             try:
                 engine.cancel_pending_for(db, u, p.token)
-                engine.place_order(db, u, p.token, "SELL" if p.qty > 0 else "BUY", abs(p.qty) // p.lot_size)
+                ins_ = feed.instruments.get(p.token)
+                side_, left = ("SELL" if p.qty > 0 else "BUY"), abs(p.qty) // p.lot_size
+                from .config import FREEZE_QTY
+                fz = FREEZE_QTY.get(ins_.name) if ins_ and ins_.exchange in ("NFO", "BFO") else None
+                while left > 0:           # in slices one order may carry, like Exit (a position above the freeze quantity or of more than 500 lots was refused whole)
+                    n = min(left, engine.max_lots(ins_), max(1, fz // p.lot_size) if fz else left) if ins_ else left
+                    o = engine.place_order(db, u, p.token, side_, n)
+                    if o.status != "FILLED" or (o.qty // p.lot_size) < n:
+                        break
+                    left -= n
                 done += 1
             except EngineError as e:
                 errors.append(f"{p.symbol}: {e}")

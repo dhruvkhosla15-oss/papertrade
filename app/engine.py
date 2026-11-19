@@ -247,6 +247,11 @@ class Engine:
                 return True
         return True
 
+    @staticmethod
+    def max_lots(ins) -> int:
+        """The most lots one order may carry."""
+        return max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
+
     MAX_OPEN_CONTRACTS = 200    # different contracts one account may hold positions or resting orders on at the same time
     MAX_RESTING_ORDERS = 500    # pending (limit / stop-loss) orders one account may have resting at the same time
     resting_cap_for: dict = {}  # account number -> a lower limit; only the daily check sets it, for its own test account
@@ -554,7 +559,7 @@ class Engine:
         if pcur and pcur.qty and (pcur.product or "NRML") != product and ((pcur.qty > 0) == (side == "BUY")):
             held = "Intraday" if (pcur.product or "NRML") == "MIS" else "Overnight"
             raise EngineError(f"You already hold {ins.symbol} as {held} — add to it as {held}, or exit it first")
-        max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
+        max_lots = self.max_lots(ins)
         if lots < 1 or lots > max_lots:
             raise EngineError(f"Enter a number of lots between 1 and {max_lots}")
         # Trading access: a segment that is not activated on the account takes no NEW exposure. Reducing or
@@ -878,6 +883,23 @@ class Engine:
         signed = o.qty if o.side == "BUY" else -o.qty
         if cur and (cur > 0) != (signed > 0) and abs(signed) <= abs(cur):
             return True
+        lim = getattr(ins, "pos_limit", 0) or 0
+        if lim and abs(cur + signed) > lim and abs(cur + signed) > abs(cur):
+            # The exchange's position limit was checked when the order was placed, against the position of
+            # that moment. Several resting orders, each within the limit on its own, filled one after the
+            # other and left a position of 800 where the limit is 250 (20 Nov 2026), which the Exit button
+            # then could not close in one go. Only what still fits is filled; the rest is dropped.
+            lot = max(ins.lot_size, 1)
+            fits = ((lim - cur) if signed > 0 else (lim + cur)) // lot * lot
+            if fits <= 0:
+                o.status = "CANCELLED"; o.margin_blocked = 0.0
+                o.reason = f"Cancelled — it would exceed the exchange position limit of {lim:,} contracts"
+                db.commit()
+                self._emit(o.user_id, {"type": "order", "order": self.order_dict(o)})
+                return False
+            o.margin_blocked = round((o.margin_blocked or 0.0) * fits / o.qty, 2)
+            o.qty = fits; o.lots = fits // lot
+            signed = fits if o.side == "BUY" else -fits
         user = db.get(User, o.user_id)
         if user is None:
             return True

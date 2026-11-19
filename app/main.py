@@ -1922,7 +1922,9 @@ def _health() -> dict:
         "last_error": (lambda e: {"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]} if e else None)(_wd._errors[-1] if _wd._errors else None),
         # every error of the last 24 hours, newest first (kept in memory: the list starts again after a restart)
         "errors": [{"at": (datetime.utcfromtimestamp(e[0]) + IST).strftime("%d %b, %I:%M %p"), "where": e[1], "what": e[2]}
-                   for e in reversed(_wd.errors_since(86400))][:100],
+                   for e in reversed(_wd.errors_since(86400))],
+        # true only if the in-memory store itself is full (more than 20,000 errors since the restart): older ones were dropped
+        "errors_full": len(_wd._errors) >= _wd.ERRORS_MAX,
         "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
                    "offsite_on": _tg_ready(), "offsite_last": off.get("sent"), "offsite_opens": off.get("opens"), "offsite_error": off.get("error") or ""},
         "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),

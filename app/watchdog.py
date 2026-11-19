@@ -31,7 +31,8 @@ JOBS = {
     "dailycheck":  ("Daily safety check clock", 900),
 }
 _beats: dict = {}
-_errors = deque(maxlen=400)          # (time, logger, message) of ERROR-level log records
+ERRORS_MAX = 20000
+_errors = deque(maxlen=ERRORS_MAX)   # (time, logger, message) of ERROR-level log records. Was 400, which hid most of a bad day from the health page and its counts
 _alerted: dict = {}                  # problem key -> time the owner was last told
 
 
@@ -43,7 +44,7 @@ class _ErrorCounter(logging.Handler):
     def emit(self, record):
         try:
             if record.levelno >= logging.ERROR and record.name != "watchdog":
-                _errors.append((time.time(), record.name, record.getMessage()[:200]))
+                _errors.append((time.time(), record.name, record.getMessage()[:500]))
         except Exception:
             pass
 

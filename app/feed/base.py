@@ -30,6 +30,9 @@ def kind_of(exchange: str, name: str) -> str:
     return "index" if name in INDEX_NAMES else "stock"
 
 
+MAX_LEVERAGE = {"CRYPTO": 50, "FOREX": 50}     # FOREX covers Forex and Global
+
+
 @dataclass
 class Instrument:
     token: int
@@ -50,6 +53,16 @@ class Instrument:
     price_band_pct: float = 0.0     # exchange price band for limit/stop prices (0 = none)
     leverage_options: tuple = ()    # selectable leverage steps the exchange offers (crypto/forex)
     expiry_at: float = 0.0          # exact expiry moment (epoch seconds) when the exchange publishes one; 0 = session close on the expiry date
+
+    def __post_init__(self):
+        # Owner's decision, 19 Nov 2026: at most 50x in Crypto, Forex and Global (at least 2% margin on new
+        # exposure), so that a weekend or overnight gap cannot cost many times an account's coins. Positions
+        # already open keep the margin they were filled at.
+        cap = MAX_LEVERAGE.get(self.exchange)
+        if cap:
+            if self.leverage_options:
+                self.leverage_options = tuple(x for x in self.leverage_options if x <= cap) or (1,)
+            self.init_margin_pct = max(float(self.init_margin_pct or 0.0), 100.0 / cap)
 
     def to_dict(self):
         d = asdict(self)

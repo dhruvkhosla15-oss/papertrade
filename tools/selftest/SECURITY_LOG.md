@@ -922,3 +922,19 @@ the lock as before (db.expire_all()). iPhone install hint reworded (Share button
 - Every loophole or fault that was ever fixed must keep its own check in the daily safety check (app/probe.py)
   or the browser check (site_check.py), and those run in full every night and twice a day on the live site.
   If you find a past fix in this log that has no check of its own, adding one is tonight's first job.
+
+## Owner's decisions, 19 Nov 2026 (do not raise again, do not change)
+- At most 50x in Crypto, Forex and Global (at least 2% margin on NEW exposure). Open positions keep the margin
+  they were filled at. Set in one place: feed/base.py MAX_LEVERAGE, applied when a contract is built.
+- No cap on the number of fixes per night.
+- Terms / risk / privacy note: NOT wanted. Do not build, do not list under "Waiting for you".
+- Auto square-off charge 0.05% on crypto and Rs 50 flat elsewhere: intended.
+- The "Log in to Zerodha" button on the Master's Zerodha card is ALWAYS visible, in every state.
+
+## 19 Nov 2026 (night, owner's requests) — Zerodha login that was refused
+On 19 Nov the owner did the daily Zerodha login at 6 am; Zerodha clears every login at about 7 am, so the price
+stream was refused (403) from 7:06. The site believed "today's login is done", hid the login button, offered
+only Reconnect (which reuses the dead login) and retried for two hours (about 300 errors). Now: three refusals
+in a row stop the retrying, the card says "Zerodha refused the login", needs_login becomes true, one Telegram
+message with the login link is sent, and the login button is always shown. The login's day is the Indian day
+(the server clock is UTC). Tested directly on the feed class (the private copy runs on simulated prices).

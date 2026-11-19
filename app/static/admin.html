@@ -135,7 +135,7 @@ a{color:var(--acc)}
     <div class="bar" style="flex:0 0 auto">
       <button class="ghost" id="feedReconnect" style="display:none">Reconnect feed</button>
       <button class="ghost" id="feedDisconnect" style="display:none">Disconnect feed</button>
-      <a id="kiteBtn" href="/auth/kite/login"><button>Connect Zerodha (daily login)</button></a>
+      <a id="kiteBtn" href="/auth/kite/login"><button id="kiteBtnTxt">Log in to Zerodha</button></a>
     </div>
   </div>
   <div id="forexBox" class="card kite hidden">
@@ -483,7 +483,10 @@ async function loadSettings(){if(!document.activeElement||!document.activeElemen
   if(f.feed==='kite'){kb.classList.remove('hidden');kb.className='card kite '+(f.connected?'ok':'bad');
     $('#kiteTitle').textContent=f.connected?'Zerodha live feed connected':'Zerodha not connected';
     $('#kiteMsg').textContent=f.needs_login?'Today\'s login is pending. Zerodha requires a manual login every morning (token expires ~6 AM). Click to log in — takes 10 seconds.':f.message;
-    $('#kiteBtn').classList.toggle('hidden',!f.needs_login);
+    $('#kiteBtn').classList.remove('hidden');   /* always there: a fresh Zerodha login must never be out of reach (19 Nov 2026) */
+    $('#kiteBtnTxt').textContent=f.needs_login?'Log in to Zerodha (daily login)':'Log in to Zerodha again';
+    $('#kiteBtnTxt').className=f.needs_login?'':'ghost';
+    if(f.refused)$('#kiteMsg').textContent='Zerodha refused the login it was given (it clears every login at about 7 am). Log in to Zerodha again — takes 10 seconds.';
     $('#feedDisconnect').style.display=f.connected?'':'none';
     $('#feedReconnect').style.display=(!f.connected&&!f.needs_login)?'':'none';
     if(f.paused){kb.className='card kite';$('#kiteTitle').textContent='Live feed paused';}}

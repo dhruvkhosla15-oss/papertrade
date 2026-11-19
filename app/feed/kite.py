@@ -17,6 +17,11 @@ from .base import PriceFeed, Instrument
 from ..config import CURRENCY_PAIRS, ALLOWED_UNDERLYINGS, ALLOW_STOCK_FNO
 from .base import INDEX_NAMES
 
+
+def ist_today() -> str:
+    """Today's date in India. The server's own clock is on UTC, where the day changes at 5:30 am IST."""
+    return (datetime.utcnow() + timedelta(hours=5, minutes=30)).date().isoformat()
+
 log = logging.getLogger("kite")
 
 # MCX contract multipliers (units per lot). Price is quoted per unit; P&L = price diff x multiplier x lots.
@@ -64,6 +69,8 @@ class KiteFeed(PriceFeed):
         self.ticker: KiteTicker | None = None
         self.token_date: str | None = None
         self.status_msg = "Market data not connected"
+        self.refused = False       # Zerodha turned today's login down (it wipes every login at about 7 am)
+        self._refusals = 0
 
     # ---- auth --------------------------------------------------------------
     def login_url(self) -> str:
@@ -73,15 +80,16 @@ class KiteFeed(PriceFeed):
         """Reuse a token saved earlier today."""
         self.access_token = access_token
         self.token_date = token_date
+        self.refused = False; self._refusals = 0
         self.kite.set_access_token(access_token)
 
     def exchange_request_token(self, request_token: str) -> str:
         data = self.kite.generate_session(request_token, api_secret=self.api_secret)
-        self.set_access_token(data["access_token"], date.today().isoformat())
+        self.set_access_token(data["access_token"], ist_today())
         return data["access_token"]
 
     def token_valid_today(self) -> bool:
-        return bool(self.access_token) and self.token_date == date.today().isoformat()
+        return bool(self.access_token) and self.token_date == ist_today() and not self.refused
 
     # ---- instruments --------------------------------------------------------
     def download_instruments(self):
@@ -171,7 +179,7 @@ class KiteFeed(PriceFeed):
         self.ticker.on_ticks = self._on_ticks
         self.ticker.on_connect = self._on_connect
         self.ticker.on_close = self._on_close
-        self.ticker.on_error = lambda ws, code, reason: log.warning("ticker error %s %s", code, reason)
+        self.ticker.on_error = self._on_error
         self.ticker.on_reconnect = lambda ws, n: log.info("ticker reconnect %s", n)
         self.ticker.on_noreconnect = lambda ws: self._set_status(False, "ticker gave up reconnecting")
         self.ticker.connect(threaded=True)
@@ -192,7 +200,7 @@ class KiteFeed(PriceFeed):
         """Master-initiated: re-establish the ticker with today's token (no Zerodha login needed)."""
         self.paused = False
         if not self.token_valid_today():
-            self._set_status(False, "Today's Zerodha login is needed first")
+            self._set_status(False, self.REFUSED_MSG if self.refused else "Today's Zerodha login is needed first")
             return False
         self.connect()
         return True
@@ -206,16 +214,59 @@ class KiteFeed(PriceFeed):
             self.restart_live(self.own_tokens())   # prices in memory are from before the outage: wait for new ones
         except Exception:
             log.exception("could not mark prices as waiting for a new tick")
+        self._refusals = 0
         self._set_status(True, "Live market data")
         toks = list(self._refcount)
         if toks:
             ws.subscribe(toks)
             ws.set_mode(ws.MODE_FULL, toks)
 
+    def _on_error(self, ws, code, reason):
+        log.warning("ticker error %s %s", code, reason)
+        self._maybe_refused(ws, reason)
+
     def _on_close(self, ws, code, reason):
         if getattr(self, "paused", False):
             return
+        if self._maybe_refused(ws, reason):
+            return
         self._set_status(False, "Market data disconnected — reconnecting")
+
+    REFUSED_MSG = "Zerodha refused the login — log in to Zerodha again"
+
+    def _maybe_refused(self, ws, reason) -> bool:
+        """Zerodha answers 403 when the login it was given no longer counts (it wipes every login at about
+        7 am; one made at 6 am is dead an hour later). Retrying the same login can never work: after three
+        refusals in a row stop retrying, say so plainly, and ask for a fresh login. Until 19 Nov 2026 the
+        site kept retrying for hours (300 errors) and offered only "Reconnect", which reused the dead login."""
+        if self.refused:
+            return True
+        if "403" not in str(reason):
+            return False
+        self._refusals += 1
+        if self._refusals < 3:
+            return False
+        self.refused = True
+        try:
+            (ws or self.ticker).stop_retry()
+        except Exception:
+            pass
+        try:
+            if self.ticker:
+                self.ticker.close()
+        except Exception:
+            pass
+        self._set_status(False, self.REFUSED_MSG)
+        log.warning("zerodha refused the login three times: waiting for a fresh login")
+        def tell():
+            try:
+                from ..probe import _telegram
+                _telegram("⚠️ limefx: Zerodha refused the login, so NSE / BSE / MCX / Currency prices are off. "
+                          "Log in again: https://www.limefx.in/auth/kite/login (or Master → Settings → Log in to Zerodha).")
+            except Exception:
+                pass
+        threading.Thread(target=tell, daemon=True).start()
+        return True
 
     def _on_ticks(self, ws, ticks):
         # runs in ticker thread; hand to asyncio loop
@@ -319,6 +370,7 @@ class KiteFeed(PriceFeed):
         s = super().status()
         s["token_valid_today"] = self.token_valid_today()
         s["needs_login"] = not self.token_valid_today()
+        s["refused"] = bool(self.refused)
         s["paused"] = bool(getattr(self, "paused", False))
         s["can_reconnect"] = self.token_valid_today() and not self.connected
         # diagnostic: what Zerodha lists on the currency segment and the raw lot sizes it reports

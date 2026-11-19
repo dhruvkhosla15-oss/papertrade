@@ -351,7 +351,8 @@ async def startup():
             log.info("created admin user '%s'", config.ADMIN_USER)
         if config.FEED == "kite":
             tok = get_setting(db, "kite_access_token"); d = get_setting(db, "kite_token_date")
-            if tok and d == date.today().isoformat():
+            from .feed.kite import ist_today as _kite_today
+            if tok and d == _kite_today():
                 feed.set_access_token(tok, d)
     finally:
         db.close()
@@ -3066,7 +3067,8 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
         log.exception("kite login failed")
         return RedirectResponse(f"/admin?kite=failed&msg={e}")
     set_setting(db, "kite_access_token", tok)
-    set_setting(db, "kite_token_date", date.today().isoformat())
+    from .feed.kite import ist_today as _kite_today
+    set_setting(db, "kite_token_date", _kite_today())
     await asyncio.get_event_loop().run_in_executor(None, feed.connect)
     engine.load_pending()
     return RedirectResponse("/admin?kite=ok")

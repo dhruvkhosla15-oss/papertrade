@@ -1068,6 +1068,10 @@ class Probe:
                     st, _, _ = await self._order(ca, token=T, side="BUY", lots=1, leverage=lv); n += st != 400
                 self.ok(f"leverage outside 1–{mx:g}x refused", n == 0)
             if ins.exchange in ("CRYPTO", "FOREX"):
+                self.ok("at most 50x in Crypto, Forex and Global (at least 2% margin on a new position)",
+                        max(ins.leverage_options or (1,)) <= 50 and (ins.init_margin_pct or 0) >= 2.0 - 1e-9,
+                        f"top leverage {max(ins.leverage_options or (1,))}x, margin {ins.init_margin_pct}%")
+            if ins.exchange in ("CRYPTO", "FOREX"):
                 st, _, _ = await self._order(ca, token=T, side="BUY", lots=1, product="MIS")
                 self.ok("intraday product on a 24-hour market refused", st == 400)
             st, _, _ = await self._order(ca, token=T, side="SELL", lots=1, order_type="SL", trigger_price=round(ask * 1.02, 6))

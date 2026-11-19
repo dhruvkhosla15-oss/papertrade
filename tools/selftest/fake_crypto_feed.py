@@ -57,6 +57,12 @@ def mute(secs: float):
     """The connection stays up but nothing is sent for a while (a stalled stream)."""
     MUTE[0] = time.time() + secs; return {"ok": True}
 
+MUTE_BOOK = [0.0]
+@app.get("/debug/mute_book")
+def mute_book(secs: float):
+    """Only the order-book messages stop; the last-price messages go on (a slow or stalled book channel)."""
+    MUTE_BOOK[0] = time.time() + secs; return {"ok": True}
+
 INR = 100.1
 @app.get("/v2/history/candles")
 def candles(symbol: str, resolution: str = "1d", start: int = 0, end: int = 0):
@@ -99,7 +105,7 @@ async def ws(sock: WebSocket):
                     px = opt_px(s)
                     await sock.send_text(json.dumps({"type": "v2/ticker", "symbol": s, "close": px, "mark_price": str(px), "open": px, "volume": 120, "oi": "350", "turnover_usd": 1000,
                         "mark_change_24h": "0", "quotes": {"best_bid": str(max(0.1, px - 0.5)), "best_ask": str(px + 0.5), "bid_size": "3", "ask_size": "2", "mark_iv": "0.45"}}))
-            for s in list(subs["l2"]):
+            for s in ([] if time.time() < MUTE_BOOK[0] else list(subs["l2"])):
                 px = PX[s]; tick = float(TICK[s])
                 buy = [{"limit_price": str(round(px - tick * (i + 1), 4)), "size": 500 + i * 300, "depth": "0"} for i in range(5)]
                 sell = [{"limit_price": str(round(px + tick * (i + 1), 4)), "size": 400 + i * 300, "depth": "0"} for i in range(5)]

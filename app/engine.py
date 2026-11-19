@@ -201,7 +201,7 @@ class Engine:
     @staticmethod
     def _closed_text(exchange: str) -> str:
         """The refusal a user reads when a market is shut: its everyday name and when it opens again."""
-        name = {"NFO": "NSE", "BFO": "BSE", "MCX": "MCX", "CDS": "Currency"}.get(exchange, exchange)
+        name = {"NFO": "NSE", "BFO": "BSE", "MCX": "MCX", "CDS": "Currency", "FOREX": "Forex", "CRYPTO": "Crypto"}.get(exchange, exchange)
         try:
             from .market_calendar import status, ist_now
             o = datetime.fromisoformat(status(exchange)["opens_at"])

@@ -1158,6 +1158,10 @@ async def close_position(pos_id: int, user: User = Depends(current_user), db: Se
     p = db.query(Position).filter_by(id=pos_id, user_id=user.id, is_closed=False).first()
     if not p or not p.qty:
         raise HTTPException(404, "position not found")
+    if feed.instruments.get(p.token) is None:
+        # the contract list of this market is not loaded (restart while its price source could not be reached):
+        # say so, instead of "Unknown or non-tradable instrument" on a position the user can see
+        raise HTTPException(400, "Prices for this contract are offline right now — you can exit as soon as they are back")
     db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)

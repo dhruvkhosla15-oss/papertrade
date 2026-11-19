@@ -1401,6 +1401,11 @@ class Probe:
                        and bool((bids and bids[0][0] != t.get("bid")) or (asks and asks[0][0] != t.get("ask"))))
             if old:
                 oldbook.append(f"{ins.symbol} quote {t.get('bid')}/{t.get('ask')} book {bids[0][0] if bids else None}/{asks[0][0] if asks else None}")
+        cry = getattr(self.feed, "crypto", None)
+        gaps = getattr(cry, "_gap", None)
+        if gaps:
+            self.note("longest wait between two prices of one crypto perpetual since the restart, outages left out (orders are refused only when the WHOLE crypto feed is silent for 8 s)",
+                      ", ".join(f"{cry.items[t].symbol} {g:.1f} s" for t, g in sorted(gaps.items(), key=lambda x: -x[1]) if t in cry.items)[:200])
         if seen:
             self.ok(f"no crypto / forex / Global contract with a fresh price is filled against an old order book ({seen} looked at)", not oldbook, "; ".join(oldbook[:5]))
         else:
@@ -1480,7 +1485,7 @@ class Probe:
                 from . import market_calendar as _cal
                 moved, zero, differ, rep_bad = [], [], [], []
                 per_user = {}
-                novf, unlisted = [], set()
+                novf, unlisted, over50 = [], set(), []
                 for p in db.query(Position).filter_by(is_closed=False).all():
                     if not p.qty:
                         continue
@@ -1497,6 +1502,9 @@ class Probe:
                         elif _live and _live > 0 and _age > 240 and _up > 300 and (not p.last_vf or abs(p.last_vf / _live - 1) > 0.05):
                             novf.append(f"{p.symbol} kept {p.last_vf}, live {_live:g}")
                     d = self.engine.position_dict(p)
+                    if (d.get("leverage") or 0) > 55 and d.get("mark") and d.get("value_factor"):
+                        # opened before the 50x cap of 19 Nov 2026: it keeps its margin, and its risk, until it is closed
+                        over50.append((abs(p.qty) * d["mark"] * d["value_factor"], f"{p.symbol} {d['leverage']}x (account {p.user_id})"))
                     per_user[p.user_id] = per_user.get(p.user_id, 0.0) + (d["unrealised"] or 0.0)
                     shut = self.engine.at_close_price(p)
                     if shut and p.last_mark is not None and d["mark"] != p.last_mark:
@@ -1509,6 +1517,8 @@ class Probe:
                         not novf, "; ".join(novf[:6]))
                 if unlisted:
                     self.note("crypto / forex positions whose contract is not in the contract list right now (valued with the kept rupee factor)", ", ".join(sorted(unlisted)[:8]))
+                self.note("positions still open above 50x (opened before the cap; they keep their margin until closed)",
+                          f"{len(over50)}, position value {sum(v for v, _ in over50):,.0f}: " + ", ".join(t for _, t in sorted(over50, reverse=True)[:6]) if over50 else "none")
                 rows = {r["username"]: r for r in (M._admin_rows(db) if M else [])}
                 tol = lambda a, b: abs((a or 0) - (b or 0)) <= max(1.0, 0.002 * abs(b or 0))      # prices tick between two reads
                 for u in users:

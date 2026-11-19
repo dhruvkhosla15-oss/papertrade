@@ -50,6 +50,8 @@ class DeltaCrypto:
         self._refresh_task = None
         self._last_msg = 0.0             # when the exchange last sent anything
         self._stale_book = set()         # perpetuals whose order book in memory is from before the last (re)connect
+        self._seen: dict = {}            # perpetual -> when its last message arrived
+        self._gap: dict = {}             # perpetual -> longest wait between two of its messages since the start (outages left out)
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -377,6 +379,13 @@ class DeltaCrypto:
         if not tok:
             return
         prev = self.feed.prices.get(tok) or {}
+        if tok in self._subs and self.items[tok].instrument_type == "FUT":
+            # how long this perpetual has gone without any message while the connection as a whole was alive
+            # (the daily check reports it: the figure a per-contract silence rule would have to be set by)
+            now = time.time(); last = self._seen.get(tok)
+            if last and prev.get("ts", 0) >= self.feed._since.get(tok, 0) and now - last > self._gap.get(tok, 0.0):
+                self._gap[tok] = now - last
+            self._seen[tok] = now
         if t == "l2_orderbook":
             bids = [(float(x["limit_price"]), int(x["size"]), 0) for x in m.get("buy", [])[:5]]
             asks = [(float(x["limit_price"]), int(x["size"]), 0) for x in m.get("sell", [])[:5]]

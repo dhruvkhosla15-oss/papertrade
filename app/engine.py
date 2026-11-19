@@ -30,6 +30,16 @@ from .config import DEFAULT_MARGIN_PCT, DEFAULT_COMMISSION_PCT, MARKET_HOURS, EN
 log = logging.getLogger("engine")
 
 
+def _px_words(exchange: str, px: float) -> str:
+    """A price in the words of a message to the user. Crypto is quoted in dollars and a forex / Global price is
+    not an amount of rupees at all: both used to be written with the rupee sign ("BTCUSD at ₹73,909.50")."""
+    if exchange == "CRYPTO":
+        return f"${px:,.2f}"
+    if exchange == "FOREX":
+        return f"{px:,.5f}".rstrip("0").rstrip(".")
+    return f"₹{px:,.2f}"
+
+
 class EngineError(Exception):
     pass
 
@@ -553,7 +563,7 @@ class Engine:
                     leverage: float = None, validity: str = "DAY", product: str = None) -> Order:
         ins = self.feed.instruments.get(token)
         if not ins or ins.segment == "INDICES":
-            raise EngineError("Unknown or non-tradable instrument")
+            raise EngineError("This contract cannot be traded — it may have expired or been taken off the list. Choose another one in the Market tab")
         if not user.is_active:
             raise EngineError("Account is frozen")
         import math
@@ -1413,7 +1423,7 @@ class Engine:
                 order.reason = f"{note} · {bnote}"; order.fill_price = px
                 charged += self._liq_charge(db, user, order, ins, px)
                 closed.append(f"{filled // ins.lot_size} lot{'s' if filled // ins.lot_size != 1 else ''} of {symbol}")
-                detail.append(f"{closed[-1]} at ₹{px:,.2f}")
+                detail.append(f"{closed[-1]} at {_px_words(ins.exchange, px)}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
         if closed:
             self._ledger(db, user, 0.0, "LIQUIDATION", note)
@@ -1457,7 +1467,7 @@ class Engine:
                 order.reason = f"{note} · {bnote}"; order.fill_price = px; closed += 1
                 charged += self._liq_charge(db, user, order, ins, px)
                 n = filled // ins.lot_size
-                detail.append(f"{n} lot{'s' if n != 1 else ''} of {p.symbol} at ₹{px:,.2f}")
+                detail.append(f"{n} lot{'s' if n != 1 else ''} of {p.symbol} at {_px_words(p.exchange, px)}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
         if closed:
             self._ledger(db, user, 0.0, "LIQUIDATION", note)

@@ -292,8 +292,11 @@ class Pulse:
                     picked.append(r)
             return sorted(picked[:n], key=key)
         ranked = [r for r in rows if r["pct"] is not None]
-        gainers = mixed(ranked, lambda r: -r["pct"], n, ok=lambda r: r["pct"] > 0)
-        losers = mixed(ranked, lambda r: r["pct"], n, ok=lambda r: r["pct"] < 0)
+        # only what really rose under "Top gainers" and only what really fell under "Top losers": with fewer than
+        # n of either (a market of six names, or a day when nearly everything rises) the lists used to be filled
+        # up from the other side, so a contract that was up 1% stood under "Top losers"
+        gainers = mixed([r for r in ranked if r["pct"] > 0], lambda r: -r["pct"], n, ok=lambda r: r["pct"] > 0)
+        losers = mixed([r for r in ranked if r["pct"] < 0], lambda r: r["pct"], n, ok=lambda r: r["pct"] < 0)
         traded = mixed([r for r in rows if r["turnover"] > 0], lambda r: -r["turnover"], n)
         shockers = mixed([r for r in rows if r["vol_x"]], lambda r: -r["vol_x"], n)
         oi_rows = sorted([r for r in rows if r["oi_chg"] is not None], key=lambda r: -abs(r["oi_chg"]))[:n]

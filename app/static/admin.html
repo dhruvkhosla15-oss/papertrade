@@ -72,6 +72,7 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 @media(max-width:760px){header>div:first-child{min-width:0;flex:1 1 100%}header .mkts{flex-wrap:wrap;gap:6px}header .bar{width:100%;justify-content:flex-end}}
 @media(max-width:760px){.eq{flex-direction:column;gap:2px}.eq .stat{flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 12px}.eq .stat b{margin:0;font-size:17px}.eq .stat .small{white-space:normal;padding-right:10px}.eq .opx{flex:none;height:16px;justify-content:flex-start;padding-left:14px;font-size:14px}.eq .opx[style]{display:none}.stat .small{white-space:normal}}
 .stat{background:var(--bg);border-radius:10px;padding:10px;min-width:0}.stat b{font-size:18px;display:block;margin-top:2px}.stat .small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+@media(max-width:1100px){.stat .small{white-space:normal}}
 
 .recon{font-size:12px;color:var(--mut);margin-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
 .tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}.tabs button{background:none;color:var(--mut);border:1px solid var(--line)}.tabs button.active{color:#0f1115;background:var(--acc);border-color:var(--acc)}
@@ -248,7 +249,7 @@ a{color:var(--acc)}
       <div class="seg" id="shPresets"><button data-sp="today">Today</button><button data-sp="week">This week</button><button data-sp="month">This month</button><button data-sp="all" class="active">All time</button></div>
     </div>
   </div>
-  <div class="card"><div id="shStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"></div>
+  <div class="card"><div id="shStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:8px"></div>
     <p class="small mut" id="shCosts" style="margin:10px 0 0;line-height:1.6"></p><p class="small mut" id="shMargin" style="margin:8px 0 0;line-height:1.6"></p></div>
   <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">By User</h2></div>
     <table id="shUsers"><thead><tr><th>User</th><th>Orders Mirrored</th><th>Turnover</th><th>Realised</th><th>Unrealised</th><th title="Already inside Realised and Unrealised; shown so you can see its size">Slippage (Included)</th><th>Real Costs</th><th>Net P&L</th></tr></thead><tbody></tbody></table></div>
@@ -281,7 +282,7 @@ a{color:var(--acc)}
       <div><label class="small mut">Stock F&O (Reliance, TCS…)</label><input id="mSTK" type="number" step="0.5"></div>
       <div><label class="small mut">MCX (other commodities)</label><input id="mMCX" type="number" step="0.5"></div>
       <div><label class="small mut">Currency (USDINR…)</label><input id="mCDS" type="number" step="0.5"></div>
-      <div><label class="small mut">Crypto</label><input id="mCRYPTO" type="number" step="0.1" disabled title="Delta's own per-contract margins are used"><div class="small mut">Delta's per-contract margins apply (BTC/ETH 0.5% = 200×, others as published)</div></div>
+      <div><label class="small mut">Crypto</label><input id="mCRYPTO" type="number" step="0.1" disabled title="Delta's own per-contract margins are used"><div class="small mut">Delta's per-contract margins apply, but never less than 2% (at most 50×) on a new trade</div></div>
     </div>
     <h3 style="margin-top:14px">MCX by commodity</h3><p class="small mut" style="margin-bottom:8px">Futures margin as % of contract value — set from Zerodha's margin calculator and revisit when volatility changes. Open positions keep the margin they were filled at.</p>
     <div class="row" id="mcxGroups"></div>

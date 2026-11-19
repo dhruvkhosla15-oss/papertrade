@@ -51,7 +51,16 @@ async def _bad_input(request, exc):
     """Plain-text reason for a malformed request (the default handler echoes the input back and
     crashes on NaN)."""
     try:
-        msg = "; ".join(f"{'.'.join(str(x) for x in (e.get('loc') or [])[1:])}: {e.get('msg')}" for e in exc.errors()[:5])
+        errs = exc.errors()[:5]
+        msg = "; ".join(f"{'.'.join(str(x) for x in (e.get('loc') or [])[1:])}: {e.get('msg')}" for e in errs)
+        # what the order ticket can really send (1.5 lots typed in the Lots box) gets plain words, not the
+        # library's "lots: Input should be a valid integer, got a number with a fractional part"
+        fields = {str(((e.get("loc") or [None])[-1])) for e in errs}
+        if request.url.path == "/api/orders" and fields:
+            if fields == {"lots"}:
+                msg = "Enter a whole number of lots, for example 1, 2 or 10"
+            elif fields <= {"limit_price", "trigger_price", "leverage"}:
+                msg = "Enter the price and the leverage as plain numbers"
     except Exception:
         msg = ""
     return _JR({"detail": msg or "Invalid input"}, status_code=422)
@@ -2454,8 +2463,11 @@ IST = timedelta(hours=5, minutes=30)
 def _range(from_: Optional[str], to: Optional[str]):
     """IST calendar range -> UTC datetimes [start, end)."""
     today = (datetime.utcnow() + IST).date()
-    f = date.fromisoformat(from_) if from_ else date(2000, 1, 1)
-    t = date.fromisoformat(to) if to else today
+    try:
+        f = date.fromisoformat(from_) if from_ else date(2000, 1, 1)
+        t = date.fromisoformat(to) if to else today
+    except ValueError:        # a date typed by hand in the address used to crash the report ("500")
+        raise HTTPException(400, "Dates must look like 2026-11-30")
     start = datetime.combine(f, datetime.min.time()) - IST
     end = datetime.combine(t + timedelta(days=1), datetime.min.time()) - IST
     return start, end, f, t

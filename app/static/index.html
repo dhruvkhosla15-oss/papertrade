@@ -90,6 +90,7 @@ th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line);white
 th{color:var(--mut);font-weight:500;font-size:12px}
 td:first-child,th:first-child{text-align:left}
 .chain td{padding:6px 4px;font-size:13px}
+@media(max-width:430px){.chain td,.chain th{padding-left:2px;padding-right:2px}}   /* 360-wide phone: the put price was cut off at the right edge in Greeks view */
 .chain thead th{position:sticky;top:0;background:var(--card);z-index:1}
 .chain .strike{background:var(--strike);font-weight:600;text-align:center;color:var(--txt)}
 .chain .ce,.chain .pe{cursor:pointer}
@@ -145,7 +146,7 @@ td:first-child,th:first-child{text-align:left}
 .spark{width:64px;height:24px;flex:0 0 auto}.tbar{height:4px;border-radius:2px;background:var(--line);margin-top:4px;overflow:hidden}.tbar i{display:block;height:100%;background:var(--acc)}
 .pempty{padding:14px;color:var(--mut);font-size:13px;border-top:1px solid var(--line)}
 .breadth{padding:12px 14px;margin-bottom:12px}.breadth .bt{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:6px}.breadth .bb{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line)}.breadth .bb i{display:block;height:100%}
-.prow .m2{display:flex;gap:8px;font-size:11px;color:var(--mut);margin-top:4px;flex-wrap:nowrap;align-items:center;white-space:nowrap}.prow .m2 b{color:var(--txt);font-weight:600;display:inline}
+.prow .m2{display:flex;gap:8px;font-size:11px;color:var(--mut);margin-top:4px;flex-wrap:nowrap;align-items:center;white-space:nowrap}.prow .m2 b{color:var(--txt);font-weight:600;display:inline}.prow .m2.w{flex-wrap:wrap;gap:0 8px}@media(max-width:430px){.prow .m2{flex-wrap:wrap;row-gap:0}}
 .tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--strike);color:var(--txt)}.tag.up{background:rgba(34,197,94,.15);color:var(--up)}.tag.dn{background:rgba(239,68,68,.15);color:var(--dn)}
 .rng{height:3px;background:var(--line);border-radius:2px;position:relative;flex:1;min-width:36px;max-width:120px}.rng i{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;background:var(--acc);transform:translateX(-50%)}
 @media(max-width:420px){.spark{display:none}}
@@ -158,7 +159,7 @@ td:first-child,th:first-child{text-align:left}
 .fchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:8px;scrollbar-width:none}.fchips::-webkit-scrollbar{display:none}.fchip{flex:0 0 auto;background:var(--bg);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}.fchip small{font-weight:500;opacity:.8;margin-left:4px}.fchip.active{color:var(--acc);border-color:var(--acc);background:rgba(154,209,60,.14)}.frow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.frow select{flex:1 1 90px;width:auto;min-width:0;padding:8px}.frow input[type=date]{flex:1 1 130px}.frow input{flex:2 1 150px;min-width:0;padding:8px 10px}
 .wkrow{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.wkrow:last-child{border-bottom:0}
 .cfbox{margin-top:10px;padding:9px 11px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:12px}.cfh{color:var(--acc);font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:5px}.cfr{display:flex;justify-content:space-between;gap:10px;padding:2px 0}.cfr span{color:var(--mut)}.cfr.tot{border-top:1px solid var(--line);margin-top:4px;padding-top:5px;font-weight:700}.cfr.tot span{color:var(--txt)}
-.plrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 2px;font-size:15px}.plrow span{color:var(--mut)}.plrow b{font-weight:600}.plrow.tot span{color:var(--txt);font-weight:600}.plrow.tot b{font-size:17px;font-weight:700}.plrow.sep{border-top:1px solid var(--line)}
+.plrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 2px;font-size:15px}.plrow span{color:var(--mut)}.plrow b{font-weight:600;white-space:nowrap}.plrow.tot span{color:var(--txt);font-weight:600}.plrow.tot b{font-size:17px;font-weight:700}.plrow.sep{border-top:1px solid var(--line)}
 .perf3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.perf3 .stat{background:var(--bg);border-radius:10px;padding:10px}.perf3 .stat b{display:block;font-size:17px;margin-top:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ulist button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between}
@@ -530,7 +531,8 @@ async function api(path,opts={}){
   if(!r.ok) throw new Error(j.detail||r.statusText);
   return j;
 }
-function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?4000:2200);}
+function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;{const low=[...document.querySelectorAll('.toast')].reduce((m,x)=>Math.max(m,x.getBoundingClientRect().bottom),0);if(low)t.style.top=(low+6)+'px';}   /* a second message goes under the first: they used to lie on top of each other, unreadable */
+  document.body.appendChild(t);setTimeout(()=>t.remove(),err?4000:2200);}
 
 // ---------- auth ----------
 function showLogin(){if(state.master){toast('Master account can only view prices here. Log in as a user to trade.');return;}$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');}
@@ -634,6 +636,7 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   loadWatch();
   refreshAll();
   setInterval(refreshFunds,5000);
+  if(me.week_warning){window._wkWarn=1;showAlerts([me.week_warning].concat((me.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))),(me.alerts||[]).filter(a=>/margin shortfall/i.test(a.title||'')));}else showAlerts(me.alerts);   /* a waiting pop-up shows as the app opens, not five seconds later in the middle of a tap */
 }
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
   const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const todayS=(ms.NFO&&ms.NFO.today)||(ms.MCX&&ms.MCX.today)||'';
@@ -668,17 +671,18 @@ function renderFunds(f){state.funds=f;$('#hAvail').textContent=inr(f.available);
   $('#fReal').textContent=(r>=0?'+':'')+inr(r);$('#fReal').className='big num '+pnlCls(r);$('#fTot').textContent=((r+u)>=0?'+':'')+inr(r+u);$('#fTot').className='big num '+pnlCls(r+u);fitFunds();
   $('#fBal').textContent=inr(f.balance);$('#fUnreal').textContent=(u>=0?'+':'')+inr(u);$('#fUnreal').className='big num '+pnlCls(u);
   $('#fUsed').textContent=inr(f.used_margin);$('#fAvail').textContent=inr(f.available);$('#oAvail').textContent=inr(f.available);
-  const mtxt=f.margin_short?'<span><b>Margin shortfall</b> — your Available Balance is below zero. Positions are squared off automatically at market until it is back above zero.</span>':f.margin_warn?'<span><b>Margin low</b> — reduce positions or ask for more coins. If your Available Balance goes below zero, positions are squared off automatically.</span>':'';
+  const wkw=state.me&&state.me.week_warning,wkBy=wkw?((String(wkw.text||'').match(/before ([^.]+)\./)||[])[1]||''):'';   /* short only because the coins went back at the weekly settlement: nothing is squared off before the time the pop-up names */
+  const mtxt=f.margin_short?(wkw?'<span><b>Margin shortfall</b> — your Available Balance is below zero after the weekly settlement. Reduce your positions'+(wkBy?' before '+wkBy:'')+'; after that, positions are squared off automatically until it is back above zero.</span>':'<span><b>Margin shortfall</b> — your Available Balance is below zero. Positions are squared off automatically at market until it is back above zero.</span>'):f.margin_warn?'<span><b>Margin low</b> — reduce positions or ask for more coins. If your Available Balance goes below zero, positions are squared off automatically.</span>':'';
   const mb=$('#marginBar');if(mb){mb.innerHTML=mtxt;mb.className=mtxt?'feedbar':'feedbar hidden';}
-  const fm=$('#fMaint');if(fm){fm.innerHTML=mtxt?'<b class="dn">'+(f.margin_short?'Margin shortfall — positions are squared off automatically':'Margin low — reduce positions or ask for more coins')+'</b>':'';fm.style.display=mtxt?'':'none';}}
+  const fm=$('#fMaint');if(fm){fm.innerHTML=mtxt?'<b class="dn">'+(f.margin_short?(wkw?'Margin shortfall — reduce your positions'+(wkBy?' before '+wkBy:''):'Margin shortfall — positions are squared off automatically'):'Margin low — reduce positions or ask for more coins')+'</b>':'';fm.style.display=mtxt?'':'none';}}
 async function refreshFunds(){try{const m=await api('/me');state.me=m;state.marketOpen=m.market_open;state.marketStatus=m.market_status;renderFunds(m.funds);renderFeed(m.feed);renderAccess();if(state.sel&&!$('#sheet').classList.contains('hidden'))accPaint();
-  if(m.week_warning&&!window._wkWarn&&!document.querySelector('.mpop')){window._wkWarn=1;showAlerts([m.week_warning].concat((m.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))));}
+  if(m.week_warning&&!window._wkWarn&&!document.querySelector('.mpop')){window._wkWarn=1;showAlerts([m.week_warning].concat((m.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))),(m.alerts||[]).filter(a=>/margin shortfall/i.test(a.title||'')));}
   else showAlerts(m.alerts);}catch(e){}}
 /* messages the system left for this user (e.g. "Position liquidated"): a pop-up that stays until OK is pressed */
-function showAlerts(list){if(!list||!list.length||document.querySelector('.mpop'))return;
+function showAlerts(list,also){if(!list||!list.length||document.querySelector('.mpop'))return;   /* also: messages this pop-up stands for (the shortfall notice inside the shortfall warning): cleared together with it */
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const d=document.createElement('div');d.className='mpop';
   d.innerHTML=`<div class="box" style="max-height:80vh;overflow:auto">`+list.map(a=>`<b style="font-size:16px;color:#f87171">${esc(a.title)}</b><p class="small" style="margin:8px 0 14px;line-height:1.55;white-space:pre-line">${esc(a.text)}</p>`).join('')+`<button style="width:100%">OK</button></div>`;
-  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:list.map(a=>a&&a.id).filter(x=>x!=null).map(String)})});}catch(e){}};document.body.appendChild(d);}
+  d.querySelector('button').onclick=async()=>{d.remove();try{await fetch('/api/alerts/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:list.concat(also||[]).map(a=>a&&a.id).filter(x=>x!=null).map(String)})});}catch(e){}};document.body.appendChild(d);}
 async function refreshAll(){
   try{[state.positions,state.orders]=await Promise.all([api('/positions'),api('/orders')]);}catch(e){return;}
   renderPositions();renderOrders();
@@ -1013,7 +1017,7 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='traded')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}</small><div class="tbar"><i style="width:${Math.max(4,Math.round(r.turnover/maxT*100))}%"></i></div></div><div class="px"><b>${fmtCr(r.turnover)}</b><small class="mut">${r.lots.toLocaleString('en-IN')} ${r.unit||'lots'}${r.vol_x?' · '+r.vol_x+'× avg':''}</small></div></div>`;
   if(mode==='shock')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label} · ${r.lots.toLocaleString('en-IN')} ${r.unit||'lots'}</small></div><div class="px"><b>${r.vol_x}× <span class="small mut">avg vol</span></b><small class="${(r.day_pct||0)>=0?'up':'dn'}">${pctS(r.day_pct)} today</small></div></div>`;
   if(mode==='oi')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label} · OI ${(r.oi||0).toLocaleString('en-IN')}</small></div><div class="px"><b class="${r.oi_chg>=0?'up':'dn'}">${pctS(r.oi_chg)} OI</b><small><span class="tag ${/Long build|Short cover/.test(r.buildup||'')?'up':/Short build|Long unwind/.test(r.buildup||'')?'dn':''}">${r.buildup||'—'}</span></small></div></div>`;
-  if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}</small><div class="m2"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
+  if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}</small><div class="m2 w"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
 function cvRow(r){if(r.exchange!=='CRYPTO'||!inrOn())return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
 async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
@@ -1027,8 +1031,8 @@ async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${p
   $('#pHero').innerHTML=hs('Top gainer',h.gainer,'up',h.gainer?pctS(h.gainer.pct)+' · '+fmt(h.gainer.ltp):'')+hs('Top loser',h.loser,'dn',h.loser?pctS(h.loser.pct)+' · '+fmt(h.loser.ltp):'')+hs('Most traded',h.traded,'mut',h.traded?fmtCr(h.traded.turnover):'');
   const b=d.breadth,tot=b.total||1;$('#pBreadth').innerHTML=`<div class="bt"><span><b class="up">${b.adv}</b> advancing</span><span>${b.unch} flat</span><span><b class="dn">${b.dec}</b> declining</span></div><div class="bb"><i style="width:${(b.adv/tot*100).toFixed(1)}%;background:var(--up)"></i><i style="width:${(b.unch/tot*100).toFixed(1)}%;background:var(--mut)"></i><i style="width:${(b.dec/tot*100).toFixed(1)}%;background:var(--dn)"></i></div>`;
   const maxT=d.traded[0]?.turnover||1;
-  $('#pGain').innerHTML=d.gainers.map((r,i)=>pulseRow(r,i,'g')).join('')||'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>';
-  $('#pLose').innerHTML=d.losers.map((r,i)=>pulseRow(r,i,'l')).join('')||'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>';
+  $('#pGain').innerHTML=d.gainers.map((r,i)=>pulseRow(r,i,'g')).join('')||((b.adv+b.dec+b.unch)?'<div class="pempty">Nothing is up here right now</div>':'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>');
+  $('#pLose').innerHTML=d.losers.map((r,i)=>pulseRow(r,i,'l')).join('')||((b.adv+b.dec+b.unch)?'<div class="pempty">Nothing is down here right now</div>':'<div class="pempty">'+(pulseP==='today'?'Waiting for today\'s prices…':'History is still loading — check back in a minute')+'</div>');
   $('#pTraded').innerHTML=d.traded.map((r,i)=>pulseRow(r,i,'traded',maxT)).join('')||'<div class="pempty">No volume yet today</div>';
   const hl='<div class="pempty">History is still loading — check back in a minute</div>';
   $('#pShock').innerHTML=d.shockers.map((r,i)=>pulseRow(r,i,'shock')).join('')||(d.history_ready?'<div class="pempty">No volume yet today</div>':hl);
@@ -1066,7 +1070,7 @@ async function loadPerf(){try{const d=istDay(),q=dateQS('pnl');
   const r=await api(`/report?from=${(q&&q.from)||'2024-01-01'}&to=${(q&&q.to)||d}`);const a=r.users[0]||{},f=state.funds||{};
   const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';let rows;
   let wk=null;try{wk=await api('/weekly');}catch(e){}
-  if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=net+comm,real=Math.round((pl-un)*100)/100||0;   /* no closed trades = exactly 0, not a stray -0.00000001 shown as -₹0 in red */
+  if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=Math.round((net+comm)*100)/100||0,real=Math.round((pl-un)*100)/100||0;   /* no closed trades = exactly 0, not a stray -0.00000001 shown as -₹0 in red */
     rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L (This Week)',sg(net),c(net)],['Net Balance',inr(eq),'']];
     if(wk&&wk.weeks&&wk.weeks.length){const all=a.overall_pnl!=null?a.overall_pnl:net;rows.push(['Net P&L (All Time, with finished weeks)',sg(all),c(all)]);}}
   else{const real=(a.gross_profit||0)+(a.gross_loss||0),val=a.valuation||0,comm=a.commission||0,net=(a.net_pnl||0)+val;

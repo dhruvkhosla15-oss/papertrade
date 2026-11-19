@@ -526,7 +526,8 @@ let state={me:null,und:[],chain:[],spotToken:null,prices:{},ws:null,subs:new Set
 
 async function api(path,opts={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
-  if(r.status===401&&!path.startsWith('/login')){if(!opts._quiet)showLogin();throw new Error('Please log in');}
+  if(r.status===401&&!path.startsWith('/login')){if(!opts._quiet){showLogin();   /* thrown out in the middle of using the app (account frozen, password changed): the login screen says why */
+      try{const d=(await r.json()).detail;if(d&&d!=='Not logged in'&&!state.master)$('#loginErr').textContent=d;}catch(e){}}throw new Error('Please log in');}
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.detail||r.statusText);
   return j;

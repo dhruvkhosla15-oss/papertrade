@@ -544,6 +544,11 @@ def main():
         page.evaluate("(() => { const b = document.querySelector('#chainMode [data-m=\"greeks\"]'); if (b) b.click(); })()"); page.wait_for_timeout(1500)
         cw = page.evaluate("[document.querySelector('#chainTbl').scrollWidth, document.querySelector('#chainWrap').clientWidth, document.querySelectorAll('#chainTbl tbody tr').length]")
         ok("User (360-wide phone) option chain, Greeks view: the put price column is on the screen", cw[2] >= 5 and cw[0] <= cw[1] + 1, f"table {cw[0]} wide in a card of {cw[1]}, {cw[2]} strikes")
+        # An account frozen while its owner is using the app: the login screen he is put back on says why (it said nothing)
+        A.patch(f"{B}/api/admin/users/{pid}", data={"is_active": False})
+        page.evaluate("refreshFunds()"); page.wait_for_timeout(1200)
+        fz = page.evaluate("[!document.querySelector('#loginView').classList.contains('hidden'), document.querySelector('#loginErr').textContent]")
+        ok("User: an account frozen while the app is open is told so on the login screen", fz[0] and "frozen" in fz[1].lower(), fz)
         pctx.close()
         if pid:
             A.delete(f"{B}/api/admin/users/{pid}")

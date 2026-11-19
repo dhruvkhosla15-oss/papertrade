@@ -139,8 +139,10 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not data or data.get("pre2fa") or "uid" not in data:      # only a full login token is a session
         raise HTTPException(401, "Not logged in")
     u = db.get(User, data["uid"])
-    if not u or not u.is_active and not u.is_admin:
-        raise HTTPException(401, "Account inactive")
+    if not u:
+        raise HTTPException(401, "Not logged in")
+    if not u.is_active and not u.is_admin:
+        raise HTTPException(401, "Account frozen — contact your trainer")     # the same words as at the login
     if not session_current(data, u):
         raise HTTPException(401, "Password was changed — please log in again")
     # first login: nothing but the password change (and the few calls the change screen needs) until it's done

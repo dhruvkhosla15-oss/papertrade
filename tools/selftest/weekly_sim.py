@@ -906,6 +906,94 @@ except Exception as e:
 db.expire_all()
 ok("Exit closes a position of 800 lots in one press", _bq() == 0, f"left {_bq() // 5} lots {_berr}")
 
+# ---- the opening second: automatic closes and resting orders wait for the first price of the session (20 Nov 2026) ----
+# An account short of margin at Friday's close was squared off on Monday at 9:15:00 against Friday's book
+# (a margin call closed everything there), and a resting order was filled against an old book handed out
+# again in the opening second. Now they wait for the first price of the new session, as users' orders do.
+import app.engine as _E                                   # noqa: E402
+W14 = W13 + timedelta(days=7)
+at(day(W14, 4, 11)); px(nifty=30000)
+mk_user("opener", 1_000_000); mk_user("rester", 1_000_000)
+trade("opener", F_NIFTY, "BUY", 3)
+_rest = trade("rester", F_NIFTY, "BUY", 1, order_type="LIMIT", limit_price=27500.0, validity="GTT")
+_oq = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=users["opener"].id, token=F_NIFTY, is_closed=False))
+_E.ENFORCE_MARKET_HOURS = True
+try:
+    at(day(W14, 4, 15, 39)); feed.set(F_NIFTY, 27000); feed.set(I_NIFTY, 27000)          # the last book of Friday: a deep loss
+    for _t in (F_NIFTY, I_NIFTY):
+        feed.prices[_t]["ts"] = time.time() - 3 * 86400
+    W.remember_marks(engine, db)
+    _mon = day(W14 + timedelta(days=7), 0, 9, 15)
+    at(_mon); run(engine._check_liquidations()); db.expire_all()
+    ok("opening second: nothing is squared off against the last session's book", _oq() == 225, f"qty {_oq()}")
+    feed.prices[F_NIFTY]["ts"] = time.time() + 0.3          # the old book handed out again to someone who starts looking
+    run(engine._process_pending(F_NIFTY, 27000)); db.expire_all()
+    ok("opening second: a resting order is not filled against the old book either", db.get(Order, _rest.id).status == "OPEN", db.get(Order, _rest.id).status)
+    at(_mon + timedelta(seconds=5)); feed.set(F_NIFTY, 28000); feed.set(I_NIFTY, 28000)  # Monday's first price
+    run(engine._check_liquidations()); run(engine._process_pending(F_NIFTY, 28000)); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["opener"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("opening second: with the first price of the session the shortfall is squared off at that price, only the lots needed",
+       0 < _oq() < 225 and _lt.side == "SELL" and near(_lt.price, 27999.95, 0.001), f"qty {_oq()}, {_lt.side} @ {_lt.price}")
+    ok("opening second: the resting order goes on waiting for its price", db.get(Order, _rest.id).status == "OPEN")
+    feed.set(F_NIFTY, 27490); run(engine._process_pending(F_NIFTY, 27490)); db.expire_all()
+    ok("opening second: and is filled once the market really trades there", db.get(Order, _rest.id).status == "FILLED" and near(db.get(Order, _rest.id).fill_price, 27490.05, 0.001), str(db.get(Order, _rest.id).fill_price))
+finally:
+    _E.ENFORCE_MARKET_HOURS = False
+
+# ---- a slow feed: the order book stops arriving while the last price goes on (20 Nov 2026) ---------------
+# Crypto perpetuals and forex / Global get the book that orders are filled against in other messages than the
+# quoted price. When only the book messages stopped, the price looked a second old and a buy was filled at the
+# offer of a minute ago. The real feed classes are fed by hand here, with a clock moved by hand.
+from app.feed.delta import DeltaCrypto, TOKEN_BASE as _CB                      # noqa: E402
+from app.feed.ctrader import CTraderForex, TOKEN_BASE as _FB, PT_SPOT_EVENT as _SPOT, PT_DEPTH_EVENT as _DEPTH   # noqa: E402
+_rt = time.time; _off = [0.0]
+time.time = lambda: _rt() + _off[0]
+try:
+    _f2 = PriceFeed(); _cry = DeltaCrypto(_f2); _fx = CTraderForex(_f2)
+    _B, _E, _G = _CB + 2, _FB + 1, _FB + 20
+    _cry.items = {_B: Instrument(_B, "BTCUSD", "BTC", "CRYPTO", "CRYPTO-PERP", "FUT", "", 0, 1, 0.5, multiplier=0.001)}
+    _cry.symbols = {"BTCUSD": _B}; _cry._merge()
+    _fx.items = {_E: Instrument(_E, "EURUSD", "EURUSD", "FOREX", "FOREX-SPOT", "FUT", "", 0, 1000, 0.00001),
+                 _G: Instrument(_G, "US500", "US500", "FOREX", "GLOBAL-SPOT", "FUT", "", 0, 1, 0.01)}
+    _fx.by_symbol_id = {1: _E, 20: _G}; _fx._merge()
+    _f2.subscribe([_B, _E, _G])
+    _bk = lambda p: _cry._handle({"type": "l2_orderbook", "symbol": "BTCUSD", "buy": [{"limit_price": str(p - 0.5 * i), "size": 500} for i in (1, 2, 3)],
+                                  "sell": [{"limit_price": str(p + 0.5 * i), "size": 500} for i in (1, 2, 3)]})
+    _tk = lambda p, q=True: _cry._handle({"type": "v2/ticker", "symbol": "BTCUSD", "close": p, "mark_price": str(p),
+                                          **({"quotes": {"best_bid": str(p - 0.5), "best_ask": str(p + 0.5), "bid_size": "40", "ask_size": "30"}} if q else {})})
+    _sp = lambda sid, p, t: _fx._handle({"payloadType": _SPOT, "payload": {"symbolId": sid, "bid": int(round((p - t) * 1e5)), "ask": int(round((p + t) * 1e5))}})
+    _dp = lambda sid, p, t, n=[0]: (n.__setitem__(0, n[0] + 2), _fx._handle({"payloadType": _DEPTH, "payload": {"symbolId": sid, "newQuotes": [
+        {"id": n[0], "size": 10 ** 9, "bid": int(round((p - t) * 1e5))}, {"id": n[0] + 1, "size": 10 ** 9, "ask": int(round((p + t) * 1e5))}], "deletedQuotes": [n[0] - 2, n[0] - 1]}}))
+    _bk(75000); _tk(75000); _off[0] += 1; _tk(75010)
+    ok("slow feed: with book messages arriving, a crypto perpetual keeps its full book", len(_f2.prices[_B]["asks"]) == 3 and _f2.prices[_B]["ask"] == 75000.5, str(_f2.prices[_B]["asks"]))
+    for _i in range(60):
+        _off[0] += 1; _tk(75000 + 12.5 * (_i + 1))
+    _t = _f2.prices[_B]
+    ok("slow feed: crypto book messages stopped for a minute, the market 1% higher: orders meet the quote of now, not the old book",
+       _t["asks"] and _t["asks"][0][0] == 75750.5 and _t["bids"][0][0] == 75749.5 and _t["bid"] == 75749.5 and _t["ask"] == 75750.5, f"asks {_t['asks'][:1]} bids {_t['bids'][:1]}")
+    _off[0] += 1; _tk(75800, q=False); _t = _f2.prices[_B]
+    ok("slow feed: an old crypto book with no quote in the last-price message leaves nothing to fill against", _t["asks"] == [] and _t["bids"] == [] and _t["ask"] is None, str(_t["asks"]))
+    _bk(75800); _t = _f2.prices[_B]
+    ok("slow feed: the next book message brings the full book back", len(_t["asks"]) == 3 and _t["ask"] == 75800.5, str(_t["asks"]))
+    _sp(1, 1.12, 0.00001); _dp(1, 1.12, 0.00001)
+    _off[0] += 1; _sp(1, 1.1201, 0.00001)
+    ok("slow feed: with ladder messages arriving, a forex pair keeps the broker's ladder", _f2.prices[_E]["asks"][0][0] == 1.12001, str(_f2.prices[_E]["asks"]))
+    for _i in range(60):
+        _off[0] += 1; _sp(1, 1.12 + 0.000187 * (_i + 1), 0.00001)
+    _t = _f2.prices[_E]
+    ok("slow feed: forex ladder messages stopped for a minute, the market 1% higher: orders meet the quote of now, not the old ladder",
+       _t["asks"][0][0] == _t["ask"] and _t["bids"][0][0] == _t["bid"] and _t["ask"] > 1.131, f"ask {_t['ask']} ladder {_t['asks'][:1]}")
+    _dp(1, 1.13122, 0.00002); _t = _f2.prices[_E]
+    ok("slow feed: the next ladder message is used again", _t["asks"][0][1] == 10 ** 7 and near(_t["asks"][0][0], 1.13124, 1e-9), str(_t["asks"]))
+    _sp(20, 7500.0, 0.25)
+    for _i in range(30):
+        _off[0] += 1; _sp(20, 7500.0 + 2.5 * (_i + 1), 0.25)
+    _t = _f2.prices[_G]
+    ok("slow feed: a contract the broker sends no ladder for is filled at its newest quote, not at its first",
+       _t["asks"][0][0] == 7575.25 and _t["bids"][0][0] == 7574.75, f"bid/ask {_t['bid']}/{_t['ask']} ladder {_t['bids'][:1]} {_t['asks'][:1]}")
+finally:
+    time.time = _rt
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

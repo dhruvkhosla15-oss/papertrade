@@ -201,7 +201,7 @@ class Engine:
     @staticmethod
     def _closed_text(exchange: str) -> str:
         """The refusal a user reads when a market is shut: its everyday name and when it opens again."""
-        name = {"NFO": "NSE", "BFO": "BSE", "MCX": "MCX", "CDS": "Currency"}.get(exchange, exchange)
+        name = {"NFO": "NSE", "BFO": "BSE", "MCX": "MCX", "CDS": "Currency", "FOREX": "Forex", "CRYPTO": "Crypto"}.get(exchange, exchange)
         try:
             from .market_calendar import status, ist_now
             o = datetime.fromisoformat(status(exchange)["opens_at"])
@@ -297,6 +297,19 @@ class Engine:
             if own is not None and (opened is None or own > opened):
                 opened = own
         return opened
+
+    def session_price(self, ins) -> bool:
+        """True when the price in memory for this contract belongs to the session it is trading in now (or the
+        market has no opening). False in the first moments after an opening, until its first price arrives:
+        what is in memory then is the book the last session closed with, or a stray quote from the time the
+        market was shut. Orders placed by users have waited for that first price since 17 Nov 2026; the
+        automatic closes (margin shortfall, margin call, intraday square-off) and resting orders did not:
+        an account that was short of margin at Friday's close was squared off on Monday at 9:15:00 against
+        Friday's book, whatever Monday opened at (found 20 Nov 2026)."""
+        opened = self.session_opened(ins)
+        if opened is None:
+            return True
+        return ((self.feed.prices.get(ins.token) or {}).get("ts") or 0) >= opened + self.OPEN_SETTLE_SECS
 
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
@@ -957,7 +970,7 @@ class Engine:
                         # order (stop-loss and target, or the same exit placed twice). It must stay
                         # cancelled: filling it anyway opened a position the other way round.
                         continue
-                    if not self.tradable_now(ins) or not self.rupee_known(ins):
+                    if not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
                         continue
                     if (o.order_type == "LIMIT" and not o.limit_price) or (o.order_type == "SL" and not o.trigger_price):
                         o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — order had no valid price"
@@ -1107,7 +1120,7 @@ class Engine:
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
         ins = self.feed.instruments.get(p.token)
-        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins):
+        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
             return False
         side = "SELL" if p.qty > 0 else "BUY"
         try:
@@ -1369,7 +1382,7 @@ class Engine:
         rows = []
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins):
+            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
                 continue
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
@@ -1428,7 +1441,7 @@ class Engine:
         closed, detail, charged = 0, [], 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins):
+            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
                 continue
             side = "SELL" if p.qty > 0 else "BUY"
             try:

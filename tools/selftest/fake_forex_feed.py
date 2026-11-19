@@ -42,6 +42,12 @@ def mute(secs: float):
     """The connection stays up but no price is sent for a while (a stalled stream, or the broker pausing its quotes)."""
     MUTE[0] = time.time() + secs; return {"ok": True}
 
+MUTE_DEPTH = [0.0]
+@app.get("/debug/mute_depth")
+def mute_depth(secs: float):
+    """Only the order-book ladder messages stop; the quotes go on (a slow or stalled depth channel)."""
+    MUTE_DEPTH[0] = time.time() + secs; return {"ok": True}
+
 @app.websocket("/")
 async def ws(sock: WebSocket):
     await sock.accept(); spots = set(); depth = set(); authed = {"app": False, "acc": False}
@@ -83,7 +89,7 @@ async def ws(sock: WebSocket):
                 px = PX[sid]; tick = 10 ** (-SYMS[sid][3]); sp = tick * 2
                 await sock.send_text(json.dumps({"payloadType": 2131, "payload": {"symbolId": sid, "bid": int(round((px - sp / 2) * 1e5)), "ask": int(round((px + sp / 2) * 1e5)),
                     "trendbar": [{"period": 12, "low": int((px * 0.995) * 1e5), "deltaOpen": int(px * 0.003 * 1e5), "deltaHigh": int(px * 0.008 * 1e5), "deltaClose": 0}]}}))
-            for sid in list(depth):
+            for sid in ([] if time.time() < MUTE_DEPTH[0] else list(depth)):
                 px = PX[sid]; tick = 10 ** (-SYMS[sid][3]); new = []; base = sid * 100000 + qids.get(sid, 0); dele = list(range(base - 10, base)); qids[sid] = qids.get(sid, 0) + 10; qid = base
                 for i in range(5):
                     qid += 1; new.append({"id": qid, "size": (500000 if sid != 4 else 100) * (i + 1) * 100, "bid": int(round((px - tick * (i + 1)) * 1e5))})

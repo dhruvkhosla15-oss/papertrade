@@ -1182,3 +1182,15 @@ message with the login link is sent, and the login button is always shown. The l
 ## 19 Nov 2026 (night, owner request) — errors kept through a restart
 The health page lost the day's errors at every restart. Errors are now also written to errors.jsonl beside the database
 (kept 7 days) and read back at start; the health answer gains "error_groups" (identical errors folded: count, first, last).
+
+## 20 Nov 2026 (early morning, owner's requests of 19 Nov)
+- Stop-loss / Target button on every open position in the user app ([data-slt]): opens the existing order sheet on the
+  exit side, for the whole position, on Stop-loss, with a two-line hint (Target = Limit). No new order logic.
+  NEEDS a browser check in site_check.py (button present, sheet opens on SL with exit side and full lots).
+- Fuller Master activity record: admin_log.detail (new column, added by init_db on an old database) holds what the
+  action changed in plain words (coins from → to, settings from → to, access switches, user created / frozen /
+  renamed / deleted, square-off pressed, Master logins). main._note() inside the endpoint; never a password or key.
+  NEEDS a check that each of those actions leaves a detail line, and that no detail line ever holds a password.
+- STILL OPEN for the UI officer (from the 19 Nov live audit): at laptop size the Master's Users, Live Positions and
+  Performance tables are wider than their box, so the last column needs a sideways scroll. Fit the columns at
+  1280 / 1440 / 1728 wide and add a site_check for it.

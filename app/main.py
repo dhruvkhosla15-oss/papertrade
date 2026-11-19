@@ -234,9 +234,33 @@ async def _security_headers(request: Request, call_next):
     return resp
 
 
+import contextvars as _cv
+_audit_notes: "_cv.ContextVar" = _cv.ContextVar("audit_notes", default=None)
+
+
+def _note(text: str):
+    """What a Master action changed, in plain words, for the activity record (owner's request, 19 Nov 2026:
+    each line says what changed, from what to what). Never put a password, code, key or token in it."""
+    box = _audit_notes.get()
+    if box is not None:
+        box.append(str(text)[:400])
+
+
+def _diff(before: dict, after: dict, names: dict = None) -> str:
+    out = []
+    for k in sorted(set(before) | set(after)):
+        a, b = before.get(k), after.get(k)
+        if a != b:
+            show = lambda v: ("on" if v else "off") if isinstance(v, bool) else ("none" if v is None else f"{v:g}" if isinstance(v, float) else str(v))
+            out.append(f"{(names or {}).get(k, k)}: {show(a)} → {show(b)}")
+    return "; ".join(out)
+
+
 @app.middleware("http")
 async def _admin_audit(request: Request, call_next):
-    """Record every change a master makes (path only — never bodies)."""
+    """Record every change a master makes (the address, and what the action says it changed — never bodies)."""
+    box = []
+    _audit_notes.set(box)      # one list per request; the endpoint (even in a worker thread) appends to this same list
     resp = await call_next(request)
     try:
         path = request.url.path
@@ -249,7 +273,7 @@ async def _admin_audit(request: Request, call_next):
                 try:
                     u = db.get(User, data["uid"])
                     db.add(AdminLog(admin_id=data["uid"], admin_name=u.username if u else "", ip=_client_ip(request),
-                                    action=f"{request.method} {path}"[:160]))
+                                    action=f"{request.method} {path}"[:160], detail=" | ".join(box)[:1500]))
                     db.commit()
                 finally:
                     db.close()
@@ -568,6 +592,7 @@ def admins_add(body: AdminIn, admin: User = Depends(current_admin), db: Session 
     u = User(username=uname, display_name=body.display_name.strip() or uname, password_hash=hash_password(body.password),
              is_admin=True, is_active=True, balance=0.0)
     db.add(u); db.commit()
+    _note(f"Added Master login {uname}")
     return {"ok": True, "id": u.id}
 
 
@@ -580,6 +605,7 @@ def admins_remove(uid: int, admin: User = Depends(current_admin), db: Session = 
         raise HTTPException(400, "You can't remove your own master access — ask another master to do it")
     if db.query(User).filter_by(is_admin=True).count() <= 1:
         raise HTTPException(400, "There must be at least one master")
+    _note(f"Removed Master login {u.username}")
     db.delete(u); db.commit()
     return {"ok": True}
 
@@ -591,6 +617,7 @@ def admins_reset_2fa(uid: int, admin: User = Depends(current_admin), db: Session
     if not u or not u.is_admin:
         raise HTTPException(404, "No such master account")
     u.totp_enabled = False; u.totp_secret = ""; db.commit()
+    _note(f"Two-step login cleared for Master login {u.username}")
     return {"ok": True}
 
 
@@ -605,6 +632,7 @@ def admins_password(uid: int, body: AdminPwIn, request: Request, response: Respo
         raise HTTPException(404, "No such master account")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
+    _note(f"Password changed for Master login {u.username}")
     u.password_hash = hash_password(body.password)
     u.pw_changed_at = float(int(time.time()))         # logins made with the old password stop working
     db.commit()
@@ -709,7 +737,9 @@ def admin_access(uid: Optional[int] = None, admin: User = Depends(current_admin)
 @app.post("/api/admin/access/default")
 def admin_access_default(body: AccessIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """Change the default table. Everyone follows it except for the switches the Master set on a user himself."""
+    _b = dict(_access.default(db))
     _access.set_default(db, body.values or {})
+    _note("Default trading access: " + (_diff(_b, dict(_access.default(db))) or "nothing changed"))
     n = sum(_access.cancel_resting(engine, db, u) for u in db.query(User).filter_by(is_admin=False).all())
     return {**_access_view(db), "cancelled": n}
 
@@ -718,6 +748,7 @@ def admin_access_default(body: AccessIn, admin: User = Depends(current_admin), d
 def admin_access_reset_all(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """Every user back to the default table."""
     n = 0
+    _note("Trading access: every user put back on the default table")
     for u in db.query(User).filter_by(is_admin=False).all():
         _access.set_user(db, u.id, None)
         n += _access.cancel_resting(engine, db, u)
@@ -730,7 +761,9 @@ def admin_user_access(uid: int, body: AccessIn, admin: User = Depends(current_ad
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404, "User not found")
+    _b = dict(_access.effective(db, u))
     _access.set_user(db, uid, body.values)
+    _note(f"Trading access of {u.username}: " + (("back to the default; " if body.values is None else "") + _diff(_b, dict(_access.effective(db, u))) or "nothing changed"))
     n = _access.cancel_resting(engine, db, u)
     engine._emit(u.id, {"type": "refresh"})
     return {**_access_view(db, u), "cancelled": n}
@@ -2322,7 +2355,8 @@ def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_
             return a
         nm, born = names.get(int(m.group(1)), (None, None))
         return a + (f"  ({nm})" if nm and (not born or not at or at >= born) else "  (account since deleted)")
-    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action, r.created_at), "ip": r.ip}
+    return [{"at": r.created_at.isoformat() + "Z", "admin": r.admin_name, "action": nice(r.action, r.created_at), "ip": r.ip,
+             "detail": getattr(r, "detail", "") or ""}
             for r in db.query(AdminLog).order_by(AdminLog.id.desc()).limit(200)]
 
 
@@ -2362,6 +2396,7 @@ def admin_create_user(body: UserIn, admin: User = Depends(current_admin), db: Se
     if body.initial_coins:
         engine._ledger(db, u, body.initial_coins, "ADMIN_CREDIT", "initial allocation")
     db.commit()
+    _note(f"Created user {uname} ({u.display_name}) with {body.initial_coins or 0:,.0f} coins")
     return _user_dict(u)
 
 
@@ -2375,8 +2410,11 @@ def admin_coins(uid: int, body: CoinsIn, admin: User = Depends(current_admin), d
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404)
+    _b = u.balance or 0.0
     engine._ledger(db, u, body.amount, "ADMIN_CREDIT" if body.amount >= 0 else "ADMIN_DEBIT", body.note)
     db.commit()
+    _note(f"{'Added' if body.amount >= 0 else 'Removed'} {abs(body.amount):,.2f} coins {'to' if body.amount >= 0 else 'from'} {u.username}: "
+          f"balance {_b:,.2f} → {u.balance or 0.0:,.2f}" + (f"; note: {body.note}" if body.note else ""))
     _emit(u.id, {"type": "refresh", "message": f"Master {'added' if body.amount >= 0 else 'removed'} ₹{abs(body.amount):,.0f} coins"})
     return _user_dict(u)
 
@@ -2394,14 +2432,20 @@ def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_ad
     if not u:
         raise HTTPException(404)
     if body.is_active is not None:
+        if bool(u.is_active) != bool(body.is_active):
+            _note(f"{u.username}: {'frozen → active' if body.is_active else 'active → frozen'}")
         u.is_active = body.is_active
     if body.password:
+        _note(f"{u.username}: password reset (he must choose a new one at next login)")
         u.password_hash = hash_password(body.password)
         u.must_change_password = True
         u.pw_changed_at = float(int(time.time()))     # logins made with the old password stop working
     if body.display_name is not None:
+        if (u.display_name or "") != body.display_name:
+            _note(f"{u.username}: name {u.display_name} → {body.display_name}")
         u.display_name = body.display_name
     if body.reset_2fa:
+        _note(f"{u.username}: two-step login cleared")
         u.totp_enabled = False; u.totp_secret = ""
     db.commit()
     return _user_dict(u)
@@ -2412,6 +2456,7 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404)
+    _note(f"Deleted user {u.username} ({u.display_name}); balance at that moment {u.balance or 0.0:,.2f}")
     # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
     # blocked the next trade on the site, which is given the same number (19 Nov 2026)
     from .db import ShadowFill
@@ -2471,6 +2516,7 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
                 done += 1
             except EngineError as e:
                 errors.append(f"{p.symbol}: {e}")
+    _note(f"Square off pressed for {u.username}: {done} position{'s' if done != 1 else ''} closed" + (f", {len(errors)} could not be closed" if errors else ""))
     return {"closed": done, "errors": errors}
 
 
@@ -2493,6 +2539,21 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
 
 
+_SETTING_NAMES = {"commission_pct": "futures commission %", "commission_pct_forex": "forex commission %", "commission_pct_options": "options commission %",
+                  "commission_flat": "flat fee per order", "liq_charge_flat": "auto square-off charge", "liq_charge_pct_crypto": "auto square-off charge on crypto %",
+                  "commission_pct_crypto": "crypto commission %", "mcx_option_factor": "MCX option margin factor", "liquidity_check": "reject illiquid trades",
+                  "max_spread_pct": "max bid-ask spread %", "stale_minutes": "stale price minutes"}
+
+
+def _settings_flat(admin, db) -> dict:
+    """The settings a Master can change, as one flat table, for saying what a save changed."""
+    s_ = admin_settings(admin, db)
+    out = {k: s_.get(k) for k in _SETTING_NAMES}
+    for k, v in (s_.get("margin_pct") or {}).items():
+        out[f"margin % {k}"] = v
+    return out
+
+
 class SettingsIn(BaseModel):
     margin_pct: dict
     commission_pct: Optional[float] = None
@@ -2510,6 +2571,7 @@ class SettingsIn(BaseModel):
 
 @app.post("/api/admin/settings")
 def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    _b = _settings_flat(admin, db)
     for ex, v in body.margin_pct.items():
         set_setting(db, f"margin_pct_{ex}", str(float(v)))
     if body.mcx_option_factor is not None:
@@ -2534,6 +2596,7 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, "max_spread_pct", str(float(body.max_spread_pct)))
     if body.stale_minutes is not None:
         set_setting(db, "stale_minutes", str(int(body.stale_minutes)))
+    _note("Settings: " + (_diff(_b, _settings_flat(admin, db), _SETTING_NAMES) or "saved, nothing changed"))
     return {"ok": True}
 
 

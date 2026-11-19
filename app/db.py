@@ -200,6 +200,7 @@ class AdminLog(Base):
     admin_id = Column(Integer, index=True)
     admin_name = Column(String(64), default="")
     action = Column(String(160), nullable=False)
+    detail = Column(Text, default="")       # what the action changed, in plain words (never a password or key)
     ip = Column(String(64), default="")
     created_at = Column(DateTime, default=now)
 
@@ -219,6 +220,9 @@ def init_db():
         with engine.begin() as con:
             con.execute(text("ALTER TABLE watchlist ADD COLUMN position INTEGER DEFAULT 0"))
             con.execute(text("UPDATE watchlist SET position = id"))
+    if "detail" not in {c["name"] for c in inspect(engine).get_columns("admin_log")}:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE admin_log ADD COLUMN detail TEXT DEFAULT ''"))
     ucols = {c["name"] for c in inspect(engine).get_columns("users")}
     with engine.begin() as con:
         if "totp_secret" not in ucols:

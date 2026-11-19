@@ -477,7 +477,7 @@ def main():
             except Exception:
                 time.sleep(1)
         pid = apost("/api/admin/users", {"username": "sitepop", "password": "Pop@12345", "display_name": "Site Pop", "initial_coins": 30000}).get("id")
-        pctx = br.new_context(viewport={"width": 360, "height": 640}); P = pctx.request
+        pctx = br.new_context(viewport={"width": 360, "height": 640}, service_workers="block"); P = pctx.request   # no reload of the page in the middle of a check when the saved copy of the app updates itself
         P.post(f"{B}/api/login", data={"username": "sitepop", "password": "Pop@12345"})
         P.post(f"{B}/api/password", data={"old_password": "Pop@12345", "new_password": "Pop@67890"})
         sold = ""

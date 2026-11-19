@@ -392,6 +392,7 @@ class DeltaCrypto:
                 d["ltp"] = mid
                 self._stale_book.discard(tok)
             d["tbq"] = sum(b[1] for b in bids); d["tsq"] = sum(a[1] for a in asks)
+            d["_book_ts"] = time.time()
             self.feed._publish(d)
         elif t == "v2/ticker":
             if tok in self._stale_book:
@@ -432,6 +433,21 @@ class DeltaCrypto:
                     d["tbq"] = bs; d["tsq"] = as_
                 elif "bids" not in d:
                     d["bid"], d["ask"] = bb, ba
+                elif time.time() - (d.get("_book_ts") or 0) > QUIET_SECS:
+                    # A perpetual gets its order book and its last price in separate messages. When the
+                    # book messages stop (or lag) while these go on, the price looks seconds old but the
+                    # book that orders are filled against stands still: after a minute with the market 1%
+                    # higher a buy was still filled at the old offer (+143,914 coins on a 15,000,000
+                    # position, found 20 Nov 2026). This message carries the best bid and offer of its own
+                    # moment: they replace the old book until the next book message arrives.
+                    d["bids"] = [(bb, bs, 0)] if bs else []
+                    d["asks"] = [(ba, as_, 0)] if as_ else []
+                    d["bid"] = bb if bs else None; d["ask"] = ba if as_ else None
+                    d["tbq"] = bs; d["tsq"] = as_
+            elif self.items.get(tok) is not None and self.items[tok].instrument_type == "FUT" and d.get("bids") is not None \
+                    and time.time() - (d.get("_book_ts") or 0) > QUIET_SECS:
+                # the book is old and this message does not say where the market is: nothing to fill against
+                d["bids"] = []; d["asks"] = []; d["bid"] = d["ask"] = None; d["tbq"] = d["tsq"] = 0
             self.feed._publish(d)
 
     # ---- candles -----------------------------------------------------------------------------------

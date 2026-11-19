@@ -650,10 +650,23 @@ class CTraderForex:
                     d["high"] = d["low"] = d["ltp"]; d["open"] = d["ltp"]
                 d["_hlday"] = fxday
             d["high"] = max(d.get("high") or d["ltp"], d["ltp"]); d["low"] = min(d.get("low") or d["ltp"], d["ltp"])
-            if "bids" not in d:
-                # no depth yet: top of book with the broker's typical liquidity unknown -> 1 lot each side
+            _lb, _la = d.get("bids"), d.get("asks")
+            if "bids" in d and not d.get("_synth") and time.time() - (d.get("_depth_ts") or 0) > QUIET_SECS and (
+                    (_lb and _lb[0][0] != d["bid"]) or (_la and _la[0][0] != d["ask"])):
+                # The order-book ladder comes in its own messages. When those stop (or lag) while the quotes
+                # go on, the price looks fresh but orders are filled against the old ladder: after a minute
+                # with the market 1% higher a buy was still filled at the old offer (+313,618 coins on a
+                # 31,700,000 position, found 20 Nov 2026). A ladder that has not been renewed for a while
+                # and no longer starts at the quoted price is dropped; the quote itself is the book until
+                # the next ladder message.
+                d.pop("bids", None); d.pop("asks", None)
+            if "bids" not in d or d.get("_synth"):
+                # no depth (yet): top of book with the broker's typical liquidity unknown -> 1 lot each side.
+                # It follows every new quote: before 20 Nov 2026 it was built from the first quote and then
+                # kept, so a contract the broker sends no ladder for was filled at that first price for good.
                 _lot = self.items[tok].lot_size if tok in self.items else LOT_UNITS
                 d["bids"] = [(d["bid"], _lot * 100, 0)]; d["asks"] = [(d["ask"], _lot * 100, 0)]
+                d["_synth"] = True
             if d.get("close"):
                 d["change"] = round((d["ltp"] - d["close"]) / d["close"] * 100, 2)
             self.feed._publish(d)
@@ -686,6 +699,7 @@ class CTraderForex:
             d = dict(self.feed.prices.get(tok) or {"token": tok})
             d.update({"token": tok, "bids": bids, "asks": asks, "ts": time.time(),
                       "tbq": sum(b[1] for b in bids), "tsq": sum(a[1] for a in asks)})
+            d["_depth_ts"] = time.time(); d.pop("_synth", None)
             if bids:
                 d["bid"] = bids[0][0]
             if asks:

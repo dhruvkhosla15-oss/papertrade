@@ -1381,6 +1381,30 @@ class Probe:
         self.ok(f"no zero, negative or broken price among {n} live contracts", not bad, ", ".join(bad[:8]))
         self.ok("no contract shows a bid above its ask", not crossed, "; ".join(crossed[:6]))
         self.ok("no future's last price is more than 10% away from its bid/ask", not far, "; ".join(far[:6]))
+        # Slow feed (20 Nov 2026): crypto perpetuals and forex / Global get the book orders are filled against in
+        # other messages than the quoted price. A contract whose price is seconds old must not be standing on a
+        # book that has not been renewed for half a minute (read only: looks at the prices in memory).
+        import time as _time
+        now, oldbook, seen = _time.time(), [], 0
+        for tok, t in list(self.feed.prices.items()):
+            ins = self.feed.instruments.get(tok)
+            if not ins or not isinstance(t, dict) or ins.exchange not in ("CRYPTO", "FOREX") or ins.instrument_type != "FUT":
+                continue
+            if not self.feed.live(tok) or now - (t.get("ts") or 0) > 3:
+                continue
+            seen += 1
+            bids, asks = t.get("bids") or [], t.get("asks") or []
+            if ins.exchange == "CRYPTO":
+                old = len(bids) + len(asks) > 2 and now - (t.get("_book_ts") or 0) > 30
+            else:
+                old = (not t.get("_synth") and now - (t.get("_depth_ts") or 0) > 30
+                       and bool((bids and bids[0][0] != t.get("bid")) or (asks and asks[0][0] != t.get("ask"))))
+            if old:
+                oldbook.append(f"{ins.symbol} quote {t.get('bid')}/{t.get('ask')} book {bids[0][0] if bids else None}/{asks[0][0] if asks else None}")
+        if seen:
+            self.ok(f"no crypto / forex / Global contract with a fresh price is filled against an old order book ({seen} looked at)", not oldbook, "; ".join(oldbook[:5]))
+        else:
+            self.note("old order book under a fresh price (crypto / forex / Global)", "no such contract has a fresh price right now")
         # every open position of a real account must have a usable exit price
         db = SessionLocal()
         try:

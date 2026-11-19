@@ -44,13 +44,18 @@ def _login_id(data: dict) -> str:
     return str(data.get("sid") or f"t{int(_started(data))}")
 
 
-_ended: dict = {}        # account number -> logins of it that were logged out (kept in settings "logout_<number>")
-ENDED_KEPT = 40          # per account; a login lasts 30 days, nobody logs out this often
+_ended: dict = {}        # account number -> {"ids": {login id: when that login runs out anyway}, "floor": time}
+ENDED_KEPT = 2000        # per account, and only until each would have run out by itself (30 days)
 
 
-def ended_logins(uid: int) -> list:
-    got = _ended.get(uid)
-    if got is None:
+def _ended_state(uid: int) -> dict:
+    """Logins of this account that were logged out (kept in settings "logout_<number>" as a list of
+    "id|time it runs out", plus "floor|time": every login made up to then is ended).
+    Until 20 Nov 2026 only the last 40 were remembered, by count: after 40 more log-outs of the same
+    account the first logged-out login worked again for the rest of its 30 days. Now each one is kept until
+    it has run out by itself. Entries from before that change carry no time: they are kept 30 days more."""
+    st = _ended.get(uid)
+    if st is None:
         from .db import get_setting
         db = SessionLocal()
         try:
@@ -59,8 +64,30 @@ def ended_logins(uid: int) -> list:
             got = []
         finally:
             db.close()
-        _ended[uid] = got = [str(x) for x in got][-ENDED_KEPT:]
-    return got
+        st = {"ids": {}, "floor": 0.0}
+        now = time.time()
+        for x in got if isinstance(got, list) else []:
+            sid, _, until = str(x).rpartition("|")
+            try:
+                if not sid:
+                    st["ids"][str(x)] = now + SESSION_SECS
+                elif sid == "floor":
+                    st["floor"] = max(st["floor"], float(until))
+                else:
+                    st["ids"][sid] = float(until)
+            except ValueError:
+                st["ids"][str(x)] = now + SESSION_SECS
+        _ended[uid] = st
+    return st
+
+
+def ended_logins(uid: int) -> list:
+    return list(_ended_state(uid)["ids"])
+
+
+def login_ended(data: dict, uid: int) -> bool:
+    st = _ended_state(uid)
+    return _login_id(data) in st["ids"] or (st["floor"] > 0 and _started(data) <= st["floor"])
 
 
 def end_login(db: Session, data: dict):
@@ -69,9 +96,20 @@ def end_login(db: Session, data: dict):
     30 days."""
     from .db import set_setting
     uid = int(data["uid"])
-    got = [x for x in ended_logins(uid) if x != _login_id(data)] + [_login_id(data)]
-    _ended[uid] = got = got[-ENDED_KEPT:]
-    set_setting(db, f"logout_{uid}", json.dumps(got))
+    st = _ended_state(uid)
+    now = time.time()
+    for k in [k for k, until in st["ids"].items() if until < now]:
+        del st["ids"][k]                                  # has run out by itself: nothing left to refuse
+    st["ids"][_login_id(data)] = float(data.get("exp") or (_started(data) + SESSION_SECS))
+    while len(st["ids"]) > ENDED_KEPT:
+        # More log-outs in 30 days than anybody makes by hand. The oldest is dropped from the list, and so
+        # that it cannot come back to life every login of this account made up to its time is ended.
+        k = min(st["ids"], key=lambda x: st["ids"][x])
+        st["floor"] = max(st["floor"], st["ids"].pop(k) - SESSION_SECS)
+    out = [f"{k}|{until:.0f}" for k, until in st["ids"].items()]
+    if st["floor"] > 0:
+        out.append(f"floor|{st['floor']:.0f}")
+    set_setting(db, f"logout_{uid}", json.dumps(out))
 
 
 def session_current(data: dict, user: User) -> bool:
@@ -100,7 +138,7 @@ def session_current(data: dict, user: User) -> bool:
         except Exception:
             pass
     try:
-        if _login_id(data) in ended_logins(user.id):
+        if login_ended(data, user.id):
             return False
     except Exception:
         pass

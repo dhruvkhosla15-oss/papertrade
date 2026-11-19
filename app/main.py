@@ -103,6 +103,37 @@ class _Turnstile:
         except Exception:
             return "?"
 
+    BODY_SECS = 10.0        # a request's body has this long to arrive (the biggest honest one is a few kilobytes)
+
+    @staticmethod
+    async def _refuse(send, status: int, text_: bytes):
+        body = b'{"detail":"' + text_ + b'"}'
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"connection", b"close")]})
+        await send({"type": "http.response.body", "body": body})
+
+    async def _read_body(self, receive, send):
+        """The whole body of one request, or None when the request has been answered here (too large, too
+        slow) or the sender has gone."""
+        parts, got = [], 0
+        end = asyncio.get_running_loop().time() + self.BODY_SECS
+        while True:
+            try:
+                m = await asyncio.wait_for(receive(), max(0.01, end - asyncio.get_running_loop().time()))
+            except asyncio.TimeoutError:
+                await self._refuse(send, 408, b"The request took too long to arrive")
+                return None
+            if m.get("type") != "http.request":
+                return None
+            chunk = m.get("body") or b""
+            got += len(chunk)
+            if got > self.MAX_BODY:       # a body sent without its length is cut off at the same limit
+                await self._refuse(send, 413, b"Request too large")
+                return None
+            parts.append(chunk)
+            if not m.get("more_body"):
+                return b"".join(parts)
+
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope.get("path") == "/healthz":
             return await self.app(scope, receive, send)
@@ -116,21 +147,8 @@ class _Turnstile:
         except ValueError:
             declared = 0
         if declared > self.MAX_BODY:
-            body = b'{"detail":"Request too large"}'
-            await send({"type": "http.response.start", "status": 413,
-                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"connection", b"close")]})
-            await send({"type": "http.response.body", "body": body})
-            return
-        got = [0]
-        inner_receive = receive
-
-        async def receive():      # a body sent without its length is cut off at the same limit
-            m = await inner_receive()
-            if m.get("type") == "http.request":
-                got[0] += len(m.get("body") or b"")
-                if got[0] > self.MAX_BODY:
-                    return {"type": "http.request", "body": b"", "more_body": False}
-            return m
+            return await self._refuse(send, 413, b"Request too large")
+        has_body = declared > 0 or any(k == b"transfer-encoding" for k, _ in (scope.get("headers") or []))
         who = self._who(scope)
         ent = self.mine.get(who)
         if ent is None:
@@ -148,6 +166,23 @@ class _Turnstile:
                 if who in self.watch:
                     self.watch[who] = max(self.watch[who], ent[2])
                 try:
+                    # A request that brings a body is read first, on this sender's own turn only, and has
+                    # BODY_SECS to arrive. Before 20 Nov 2026 the body was awaited while holding one of the
+                    # MAX turns everybody shares: 80 requests from different addresses that announced a body
+                    # and then sent nothing took every turn, and the site answered nobody (visitors and
+                    # logged-in users alike) for as long as those connections were held open.
+                    if has_body:
+                        body = await self._read_body(receive, send)
+                        if body is None:
+                            return
+                        first = [True]
+                        inner_receive = receive
+
+                        async def receive():
+                            if first[0]:
+                                first[0] = False
+                                return {"type": "http.request", "body": body, "more_body": False}
+                            return await inner_receive()
                     async with self.sem:
                         await self.app(scope, receive, send)
                 finally:
@@ -574,7 +609,9 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     if data and "uid" in data and not data.get("pre2fa"):
         try:
             from .auth import end_login
-            end_login(db, data)
+            u = db.get(User, data["uid"])
+            if u is not None and _session_current(data, u):   # a login that is dead already has nothing to end
+                end_login(db, data)                           # (and must not fill another account's list)
         except Exception:
             log.exception("could not end the login")
     response.delete_cookie(COOKIE)
@@ -1217,6 +1254,40 @@ def _ws_msg_ok(raw: str) -> bool:
     return len(raw) <= WS_MSG_MAX
 
 
+class _WsPace:
+    """How fast one price-socket connection is listened to. A screen sends a message when the user moves
+    to another list (which contracts to show) and a ping every 15 seconds. Before 20 Nov 2026 a connection
+    was read as fast as it could send, and the server did nothing else while messages were waiting: four
+    visitors' connections sending pings without pause stopped the whole site (pages, orders, prices) for
+    as long as they kept it up, half a minute for eight seconds of sending; subscribe / unsubscribe of
+    2,000 contracts in a loop made every click several times slower. Now a connection has an allowance
+    (BURST messages, refilled at RATE a second; a long list of contracts counts for more) and a
+    connection that has used it up is read only as fast as the allowance refills, at most one message
+    every MAX_WAIT seconds. Its own messages wait; nobody else does."""
+    BURST = 120.0
+    RATE = 10.0
+    PER_CONTRACTS = 200      # this many contracts in one message count as one more message
+    MAX_WAIT = 2.0
+
+    def __init__(self):
+        self.left = self.BURST
+        self.at = time.monotonic()
+
+    def wait(self, msg) -> float:
+        """Seconds to wait before this message is acted on (0 = no wait)."""
+        now = time.monotonic()
+        self.left = min(self.BURST, self.left + (now - self.at) * self.RATE)
+        self.at = now
+        try:
+            n = len(msg.get("tokens") or ())
+        except Exception:
+            n = 0
+        self.left -= 1.0 + n / self.PER_CONTRACTS
+        if self.left >= 0:
+            return 0.0
+        return min(self.MAX_WAIT, -self.left / self.RATE)
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     tok = ws.cookies.get(COOKIE) or ws.query_params.get("token")
@@ -1242,12 +1313,14 @@ async def ws_endpoint(ws: WebSocket):
             await ws.send_text(json.dumps(ev))
 
     pump = asyncio.create_task(pump_events())
+    pace = _WsPace()
     try:
         while True:
             raw = await ws.receive_text()
             if not _ws_msg_ok(raw):
                 await ws.close(1009); break
             msg = json.loads(raw)
+            await asyncio.sleep(pace.wait(msg))    # lets everybody else be served between two messages
             if msg.get("type") == "subscribe":
                 toks = [int(t) for t in msg.get("tokens", [])]
                 if allowed is not None:
@@ -3061,7 +3134,20 @@ def kite_login(admin: User = Depends(current_admin)):
 
 
 @app.get("/auth/kite/callback")
-async def kite_callback(request: Request, request_token: str = "", status: str = "", db: Session = Depends(get_db)):
+async def kite_callback(request: Request, request_token: str = "", status: str = "", db: Session = Depends(get_db),
+                        user: Optional[User] = Depends(optional_user)):
+    # Only the Master's own browser comes back here (it left through /auth/kite/login a moment ago, which
+    # needs the Master's login). Before 20 Nov 2026 this address answered anybody: each call from a visitor
+    # with a made-up code was sent on to the broker under the site's own key and written to Site health as
+    # a server error, as often as the visitor liked (the 20,000-line error store filled, real errors pushed
+    # out, the "errors" alarm sent to the owner), and a code from somebody else's broker login would have
+    # replaced the site's own price-feed login.
+    try:
+        if user is None:
+            raise HTTPException(401, "Not logged in")
+        current_admin(request, user)
+    except HTTPException:
+        return RedirectResponse("/admin?kite=failed&msg=log in as Master first, then start the price-feed login again")
     if config.FEED != "kite":
         raise HTTPException(400, "Feed is not kite")
     if not request_token:

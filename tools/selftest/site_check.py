@@ -442,6 +442,127 @@ def main():
         ok("Master (phone) Settings: a long error text stays inside the Site health card", w[2] and w[0] <= w[1] + 2, f"page {w[0]} wide on a {w[1]} screen, error shown {w[2]}")
         ctx.close()
 
+        # ---------------- faults of 20 Nov 2026 (each check belongs to a fix of that night) ----------------
+        import httpx
+        # Pulse: "Top losers" holds only what fell and "Top gainers" only what rose. With fewer than ten of either (a
+        # market of six names, a day when everything rises) the lists were filled up from the other side.
+        wrong = []; listed = 0
+        for kd in ("all", "index", "mcx", "currency", "crypto", "forex", "global"):
+            d = httpx.get(f"{B}/api/public/pulse", params={"period": "today", "kind": kd}, timeout=20).json()
+            listed += len(d.get("gainers") or []) + len(d.get("losers") or [])
+            wrong += [f"{kd}: {x['name']} {x['pct']:+} under Top losers" for x in d.get("losers") or [] if x["pct"] >= 0]
+            wrong += [f"{kd}: {x['name']} {x['pct']:+} under Top gainers" for x in d.get("gainers") or [] if x["pct"] <= 0]
+            hl = (d.get("hero") or {}).get("loser")
+            if hl and hl["pct"] >= 0:
+                wrong.append(f"{kd}: top loser card shows {hl['name']} {hl['pct']:+}")
+        ok("Pulse: Top losers lists only what fell and Top gainers only what rose, in every market view", listed > 5 and not wrong, wrong[:4] or f"{listed} rows")
+        # refusals the order ticket can really produce, in plain words; a date typed by hand does not crash a report
+        r15 = U.post(f"{B}/api/orders", data={"token": fut["token"], "side": "BUY", "lots": 1.5})
+        rno = U.post(f"{B}/api/orders", data={"token": 999, "side": "BUY", "lots": 1})
+        try:
+            rdt = U.get(f"{B}/api/export.xlsx?from=20-11-2026&to=x"); rds, rdx = rdt.status, rdt.text()
+        except Exception:
+            rds, rdx = 599, "the server dropped the connection"
+        time.sleep(0.5)
+        t15 = (r15.json().get("detail") if r15.status in (400, 422) else "") or ""; tno = (rno.json().get("detail") if rno.status == 400 else "") or ""
+        ok("User: one and a half lots, or a contract that is gone, is refused in plain words",
+           "whole number of lots" in t15 and "Input should" not in t15 and "cannot be traded" in tno and "instrument" not in tno, f"{r15.status} {t15!r} / {rno.status} {tno!r}")
+        ok("User: a report asked for with a badly written date is refused with a message, not a crash", rds == 400 and "Dates must look like" in rdx, f"{rds} {rdx[:80]}")
+        # Automatic square-off message: a crypto price is in dollars (it read "BTCUSD at ₹73,909.50"). The Master
+        # takes coins back from a small account holding one crypto position, so no price has to be moved.
+        btc = None
+        for _ in range(3):
+            try:
+                btc = next((x for x in uget("/api/search?q=BTCUSD") if x.get("exchange") == "CRYPTO" and x.get("instrument_type") == "FUT"), None); break
+            except Exception:
+                time.sleep(1)
+        pid = apost("/api/admin/users", {"username": "sitepop", "password": "Pop@12345", "display_name": "Site Pop", "initial_coins": 30000}).get("id")
+        pctx = br.new_context(viewport={"width": 360, "height": 640}); P = pctx.request
+        P.post(f"{B}/api/login", data={"username": "sitepop", "password": "Pop@12345"})
+        P.post(f"{B}/api/password", data={"old_password": "Pop@12345", "new_password": "Pop@67890"})
+        sold = ""
+        if btc and pid:
+            for _ in range(5):
+                if P.post(f"{B}/api/orders", data={"token": btc["token"], "side": "BUY", "lots": 150, "leverage": 50}).status == 200:
+                    break
+                time.sleep(1.2)
+            time.sleep(1.0)
+            apost(f"/api/admin/users/{pid}/coins", {"amount": -12000, "note": "taken back"})
+            for _ in range(25):
+                time.sleep(1)
+                al = [a for a in (P.get(f"{B}/api/me").json().get("alerts") or []) if a.get("title") == "Position liquidated"]
+                if al:
+                    sold = al[0].get("text") or ""; break
+        ok("User: the automatic square-off message gives a crypto price in dollars, not with the rupee sign",
+           bool(re.search(r"of BTCUSD at \$[\d,]+\.\d\d\.", sold)) and "at ₹" not in sold, sold[:160] or "no square-off message came")
+        # ... and that message is on the screen as the app opens (it used to come five seconds later, in the middle of a tap)
+        page = pctx.new_page(); t0 = time.time(); page.goto(f"{B}/")
+        try:
+            page.wait_for_selector(".mpop button", timeout=9000); came = time.time() - t0
+        except Exception:
+            came = 99
+        ok("User: a waiting pop-up is on the screen as the app opens", came < 3.0 or (came < 4.5 and page.evaluate("performance.getEntriesByType('resource').filter(e => e.name.endsWith('/api/me')).length") == 1), f"after {came:.1f} s")
+        page.evaluate("(() => { const b = document.querySelector('.mpop button'); if (b) b.click(); })()"); page.wait_for_timeout(700)
+        # Short of margin after the weekly settlement: the warning stands for the shortfall notice (which used to pop up
+        # again on its own after OK), and the red bar says what the pop-up says (it said "squared off at market" while
+        # the pop-up gave time until Monday noon). The server's answer is stood in for, so no price has to move.
+        page.evaluate("""(async () => { window.__ack = ''; const rf = window.fetch; window.fetch = async (u, o) => { if (String(u).includes('/api/alerts/ack')) { window.__ack = (o && o.body) || ''; return new Response('{}'); } return rf(u, o); };
+            const real = window.api; window.api = async (p, ...r) => { const x = await real(p, ...r); if (p === '/me') { x.funds.margin_short = true;
+                x.week_warning = {title: 'Margin shortfall — reduce your positions', text: 'Your coins went back to the allocated amount. Available Balance is -5.\\n\\nPlease reduce your positions before Monday, 12:00 PM. If Available Balance is still below zero then, positions are squared off.'};
+                x.alerts = [{id: 'wk1', title: 'Weekly settlement · test', text: 'week'}, {id: 'sf1', title: 'Margin shortfall after weekly settlement', text: 'short'}]; } return x; };
+            document.querySelectorAll('.mpop').forEach(x => x.remove()); window._wkWarn = 0; await refreshFunds(); window.api = real; })()"""); page.wait_for_timeout(600)
+        sf = page.evaluate("""() => { const b = document.querySelector('.mpop .box'); const t = b ? [...b.querySelectorAll('b')].map(x => x.textContent) : []; const bar = document.querySelector('#marginBar').innerText;
+            const k = document.querySelector('.mpop button'); if (k) k.click(); return {titles: t, bar}; }"""); page.wait_for_timeout(500)
+        ack = page.evaluate("window.__ack || ''")
+        ok("User: the shortfall warning after a weekly settlement is shown once (its notice is cleared with it)",
+           len(sf["titles"]) == 2 and "sf1" in ack and "wk1" in ack, f"pop-up {sf['titles']}, cleared {ack}")
+        ok("User: during the time given to reduce positions the red bar says the same as the pop-up",
+           "before Monday, 12:00 PM" in sf["bar"] and "at market" not in sf["bar"], sf["bar"][:200])
+        # two messages at the same moment stand one under the other (they lay on top of each other)
+        tz = page.evaluate("""() => { toast('first message'); toast('second message'); const r = [...document.querySelectorAll('.toast')].map(x => x.getBoundingClientRect()); return r.map(x => [Math.round(x.top), Math.round(x.bottom)]); }""")
+        ok("User: two messages at the same moment do not cover each other", len(tz) >= 2 and tz[-1][0] >= tz[-2][1], tz)
+        # My P&L card: with nothing open, Realised and P&L are the same amount and read the same (-₹188 against -₹187
+        # came from rounding one and not the other), and no figure breaks between its sign and its digits
+        page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('account'); setPf('pnl')"); page.wait_for_timeout(1200)
+        pl = page.evaluate("""(async () => { const real = window.api; window.api = async (p, ...r) => { if (p.startsWith('/report')) return {users: [{allocated: 500000, equity: 499083.9, overall_pnl: -1234567.4}]};
+                if (p === '/weekly') return {row: {commission: 728.6}, weeks: ['2026-11-22']}; return real(p, ...r); };
+            state.funds = Object.assign({}, state.funds, {equity: 499083.9, unrealised: 0}); await loadPerf(); window.api = real;
+            const rows = Object.fromEntries([...document.querySelectorAll('#pnlCards .plrow')].map(r => [r.querySelector('span').textContent.trim(), r.querySelector('b').textContent.trim()]));
+            const broken = [...document.querySelectorAll('#pnlCards .plrow b')].filter(b => b.getClientRects().length > 1).map(b => b.textContent);
+            return {rows, broken}; })()""")
+        ok("User (360-wide phone) My P&L: Realised and P&L read the same when nothing is open, and no figure is broken over two lines",
+           pl["rows"].get("Realised") == pl["rows"].get("P&L") and bool(pl["rows"].get("P&L")) and not pl["broken"], f"{pl['rows'].get('Realised')} / {pl['rows'].get('P&L')}, broken {pl['broken']}")
+        # Pulse on a 360-wide phone: the low / high line of a row does not run into the price and the change beside it
+        page.evaluate("showTab('watch', 'pulse')"); page.wait_for_timeout(2500)
+        pr = page.evaluate("""() => { const out = []; let n = 0; document.querySelectorAll('.prow').forEach(r => { const m = r.querySelector('.m2'), p = r.querySelector('.px'); if (!m || !p || !r.offsetParent) return; n++;
+            const pb = p.getBoundingClientRect(); [...m.children].forEach(c => { const b = c.getBoundingClientRect(); if (b.width && b.right > pb.left + 1 && b.bottom > pb.top + 1 && b.top < pb.bottom - 1) out.push((r.querySelector('.nm b') || {}).textContent); }); });
+            return [n, [...new Set(out)]]; }""")
+        ok("User (360-wide phone) Pulse: no low / high figure runs into the price beside it", pr[0] >= 5 and not pr[1], f"{pr[0]} rows, overlapping {pr[1][:5]}")
+        # Option chain on a 360-wide phone, Greeks view: the put price column is on the screen (it was cut off at the right)
+        page.evaluate("""(() => { showTab('market'); document.querySelector('#segOpt').click(); document.querySelector('#catList [data-cat="index"]').click();
+            const u = document.querySelector('#undList .wl-item[data-und="NFO|NIFTY"]'); if (u) u.click(); })()"""); page.wait_for_timeout(3000)
+        page.evaluate("(() => { const b = document.querySelector('#chainMode [data-m=\"greeks\"]'); if (b) b.click(); })()"); page.wait_for_timeout(1500)
+        cw = page.evaluate("[document.querySelector('#chainTbl').scrollWidth, document.querySelector('#chainWrap').clientWidth, document.querySelectorAll('#chainTbl tbody tr').length]")
+        ok("User (360-wide phone) option chain, Greeks view: the put price column is on the screen", cw[2] >= 5 and cw[0] <= cw[1] + 1, f"table {cw[0]} wide in a card of {cw[1]}, {cw[2]} strikes")
+        pctx.close()
+        if pid:
+            A.delete(f"{B}/api/admin/users/{pid}")
+        # Master: no label of a figure card is cut off with "…" (Performance on a phone and a tablet, Shadow Book), and
+        # the note beside the crypto margin names the 50x limit (it still said 200x)
+        cutl = []
+        for wv in (820, 412):
+            ctx = br.new_context(viewport={"width": wv, "height": 900}); ctx.add_cookies(actx.cookies())
+            page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(3000)
+            for nav in ("perf", "shadow"):
+                page.evaluate("(n) => document.querySelector(`[data-nav=\"${n}\"]`).click()", nav); page.wait_for_timeout(1500)
+                cutl += [f"{wv} wide: {x}" for x in page.evaluate("(n) => [...document.querySelectorAll('#nav-' + n + ' .stat .small')].filter(e => e.offsetParent && e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim().slice(0, 40))", nav)]
+            if wv == 820:
+                page.evaluate("document.querySelector('[data-nav=\"settings\"]').click()"); page.wait_for_timeout(800)
+                note = page.evaluate("document.querySelector('#mCRYPTO').parentElement.innerText")
+            ctx.close()
+        ok("Master: no label of a figure card is cut off on Performance and Shadow Book (tablet, phone)", not cutl, cutl[:4])
+        ok("Master Settings: the note beside the crypto margin gives the 50x limit", "50×" in note and "200" not in note, note[:120])
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

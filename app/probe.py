@@ -840,6 +840,42 @@ class Probe:
             finally:
                 await c.aclose()
         self.ok(f"a user and a visitor are refused on every Master page of figures ({len(reads)} read)", len(reads) >= 15 and not got, "; ".join(got[:4]))
+        # The price-feed login return address: only the Master's own browser may come back through it.
+        # Until 20 Nov 2026 it answered anybody: every call with a made-up code was sent on to the broker
+        # under the site's key and written to Site health as a server error. Looked at the way it is built
+        # first; it is only called (as a visitor and as a test user, with a made-up code) when it is locked.
+        from .auth import optional_user
+        from . import watchdog as _wdg
+        built = {getattr(r, "path", ""): calls(r.dependant) for r in self.app.routes
+                 if getattr(r, "path", "").startswith("/auth/") and getattr(r, "dependant", None) is not None}
+        locked = bool(built) and all(current_admin in c or optional_user in c for c in built.values())
+        got, errs = [], len(_wdg._errors)
+        if locked:
+            for who, c in (("test user", self._client(ua)), ("visitor", self._client())):
+                try:
+                    r = await c.get("/auth/kite/callback", params={"request_token": "zz-probe-not-a-code"}, follow_redirects=False)
+                    if not (r.status_code in (401, 403) or (r.status_code in (302, 303, 307) and "kite=failed" in r.headers.get("location", "")
+                                                           and "Master" in r.headers.get("location", ""))):
+                        got.append(f"{who} callback -> {r.status_code} {r.headers.get('location', '')[:60]}")
+                    r = await c.get("/auth/kite/login", follow_redirects=False)
+                    if r.status_code not in (401, 403):
+                        got.append(f"{who} login -> {r.status_code}")
+                finally:
+                    await c.aclose()
+        self.ok("the price-feed login and its return address answer the Master only (nothing is sent on, no error is logged)",
+                locked and not got and len(_wdg._errors) == errs,
+                "; ".join(got[:3]) or ("" if locked else "an address under /auth/ is built without a login")
+                or (f"{len(_wdg._errors) - errs} error line(s) logged" if len(_wdg._errors) != errs else f"{len(built)} addresses, called as a visitor and as a test user"))
+        open_ = []
+        c = self._client()
+        try:
+            for path in ("/openapi.json", "/docs", "/redoc"):
+                r = await c.get(path)
+                if r.status_code != 404:
+                    open_.append(f"{path} -> {r.status_code}")
+        finally:
+            await c.aclose()
+        self.ok("the site does not hand a visitor the list of its own addresses", not open_, "; ".join(open_))
 
     async def _offered(self, ua):
         """Normal working: what the search box and the futures lists offer can be traded. A contract that
@@ -942,6 +978,19 @@ class Probe:
                 self.ok("a login that was logged out stops working; the account's other login goes on",
                         a1.status_code == 401 and a1o.status_code == 401 and a2.status_code == 200,
                         f"logged-out login {a1.status_code}/{a1o.status_code}, other login {a2.status_code}")
+                # ...and stays dead however many log-outs follow. Until 20 Nov 2026 only the last 40 were
+                # remembered: after 40 more log-outs of the same account the first one worked again. The 45
+                # extra logins used here last two minutes each, so nothing of them is kept.
+                now = int(time.time()); codes = set()
+                for i in range(45):
+                    t = _jwt.encode({"uid": ub.id, "adm": False, "iat": now, "exp": now + 120, "sid": secrets.token_hex(6), "at": round(time.time(), 6)},
+                                    SECRET_KEY, algorithm="HS256")
+                    codes.add((await anon.post("/api/logout", headers={"authorization": "Bearer " + t})).status_code)
+                z1 = await anon.get("/api/me", headers=h1)
+                z2 = await anon.get("/api/me", headers=h2)
+                self.ok("a logged-out login stays dead after 45 more log-outs of the same account",
+                        z1.status_code == 401 and z2.status_code == 200 and codes == {200},
+                        f"first logged-out login {z1.status_code}, other login {z2.status_code}")
         finally:
             await anon.aclose()
 
@@ -977,8 +1026,73 @@ class Probe:
             fn = getattr(_m, "_ws_msg_ok", None)
             self.ok("the price socket does not read an oversized message", bool(fn) and fn("x" * 2_000_000) is False and fn('{"type":"ping"}') is True,
                     "size rule in place" if fn else "no size rule on the price socket")
+            await self._slow_bodies(anon, _m)
+            pace = getattr(_m, "_WsPace", None)
+            if pace is None:
+                self.ok("one price-socket connection is listened to only so fast", False, "no pace rule on the price socket")
+            else:
+                p1, p2 = pace(), pace()
+                easy = sum(p1.wait({"type": "subscribe", "tokens": list(range(300))}) for _ in range(20)) + sum(p1.wait({"type": "ping"}) for _ in range(20))
+                flood = sum(p2.wait({"type": "ping"}) for _ in range(5000))
+                self.ok("one price-socket connection is listened to only so fast (a flood of messages waits, a screen does not)",
+                        easy == 0 and flood > 300, f"40 messages of a busy screen wait {easy:.1f} s; 5,000 pings sent in one go are held back {flood / 60:.0f} minutes")
         finally:
             await anon.aclose()
+
+    async def _slow_bodies(self, anon, _m):
+        """A request that announces a body and then does not send it must not keep one of the turns that
+        every user's requests share (found 20 Nov 2026: 80 such requests from different addresses, a few
+        kilobytes in all, and the site answered nobody for as long as they were held open). As many
+        requests as there are shared turns are started here, straight into the site with no network, each
+        from a made-up address and each stuck after the first bytes of a login that never completes (no
+        account is involved, nothing is counted as a wrong try); while they hang, the public home data must
+        still be answered at once, and each of them must be answered "too slow" by itself. They are all
+        dropped at the end whatever happens."""
+        ts = getattr(getattr(_m, "_Turnstile", None), "last", None)
+        if ts is None:
+            self.note("slow request bodies not tested", "the turnstile is not reachable"); return
+        n = int(getattr(ts, "MAX", 80))
+        answers = []
+
+        async def stuck(i):
+            sent = [False]
+
+            async def receive():
+                if not sent[0]:
+                    sent[0] = True
+                    return {"type": "http.request", "body": b'{"username":', "more_body": True}
+                await asyncio.sleep(3600)
+
+            async def send(m):
+                if m.get("type") == "http.response.start":
+                    answers.append(m.get("status"))
+            scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+                     "path": "/api/login", "raw_path": b"/api/login", "query_string": b"", "root_path": "",
+                     "headers": [(b"host", b"localhost"), (b"content-type", b"application/json"), (b"content-length", b"200"),
+                                 (b"x-forwarded-for", f"zz-probe-slow-{i}".encode())],
+                     "client": ("127.0.0.1", 1), "server": ("localhost", 80)}
+            await self.app(scope, receive, send)
+        tasks = [asyncio.ensure_future(stuck(i)) for i in range(n)]
+        try:
+            await asyncio.sleep(0.5)
+            t0 = time.time()
+            try:
+                r = await asyncio.wait_for(anon.get("/api/public/home"), 4.0)
+                took, code = time.time() - t0, r.status_code
+            except asyncio.TimeoutError:
+                took, code = 4.0, 0
+            self.ok(f"{n} requests whose body never arrives do not keep everybody else waiting",
+                    code == 200 and took < 3.0, f"public home data answered {code} in {took:.2f} s while they hang")
+            if code == 200 and took < 3.0:
+                limit = float(getattr(ts, "BODY_SECS", 10.0)) + 4.0
+                while time.time() - t0 < limit and len(answers) < n:
+                    await asyncio.sleep(0.5)
+                self.ok("a request whose body does not arrive is answered 'too slow' and dropped",
+                        len(answers) == n and set(answers) == {408}, f"{len(answers)} of {n} answered, as {sorted(set(answers))}")
+        finally:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _resting_cap(self, ins, ub):
         """One account may not pile up pending orders without end (found 19 Nov 2026: some 4,500 resting

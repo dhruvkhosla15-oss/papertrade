@@ -1,25 +1,25 @@
-LIMEFX OFFICERS' NIGHTLY AUDIT, 19 NOV 2026 (IST): LOOPHOLE FOUND AND FIXED. A DELETED USER'S OLD LOGIN COULD BE ACCEPTED AS THE NEXT ACCOUNT YOU CREATED, EVEN A NEW MASTER LOGIN. NOW REFUSED.
+LIMEFX OFFICERS' NIGHTLY AUDIT, 20 NOV 2026 (IST): LOOPHOLES FOUND AND FIXED. SOMEONE WITH NO LOGIN COULD STOP THE SITE FOR EVERYBODY (TWO WAYS) AND COULD CALL THE PRICE-FEED LOGIN RETURN ADDRESS. ALL CLOSED AND LIVE.
 
-Technology: clean. Site starts with no errors, all 8 jobs running, backup complete and opens only with its password. Forced restart mid-trading: no order lost or doubled. 100 users: screens 31 ms, orders about 60 ms, same as yesterday's code. The job-stopped alarm fires. Software weaknesses: none that apply. No real passwords in the code.
+Technology: clean. Clean start, all 8 jobs running, disk-low alarm fires, forced restart in mid-trading lost or doubled none of 927 orders, backup complete and its encrypted copy opens only with the password. 100 users: screens 13 ms, orders 24 ms, not slower.
 
-Security: found, fixed. Besides the login above (it needed you to delete the newest account and create another; if you ever see a Master login you do not know, tell me): Log out now really ends the login. A visitor could fill the server's memory with huge requests: refused. One account could slow everyone with thousands of pending orders: now 500 at most (new limit). Text typed by a Master no longer runs as part of a page. All 7 markets attacked, 13 sweep rows, no-login sweep clean. Nobody gained coins.
+Security: found. (1) 80 half-sent requests, or 4 connections flooding the price channel, froze the site for all; now each sender only delays himself. (2) The price-feed login return address answered anybody; now only you. PLEASE NOTE: do the daily price-feed login from the Master page button (or the alarm link) while logged in as Master. (3) After 40 more log-outs an old logged-out login worked again. (4) Several pending orders together could pass a contract's position limit. (5) A position above 500 lots could not be exited, by the user or by you. All fixed. All 7 markets attacked (NSE, BSE, MCX, Currency, Forex, Global, Crypto), 13 sweep rows, no-login sweep of 93 addresses, 50x rule attacked 16 ways and held. Software weaknesses: nothing new.
 
-Accounts: found, fixed. All screens and Excel files agreed for 8 accounts; commission by hand matched. Fixed: after you deleted the user who made the latest trade, every NSE, BSE and MCX order failed until a crypto, forex or currency trade came (possible since 18 Nov); the top line of the ledger Excel did not add up after a weekly cut-off.
+Accounts: clean. 12 accounts, about 18,400 comparisons across every screen and Excel file, commission by hand on 42 trades: all agree. One wrong note fixed: Settings still said crypto 0.5% = 200x.
 
-Price: found, fixed. Fills, closing, carried, expiry and rupee rates right in all 7 markets. Two faults when a contract list is missing after a restart: a crypto position showed a loss ten times too big and got other positions squared off; an option expiring before the day's price login was paid at yesterday's price. Normal days are worked out exactly as before.
+Price: found. If the order-book part of the crypto, forex or Global prices stalled while the price kept moving, orders filled at the old book (1.4 to 3.1 lakh free in the test). Fixed. In the opening second, auto square-off and pending orders used the previous day's prices (one test account lost 2.6 lakh wrongly); they now wait for the day's first price. A user could not cause either, but could have gained or lost by chance; the books cannot show it. Stock futures settle at the cash price: proved.
 
-UI: found, fixed. All screens on computer, tablet and phones, light and dark. On a phone the Master's user panel hid Delete and close; a long error ran off Site health; watchlist names ran under prices; prices flashed unreadable in light theme.
+UI: found, fixed. Pulse listed risers under Top losers; overlapping or cut-off figures on phones (Pulse, option chain, Master cards); two messages on top of each other. Studied Master Shadow Book, Performance, dashboard and user Market, ticket, Order Book, P&L, Pulse.
 
-Risk: rules held (warning, shortfall, square-off of only the lots needed, worst first, one charge per order). After a 10% gap, 10 lakh coins end above zero in NSE, BSE, MCX but about 17 lakh below in Currency, 1.5 crore in Crypto, 1.7 crore in Global, 3.9 crore in Forex. Proposed: lower top leverage or a size cap there.
+Risk: with 50x a 10% gap now leaves a full account about 30 lakh below zero in Crypto, Forex, Global (was 1.5 to 3.9 crore); below zero only on gaps above 2.5%. Currency is now the most leveraged: below zero above 3.7%.
 
-User experience: found, fixed. New user's journey under 3 seconds a step. A message arriving while a pop-up was open was lost: fixed. Six refusals in plain words (a shut market says when it opens). Tapping an index or an empty search no longer leaves the user stuck.
+User experience: new user, 27 steps, all under 1 second. Fixed: square-off pop-up showed dollar prices with the rupee sign; weekly shortfall was told twice with two figures; a waiting pop-up came 5 seconds late; a frozen user got no message.
 
-Compliance: found, fixed. The activity list named the wrong user after a delete; visitors could read the price source and broker account number. Missing: activity lines do not say what changed; no terms, risk or privacy note; the app does not say plainly that trading is in coins. Housekeeping check, not a legal opinion: business model, coin settlement, exchange prices and tax are for your lawyer and accountant.
+Compliance: access, records, user data checked. Fixed: the user page's hidden text named a price provider. Not a legal opinion; law and tax questions are for your lawyer and accountant.
 
-Release: approved by an independent reviewer, nothing held; his 3 points were corrected and re-tested.
+Release: independent reviewer approved 18 of 19 changes and held one (your morning price-feed login could have failed); corrected and re-tested the same night, then released.
 
-Daily checks added: 4, plus 10 browser and 9 simulation checks.
+Added to daily checks: 3 widened, 1 new; 16 browser checks; 28 simulation checks.
 
-Waiting for you (no branch): leverage limits; crypto square-off charge is 0.05% of value, others 50 flat: intended?; on expiry days do the price login before 12:30 pm; a Stop-loss/Target button on positions; fuller activity record; terms and notes.
+Waiting for you (no branch): old positions above 50x stay until closed, ask owners to close? Shorter Monday-noon grace for Crypto? Order Book on a phone hides Status and Cancel off the edge. The Master page file, without data, is readable by anyone and names providers.
 
-Not tested: stock futures; real phones; whether the hosting limits request size.
+Could not test: real feed timing, the real broker login round trip, a gap exactly at expiry.

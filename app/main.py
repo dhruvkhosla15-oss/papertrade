@@ -3165,7 +3165,13 @@ def feed_reconnect(admin: User = Depends(current_admin)):
 def kite_login(admin: User = Depends(current_admin)):
     if config.FEED != "kite":
         raise HTTPException(400, "Feed is not kite")
+    global _kite_login_started
+    _kite_login_started = time.time()      # the return address lets this one login through (see kite_callback)
     return RedirectResponse(feed.login_url())
+
+
+_kite_login_started = 0.0
+KITE_LOGIN_WINDOW = 600.0    # seconds a login the Master started may take to come back
 
 
 @app.get("/auth/kite/callback")
@@ -3177,12 +3183,17 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
     # a server error, as often as the visitor liked (the 20,000-line error store filled, real errors pushed
     # out, the "errors" alarm sent to the owner), and a code from somebody else's broker login would have
     # replaced the site's own price-feed login.
+    # Let through: a browser that carries the Master's login, or the return of a login that a Master started
+    # with the button in the last ten minutes (the return can arrive on another host name than the one the
+    # Master is logged in on, and then carries no login; the button itself always needs the Master).
+    global _kite_login_started
     try:
         if user is None:
             raise HTTPException(401, "Not logged in")
         current_admin(request, user)
     except HTTPException:
-        return RedirectResponse("/admin?kite=failed&msg=log in as Master first, then start the price-feed login again")
+        if not (0 < time.time() - _kite_login_started < KITE_LOGIN_WINDOW):
+            return RedirectResponse("/admin?kite=failed&msg=log in as Master first, then press the price-feed login button again")
     if config.FEED != "kite":
         raise HTTPException(400, "Feed is not kite")
     if not request_token:
@@ -3192,6 +3203,7 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
     except Exception as e:
         log.exception("kite login failed")
         return RedirectResponse(f"/admin?kite=failed&msg={e}")
+    _kite_login_started = 0.0              # used up
     set_setting(db, "kite_access_token", tok)
     from .feed.kite import ist_today as _kite_today
     set_setting(db, "kite_token_date", _kite_today())

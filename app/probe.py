@@ -850,7 +850,11 @@ class Probe:
                  if getattr(r, "path", "").startswith("/auth/") and getattr(r, "dependant", None) is not None}
         locked = bool(built) and all(current_admin in c or optional_user in c for c in built.values())
         got, errs = [], len(_wdg._errors)
-        if locked:
+        from . import main as _mk
+        waiting = 0 < time.time() - getattr(_mk, "_kite_login_started", 0.0) < getattr(_mk, "KITE_LOGIN_WINDOW", 600.0) + 5
+        if waiting:
+            self.note("the price-feed login return address was not called: the Master started a login in the last ten minutes")
+        if locked and not waiting:
             for who, c in (("test user", self._client(ua)), ("visitor", self._client())):
                 try:
                     r = await c.get("/auth/kite/callback", params={"request_token": "zz-probe-not-a-code"}, follow_redirects=False)

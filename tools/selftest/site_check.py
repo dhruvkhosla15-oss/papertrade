@@ -685,7 +685,7 @@ def main():
         rec("the two-step set-up says it was started, without the secret", "/api/admin/2fa/setup", r"^Two-step login: set-up started for admin")
         nid_ = apost("/api/admin/users", {"username": "recnote", "password": "Rec@Secret111", "display_name": "Rec Note", "initial_coins": 0}).get("id")
         apost(f"/api/admin/users/{nid_}/alert", {"title": "Call me", "text": "about your account"})
-        rec("a message left for a user says for whom and what", f"/users/{nid_}/alert", r"^Message left for recnote: Call me: about your account$")
+        rec("a message left for a user says for whom and its title (not the text)", f"/users/{nid_}/alert", r"^Message left for recnote, titled: Call me$")
         A.delete(f"{B}/api/admin/users/{nid_}")
         apost("/api/admin/notice", {"title": "Rec notice", "text": "record check"}); d1 = rec_last("POST /api/admin/notice")
         A.delete(f"{B}/api/admin/notice"); d2 = rec_last("DELETE /api/admin/notice")

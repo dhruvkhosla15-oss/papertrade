@@ -797,7 +797,7 @@ def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admi
     if not u or not body.text.strip():
         raise HTTPException(400, "Unknown user or empty message")
     engine._user_alert(db, u, (body.title.strip() or "Notice")[:60], body.text.strip()[:1200])
-    _note(f"Message left for {u.username}: {(body.title.strip() or 'Notice')[:60]}: {body.text.strip()[:200]}")
+    _note(f"Message left for {u.username}, titled: {(body.title.strip() or 'Notice')[:60]}")     # the title only: the text is between the Master and the user
     return {"ok": True, "pending": len(_user_alerts(db, u))}
 
 

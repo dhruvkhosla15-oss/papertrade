@@ -399,6 +399,24 @@ def main():
         if mk.get("id"):
             A.delete(f"{B}/api/admin/users/{mk['id']}")
 
+        # The Master's activity record (21 Nov 2026): the name of whoever acted and what the action changed are shown
+        # as text (a login name with markup in it ran as script there), and no line holds a password.
+        mname = 'zz<img src=x onerror="window.__x=(window.__x||0)+1">'
+        mid = A.post(f"{B}/api/admin/admins", data={"username": mname, "display_name": "m", "password": "Mark@Master1"}).json().get("id")
+        mctx = br.new_context(); mctx.request.post(f"{B}/api/login", data={"username": mname, "password": "Mark@Master1"})
+        mctx.request.post(f"{B}/api/admin/2fa/setup"); mctx.close()
+        ctx = br.new_context(viewport={"width": 1440, "height": 900}, service_workers="block"); ctx.add_cookies(actx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(3000)
+        page.evaluate("document.querySelector('#auLoad').click()"); page.wait_for_timeout(2000)
+        ran_a = page.evaluate("[window.__x || 0, document.querySelectorAll('#auList img').length, (document.querySelector('#auList')?.textContent || '').split('onerror').length - 1]")
+        ctx.close()
+        if mid:
+            A.delete(f"{B}/api/admin/admins/{mid}")
+        aud = json.dumps(aget("/api/admin/audit"))
+        held = [w for w in ("Mark@12345", "Mark@67890", "Mark@Master1", "admin123") if w in aud]
+        ok("Master activity record: names and notes with markup are shown as text, and no line holds a password",
+           bool(mid) and ran_a[:2] == [0, 0] and ran_a[2] >= 2 and not held, f"page {ran_a}, passwords found {held}")
+
         # Master's user panel on a phone: Delete and the close button used to sit off the right edge of the screen
         # (the row of buttons did not wrap), so the panel could only be left by scrolling it sideways.
         ctx = br.new_context(viewport={"width": 412, "height": 900}); ctx.add_cookies(actx.cookies())

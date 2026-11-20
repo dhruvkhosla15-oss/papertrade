@@ -895,6 +895,34 @@ class Probe:
                 await c.aclose()
         self.ok("the Master page is sent only to a logged-in Master (a visitor and a user get the small login page; /static/admin.html is 404)",
                 not got, "; ".join(got[:3]) or "nine other spellings of the address tried as well")
+        # The Master's activity record holds the Master's actions only. The two-step set-up answers a user
+        # under a Master address too; until 21 Nov 2026 every such call by a user wrote a line there under the
+        # user's name (200 calls pushed every Master action off the screen). The test account asks for a
+        # set-up (never confirmed, and taken back here) and must leave no line.
+        from .db import AdminLog
+        from sqlalchemy import func as _f
+        db = SessionLocal()
+        try:
+            top = db.query(_f.max(AdminLog.id)).scalar() or 0
+        finally:
+            db.close()
+        c = self._client(ua)
+        try:
+            r = await c.post("/api/admin/2fa/setup")
+        finally:
+            await c.aclose()
+        db = SessionLocal()
+        try:
+            mine = db.query(AdminLog).filter(AdminLog.id > top, AdminLog.admin_id == ua.id).count()
+            u = db.get(User, ua.id)
+            if u is not None and not u.totp_enabled and u.totp_secret:
+                u.totp_secret = ""; db.commit()
+        finally:
+            db.close()
+        if r.status_code == 200:
+            self.ok("a user's call under a Master address leaves no line in the Master's activity record", mine == 0, f"{mine} line(s) under the test account's name")
+        else:
+            self.note("activity record: the test account's two-step set-up was not accepted, nothing to look at", f"HTTP {r.status_code}")
         open_ = []
         c = self._client()
         try:

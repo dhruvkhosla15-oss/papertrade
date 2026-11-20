@@ -512,6 +512,25 @@ class Engine:
             return not self.market_open(p.exchange)
         return not self.tradable_now(ins)
 
+    @staticmethod
+    def _bought_option(p: Position, ins) -> bool:
+        """True for a BOUGHT option. Normally told from the contract. While a market's contract list is not
+        loaded (every night after a restart until the day's price-feed login, and all weekend) the contract
+        is not known, and a bought option was then treated like a future: its running loss, already paid
+        for with the premium, was counted against Available Balance a second time and half its premium was
+        added to the maintenance requirement. An account holding bought NIFTY calls at a loss and a crypto
+        position went from +115,019 to -113,101 Available at a restart and had 843 BTC lots squared off
+        with the charge (found 21 Nov 2026). Then: told from the position's own symbol, as the weekly
+        cut-off already does."""
+        if not p.qty or p.qty < 0:
+            return False
+        if ins is not None:
+            return ins.instrument_type in ("CE", "PE")
+        sym = (p.symbol or "").upper()
+        if p.exchange == "CRYPTO":
+            return sym.startswith(("C-", "P-"))
+        return p.exchange in ("NFO", "BFO", "MCX", "CDS") and sym.endswith(("CE", "PE"))
+
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
                 .order_by(Position.id.desc()).first())
@@ -538,7 +557,7 @@ class Engine:
                 # the option now stands in the books at the week-close price, and it can lose all of that
                 # while only the original premium is blocked. Whatever it loses beyond the blocked premium
                 # counts like any other running loss (for an option never carried this is always zero).
-                if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+                if self._bought_option(p, ins):
                     unreal_m += min(0.0, u + (p.margin_blocked or 0.0))
                 else:
                     unreal_m += u
@@ -565,7 +584,7 @@ class Engine:
         total = 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             ins = self.feed.instruments.get(p.token)
-            if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+            if self._bought_option(p, ins):
                 continue
             if ins and ins.maint_margin_pct:
                 und_tok = self.feed.index_token_for(ins.name)

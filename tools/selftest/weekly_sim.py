@@ -1070,6 +1070,31 @@ feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
 _lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
 ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
 
+# ---- a bought option while its market's contract list is not loaded (21 Nov 2026) --------------------------------
+# After a restart in the night (until the day's price-feed login) and all weekend the NSE / BSE / MCX / Currency
+# contract list is not loaded. A bought option was then treated like a future: its running loss, already paid for
+# with the premium, counted against Available Balance again and half its premium was added to the maintenance
+# requirement, so an account that also held a crypto position had part of it squared off with the charge.
+W20 = W16 + timedelta(days=28)
+at(day(W20, 4, 11)); px(nifty=30000, ce=4300, btc=90000)
+mk_user("nolist2", 1_000_000)
+trade("nolist2", O_CE, "BUY", 1); trade("nolist2", F_BTC, "BUY", 500); trade("nolist2", F_BTC, "BUY", 240)
+at(day(W20, 4, 15, 30)); px(nifty=28500, ce=2900); W.remember_marks(engine, db); db.expire_all()      # the option has lost a third
+_nl = users["nolist2"]
+_nf0 = engine.funds(db, _nl)
+_bq = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=_nl.id, token=F_BTC, is_closed=False))
+_keep_i, _keep_p = feed.instruments.pop(O_CE), feed.prices.pop(O_CE)      # the restart: the contract is unknown, nothing in memory for it
+try:
+    _nf1 = engine.funds(db, _nl)
+    ok("no contract list: a bought option's paid-for loss is not counted against Available Balance a second time",
+       near(_nf1["available"], _nf0["available"], 0.01), f"{_nf0['available']} -> {_nf1['available']}")
+    ok("no contract list: a bought option adds nothing to the maintenance requirement", near(_nf1["maintenance"], _nf0["maintenance"], 0.01),
+       f"{_nf0['maintenance']} -> {_nf1['maintenance']}")
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("no contract list: nothing of the account's crypto position is squared off because of it", _bq() == 740, f"BTC lots {_bq()}")
+finally:
+    feed.instruments[O_CE] = _keep_i; feed.prices[O_CE] = _keep_p
+
 # ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
 # On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
 # offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.

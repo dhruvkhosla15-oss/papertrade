@@ -321,6 +321,29 @@ class Engine:
             return True
         return ((self.feed.prices.get(ins.token) or {}).get("ts") or 0) >= opened + self.OPEN_SETTLE_SECS
 
+    def feed_delivering(self, ins) -> bool:
+        """True when the price in memory for this contract is being delivered right now: its price feed is
+        connected, has not gone silent, and a price has arrived since the contract's streaming last
+        (re)started. False while that feed is down, silent, or has only just come back: what is in memory
+        then is the price from before the outage. Orders placed by users have been refused in that state
+        since 16 Nov 2026; the automatic closes (margin shortfall, margin call, intraday square-off) were
+        not. With the NSE feed down and the real market 3% lower, an account that ran short of margin on
+        its crypto position had a NIFTY lot "squared off" at the price from before the outage, 54,945
+        coins better than any real close, and an intraday position was squared off at that old price at
+        3:30 pm (found 21 Nov 2026). They now wait until prices are arriving again."""
+        return self.feed_up(ins) and bool(self.feed.live(ins.token))
+
+    def feed_up(self, ins) -> bool:
+        """True when the price feed this contract belongs to is connected and has not gone silent."""
+        tok = ins.token
+        cry = getattr(self.feed, "crypto", None)
+        fx = getattr(self.feed, "forex", None)
+        if cry is not None and tok in getattr(cry, "items", {}):
+            return bool(cry.connected) and not getattr(cry, "quiet", lambda: False)()
+        if fx is not None and tok in getattr(fx, "items", {}):
+            return bool(fx.connected) and not getattr(fx, "quiet", lambda: False)()
+        return bool(self.feed.connected)
+
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
@@ -489,6 +512,25 @@ class Engine:
             return not self.market_open(p.exchange)
         return not self.tradable_now(ins)
 
+    @staticmethod
+    def _bought_option(p: Position, ins) -> bool:
+        """True for a BOUGHT option. Normally told from the contract. While a market's contract list is not
+        loaded (every night after a restart until the day's price-feed login, and all weekend) the contract
+        is not known, and a bought option was then treated like a future: its running loss, already paid
+        for with the premium, was counted against Available Balance a second time and half its premium was
+        added to the maintenance requirement. An account holding bought NIFTY calls at a loss and a crypto
+        position went from +115,019 to -113,101 Available at a restart and had 843 BTC lots squared off
+        with the charge (found 21 Nov 2026). Then: told from the position's own symbol, as the weekly
+        cut-off already does."""
+        if not p.qty or p.qty < 0:
+            return False
+        if ins is not None:
+            return ins.instrument_type in ("CE", "PE")
+        sym = (p.symbol or "").upper()
+        if p.exchange == "CRYPTO":
+            return sym.startswith(("C-", "P-"))
+        return p.exchange in ("NFO", "BFO", "MCX", "CDS") and sym.endswith(("CE", "PE"))
+
     def _position(self, db: Session, user_id: int, token: int) -> Optional[Position]:
         return (db.query(Position).filter_by(user_id=user_id, token=token, is_closed=False)
                 .order_by(Position.id.desc()).first())
@@ -515,7 +557,7 @@ class Engine:
                 # the option now stands in the books at the week-close price, and it can lose all of that
                 # while only the original premium is blocked. Whatever it loses beyond the blocked premium
                 # counts like any other running loss (for an option never carried this is always zero).
-                if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+                if self._bought_option(p, ins):
                     unreal_m += min(0.0, u + (p.margin_blocked or 0.0))
                 else:
                     unreal_m += u
@@ -542,7 +584,7 @@ class Engine:
         total = 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False):
             ins = self.feed.instruments.get(p.token)
-            if ins and ins.instrument_type in ("CE", "PE") and p.qty > 0:
+            if self._bought_option(p, ins):
                 continue
             if ins and ins.maint_margin_pct:
                 und_tok = self.feed.index_token_for(ins.name)
@@ -1133,7 +1175,8 @@ class Engine:
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
         ins = self.feed.instruments.get(p.token)
-        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                or not self.feed_delivering(ins):
             return False
         side = "SELL" if p.qty > 0 else "BUY"
         try:
@@ -1395,7 +1438,8 @@ class Engine:
         rows = []
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                    or not self.feed_delivering(ins):
                 continue
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
@@ -1454,7 +1498,8 @@ class Engine:
         closed, detail, charged = 0, [], 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                    or not self.feed_delivering(ins):
                 continue
             side = "SELL" if p.qty > 0 else "BUY"
             try:
@@ -1596,6 +1641,17 @@ class Engine:
                                 self._unsettled_warned.add(p.id)
                                 log.error("cannot settle %s for user %s: contract no longer listed by the feed", p.symbol, p.user_id)
                             continue
+                        if ins is not None and not self.feed_up(ins):
+                            # The contract's price feed is down (or silent) at the moment it expires: every
+                            # price in memory, the underlying's too, is as old as the outage. With the feed
+                            # down since 3:20 pm a NIFTY future and a put were settled at 3:40 pm against the
+                            # index of 3:20 pm while the real close was 2% lower (72,900 coins too much on the
+                            # one, 145,800 too little on the other, found 21 Nov 2026). Wait for the feed: the
+                            # underlying then has to deliver a new price first (see _settle_underlying).
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s yet: its price feed is down", p.symbol, p.user_id)
+                            continue
                         ltp = None
                         is_opt = bool(ins and ins.instrument_type in ("CE", "PE"))
                         is_fut = bool(ins and ins.instrument_type == "FUT")
@@ -1625,11 +1681,19 @@ class Engine:
                             # their offer paid a buyer at the offer the difference, 21 Nov 2026)
                             from .weekly import inside_book as _inside
                             ltp = _inside(self, p, ltp)
+                        if ltp is None and is_opt:
+                            # No price for the underlying, also after the three-minute wait above. The option's
+                            # own last trade is not a settlement price: it can be hours old, and an option that
+                            # expired worthless was paid out at the premium of that morning (5 lots of a crude
+                            # call worth nothing settled at 420: 210,000 coins, found 21 Nov 2026). Wait for
+                            # the underlying, as for a contract whose list is not loaded.
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s yet: no price for its underlying", p.symbol, p.user_id)
+                            continue
                         if ltp is None:
                             ltp = self.feed.ltp(p.token)
                         if ltp is None:
-                            if ins and ins.instrument_type in ("CE", "PE"):
-                                continue  # wait until the underlying price is available
                             ltp = p.avg_price
                         user = db.get(User, p.user_id)
                         realised = (ltp - p.avg_price) * p.qty * self.vf(ins)

@@ -1035,6 +1035,146 @@ if True:
     ok("activity record: no line is built from a password, a two-step secret, a code or a key", _src.count("_note(") >= 30 and not _bad, str(_bad))
     ok("activity record: a line is cut to a fixed length", M._note.__code__.co_consts and 400 in M._note.__code__.co_consts)
 
+# ---- a nonsense dollar-rupee rate from the crypto exchange is not taken (21 Nov 2026) --------------------------
+# A rate message of 0 (or negative, or not a number) was taken as the rate: every crypto contract was then worth
+# nothing in rupees and an order needed no margin at all. The last good rate must stay in use.
+_f3 = PriceFeed(); _cry3 = DeltaCrypto(_f3); _cry3._save_inr = lambda: None
+_rate = lambda v: _cry3._handle({"type": "spot_price", "symbol": _cry3.INR_INDEX, "price": v})
+_rate("94.25")
+ok("crypto rate: an ordinary rate is taken", _cry3.usdinr() == 94.25, str(_cry3.usdinr()))
+for _bad in ("0", "-94", "nan", "inf", "abc", None):
+    _rate(_bad)
+    ok(f"crypto rate: a rate message of {_bad!r} is ignored and the last good rate stays", _cry3.usdinr() == 94.25, str(_cry3.usdinr()))
+_rate("94.5")
+ok("crypto rate: the next ordinary rate is taken again", _cry3.usdinr() == 94.5, str(_cry3.usdinr()))
+
+# ---- the automatic closes wait while a price feed is down or has only just come back (21 Nov 2026) --------------
+# Users' own orders are refused while a feed is down (16 Nov 2026). The automatic square-off, the margin call
+# and the intraday square-off were not: they sold at the price from before the outage, whatever the real
+# market had done in the meantime (a NIFTY lot 54,945 coins better than any real close in the test).
+W16 = W14 + timedelta(days=14)
+at(day(W16, 1, 11)); px(nifty=30000)
+mk_user("outage", 1_000_000)
+trade("outage", F_NIFTY, "BUY", 3)
+_gq = lambda n: sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, token=F_NIFTY, is_closed=False))
+_live0 = feed.live
+try:
+    feed.connected = False                                 # the feed is gone; the last book (30,000) stays in memory
+    coins("outage", -300_000, "coins taken out while the feed is down")      # the account is now short of margin
+    ok("feed down: the account is short of margin", engine.funds(db, users["outage"])["margin_short"])
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: nothing is squared off at the price from before the outage", _gq("outage") == 225, f"qty {_gq('outage')}")
+    feed.connected = True; feed.live = lambda t: False     # connected again, but no new price has arrived yet
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: nor in the instant after the feed is back, before its first new price", _gq("outage") == 225, f"qty {_gq('outage')}")
+    feed.live = _live0; feed.set(F_NIFTY, 29100); feed.set(I_NIFTY, 29100)       # the first new price: the market had fallen 3%
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: with the first new price the shortfall is squared off at that price",
+       0 < _gq("outage") < 225 and _lt.side == "SELL" and near(_lt.price, 29099.95, 0.001), f"qty {_gq('outage')}, {_lt.side} @ {_lt.price}")
+    # the margin call (everything closed) waits in the same way
+    mk_user("outage2", 1_000_000)
+    trade("outage2", F_NIFTY, "BUY", 3)
+    feed.connected = False
+    coins("outage2", -700_000, "coins taken out while the feed is down")
+    _f2 = engine.funds(db, users["outage2"])
+    ok("feed down: the second account is below its maintenance requirement", _f2["equity"] < _f2["maintenance"], str(_f2))
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: a margin call does not close anything at the price from before the outage", _gq("outage2") == 225, f"qty {_gq('outage2')}")
+    feed.connected = True; feed.set(F_NIFTY, 29000); feed.set(I_NIFTY, 29000)
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage2"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: once prices arrive again the margin call closes at the new price", _gq("outage2") == 0 and near(_lt.price, 28999.95, 0.001), f"qty {_gq('outage2')}, @ {_lt.price}")
+    # intraday square-off ten minutes before the close
+    mk_user("outage3", 1_000_000)
+    trade("outage3", F_NIFTY, "BUY", 1, product="MIS")
+    os.environ["PT_SESSION_END"] = "1"
+    feed.connected = False
+    at(day(W16, 1, 15, 31)); run(engine.session_end_pass()); db.expire_all()
+    ok("feed down: the intraday square-off does not sell at the price from before the outage", _gq("outage3") == 75, f"qty {_gq('outage3')}")
+    feed.connected = True; feed.set(F_NIFTY, 28900); feed.set(I_NIFTY, 28900)
+    engine._consumed.clear(); run(engine.session_end_pass()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage3"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: once prices arrive again the intraday position is squared off at the new price", _gq("outage3") == 0 and near(_lt.price, 28899.95, 0.001), f"qty {_gq('outage3')}, @ {_lt.price}")
+finally:
+    feed.connected = True; feed.live = _live0; os.environ.pop("PT_SESSION_END", None)
+
+# ---- an expired option whose underlying has no price is not settled at its own last trade (21 Nov 2026) --------
+# After the three-minute wait for the underlying, an option fell back to its own last traded price: 5 lots of a
+# crude call that expired worthless were paid out at the premium of that morning (420 a unit, 210,000 coins).
+O_NOUND = 41
+_xday = day(W16, 2, 12)
+feed.instruments[O_NOUND] = Instrument(O_NOUND, "CRUDEOIL27FEB6000CE", "CRUDEOIL", "MCX", "MCX-OPT", "CE", _xday.date().isoformat(), 6000, 100, 0.1)
+at(_xday); feed.set(F_CRUDE, 5900); feed.set(O_NOUND, 40.0)
+mk_user("nound", 1_000_000)
+trade("nound", O_NOUND, "BUY", 5)
+at(day(W16, 2, 23, 50)); feed.set(O_NOUND, 3.0); feed.prices[O_NOUND]["ltp"] = 420.0     # worth 3 now; the last trade is from the morning
+_crude_px = feed.prices.pop(F_CRUDE)                       # nothing in memory for the underlying future (restart, feed not delivering it)
+_nq = lambda: db.query(Position).filter_by(user_id=users["nound"].id, token=O_NOUND, is_closed=False).count()
+try:
+    at(day(W16, 2, 23, 58)); run(engine._settle_expired()); db.expire_all()
+    ok("no underlying price: an expired option first waits for its underlying", _nq() == 1)
+    engine._und_wait[F_CRUDE] = time.time() - 200          # three minutes later there is still no price for it
+    run(engine._settle_expired()); db.expire_all()
+    ok("no underlying price: after the wait it is NOT settled at its own old last trade", _nq() == 1,
+       "settled @ " + str(getattr(db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first(), "price", None)))
+finally:
+    feed.prices[F_CRUDE] = _crude_px
+feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
+ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
+
+# ---- a contract that expires while its price feed is down waits for the feed (21 Nov 2026) ----------------------
+# With the feed down since 3:20 pm a NIFTY future was settled at 3:40 pm against the index of 3:20 pm, although
+# the real close was 2% lower. It now waits until the feed is back and has delivered the underlying's price.
+F_DOWN_X = 42
+_dday = day(W16, 3, 12)
+feed.instruments[F_DOWN_X] = Instrument(F_DOWN_X, "NIFTY27FEBFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", _dday.date().isoformat(), 0, 75, 0.05)
+at(_dday); feed.set(I_NIFTY, 29000); feed.set(F_DOWN_X, 29010)
+mk_user("expdown", 1_000_000)
+trade("expdown", F_DOWN_X, "BUY", 1)
+_dq = lambda: db.query(Position).filter_by(user_id=users["expdown"].id, token=F_DOWN_X, is_closed=False).count()
+at(day(W16, 3, 15, 20)); feed.set(I_NIFTY, 29000); feed.set(F_DOWN_X, 29010); W.remember_marks(engine, db)
+feed.connected = False                                     # the feed drops; the index really closes at 28,420
+try:
+    at(day(W16, 3, 15, 41)); run(engine._settle_expired()); db.expire_all()
+    ok("feed down at expiry: the contract is not settled at the price from before the outage", _dq() == 1,
+       "settled @ " + str(getattr(db.query(Trade).filter_by(user_id=users["expdown"].id).order_by(Trade.id.desc()).first(), "price", None)))
+finally:
+    feed.connected = True
+feed.set(I_NIFTY, 28420); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=users["expdown"].id).order_by(Trade.id.desc()).first()
+ok("feed down at expiry: once the feed is back it settles at the underlying's price delivered then", _dq() == 0 and near(_lt.price, 28420, 0.001), f"open {_dq()}, @ {_lt.price}")
+
+# ---- a bought option while its market's contract list is not loaded (21 Nov 2026) --------------------------------
+# After a restart in the night (until the day's price-feed login) and all weekend the NSE / BSE / MCX / Currency
+# contract list is not loaded. A bought option was then treated like a future: its running loss, already paid for
+# with the premium, counted against Available Balance again and half its premium was added to the maintenance
+# requirement, so an account that also held a crypto position had part of it squared off with the charge.
+W20 = W16 + timedelta(days=28)
+at(day(W20, 4, 11)); px(nifty=30000, ce=4300, btc=90000)
+mk_user("nolist2", 1_000_000)
+trade("nolist2", O_CE, "BUY", 1); trade("nolist2", F_BTC, "BUY", 500); trade("nolist2", F_BTC, "BUY", 240)
+at(day(W20, 4, 15, 30)); px(nifty=28500, ce=2900); W.remember_marks(engine, db); db.expire_all()      # the option has lost a third
+_nl = users["nolist2"]
+_nf0 = engine.funds(db, _nl)
+_bq = lambda: sum(p.qty for p in db.query(Position).filter_by(user_id=_nl.id, token=F_BTC, is_closed=False))
+_keep_i, _keep_p = feed.instruments.pop(O_CE), feed.prices.pop(O_CE)      # the restart: the contract is unknown, nothing in memory for it
+try:
+    _nf1 = engine.funds(db, _nl)
+    ok("no contract list: a bought option's paid-for loss is not counted against Available Balance a second time",
+       near(_nf1["available"], _nf0["available"], 0.01), f"{_nf0['available']} -> {_nf1['available']}")
+    ok("no contract list: a bought option adds nothing to the maintenance requirement", near(_nf1["maintenance"], _nf0["maintenance"], 0.01),
+       f"{_nf0['maintenance']} -> {_nf1['maintenance']}")
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("no contract list: nothing of the account's crypto position is squared off because of it", _bq() == 740, f"BTC lots {_bq()}")
+    # Shadow Book: the mirrored position showed "0 lots" while the contract list was not loaded
+    _sh = M.admin_shadow(None, None, users["master"], db)
+    _sp = next((x for x in _sh["positions"] if x["user"] == _nl.display_name and x["symbol"] == _keep_i.symbol), None)
+    ok("no contract list: the Shadow Book still shows the lots of a mirrored position", _sp is not None and _sp["lots"] == 1 and _sp["qty"] == 75, str(_sp))
+finally:
+    feed.instruments[O_CE] = _keep_i; feed.prices[O_CE] = _keep_p
+
 # ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
 # On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
 # offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.

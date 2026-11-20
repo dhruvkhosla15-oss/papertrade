@@ -1110,6 +1110,19 @@ try:
     _f, _c = _bk_round()
     ok("backup: after it the next round writes a good backup, and that one is sent off-server", _f is not None and _c.get("ok") is True and _WD.check_backup(_f, M._db_file())["ok"]
        and _bk_sent == [(_f.name, True)] and len(_bk_told) == 1, f"{_f} {_c} {_bk_sent}")
+    # the copy made for the Master's "Download backup" is removed once it has been sent (it used to stay in the
+    # server's temporary folder, a full unencrypted copy per download)
+    _td, tempfile.tempdir = tempfile.tempdir, TMP          # this script's own folder (other copies on this machine use the shared one)
+    _old = M.Path(tempfile.gettempdir()) / "limefx-backup-2000-01-01-0000.db"; _old.write_bytes(b"x"); os.utime(_old, (time.time() - 3600,) * 2)
+    _resp = M.admin_backup(admin=None)
+    _p = M.Path(_resp.path)
+    _whole = _p.exists() and _WD.check_backup(_p, M._db_file())["ok"]
+    if _resp.background is not None:
+        run(_resp.background())
+    ok("backup: the Master's download is a whole copy, and the server's own copy of it is removed after sending", _whole and not _p.exists(), f"whole {_whole}, still there {_p.exists()}")
+    ok("backup: a copy left behind by an earlier, broken download is removed at the next one", not _old.exists())
+    _old.unlink(missing_ok=True); _p.unlink(missing_ok=True)
+    tempfile.tempdir = _td
     # pruning: fourteen kept, always the newest ones
     for _i in range(1, 21):
         _bk_keep[0](_bk_dir / f"limefx-2026-10-{_i:02d}.db")

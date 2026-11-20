@@ -2357,8 +2357,19 @@ def admin_backup(admin: User = Depends(current_admin)):
     import tempfile
     name = f"limefx-backup-{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d-%H%M}.db"
     tmp = Path(tempfile.gettempdir()) / name
+    # the copy made for the download is removed once it has been sent (before 21 Nov 2026 every download left a
+    # full, unencrypted copy of the books in the server's temporary folder); one left by a broken download goes
+    # with the next
+    for old in Path(tempfile.gettempdir()).glob("limefx-backup-*.db"):
+        try:
+            if old != tmp and time.time() - old.stat().st_mtime > 600:
+                old.unlink()
+        except OSError:
+            pass
     _backup_to(tmp)
-    return FileResponse(tmp, filename=name, media_type="application/octet-stream", headers=_NOCACHE)
+    from starlette.background import BackgroundTask
+    return FileResponse(tmp, filename=name, media_type="application/octet-stream", headers=_NOCACHE,
+                        background=BackgroundTask(tmp.unlink, missing_ok=True))
 
 
 @app.get("/api/admin/backups")

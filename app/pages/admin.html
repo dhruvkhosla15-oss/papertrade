@@ -431,7 +431,7 @@ $('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';try{const j=await
   if(j.needs_2fa){preTok=j.pre_token;$('#pwStep').classList.add('hidden');$('#otpStep').classList.remove('hidden');$('#lcode').value='';$('#lcode').focus();return;}
   if(!j.is_admin){await api('/logout',{method:'POST'});$('#loginErr').textContent='This login is for the master only. Users use the main site.';return;}boot();}catch(e){$('#loginErr').textContent=e.message;}};
 $('#otpBtn').onclick=async()=>{$('#loginErr').textContent='';try{await api('/login/2fa',{method:'POST',body:{pre_token:preTok,code:$('#lcode').value}});boot();}catch(e){$('#loginErr').textContent=e.message;}};
-$('#otpBack').onclick=()=>{$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
+$('#otpBack').onclick=()=>{$('#loginErr').textContent='';$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});$('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click()});
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 

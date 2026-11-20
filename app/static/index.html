@@ -655,6 +655,10 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   loadWatch();
   refreshAll();
   setInterval(refreshFunds,5000);
+/* A position whose market is shut shows the closing-price figure the server works out (the same one as Available Balance, the Master's screen and the Excel files); quotes that still arrive after the close used to move its card and the Unrealised figure above it. While such a position is held the list is read again every few seconds, so it goes live the moment its market reopens. */
+async function shutPoll(){if(document.hidden||!state.positions||!state.positions.some(p=>p.at_close))return;try{const l=await api('/positions');
+  if(l.length!==state.positions.length||l.some(n=>{const o=state.positions.find(x=>x.id===n.id);return !o||o.at_close!==n.at_close||o.qty!==n.qty||(n.at_close&&o.unrealised!==n.unrealised);})){state.positions=l;renderPositions();sub(l.map(p=>p.token));}}catch(e){}}
+setInterval(shutPoll,5000);
   if(me.week_warning){window._wkWarn=1;showAlerts([me.week_warning].concat((me.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))),(me.alerts||[]).filter(a=>/margin shortfall/i.test(a.title||'')));}else showAlerts(me.alerts);   /* a waiting pop-up shows as the app opens, not five seconds later in the middle of a tap */
 }
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
@@ -823,7 +827,8 @@ function onPrices(ticks){
   }
   // live P&L on positions
   let unreal=0,touched=false;
-  for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
+  for(const p of state.positions){if(p.at_close){unreal+=p.unrealised||0;touched=true;continue;}   /* market shut: the closing-price figure the server gave stays, whatever quotes still arrive (see shutPoll) */
+    const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty*(p.value_factor||1);unreal+=u;
     const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(u/state.usdinr):fmt2(u));l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);

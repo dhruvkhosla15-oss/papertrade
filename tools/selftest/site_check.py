@@ -106,6 +106,32 @@ def accounts_block(br, actx, uctx, ok, near):
        bool(p) and bool(opened) and opened["open"] and opened["side"] == side and opened["type"] == "SL" and opened["lots"] == p["lots"] and opened["hint"]
        and bool(got.get("sheet", {}).get("body")) and got["sheet"]["body"] == got.get("ticket", {}).get("body") and got["sheet"]["resting"] == 1 and got["ticket"]["resting"] == 1
        and near(got["sheet"]["reserved"], got["ticket"]["reserved"], 0.011), f"position {p}, sheet {opened}, orders {str(got)[:240]}")
+    # ---- faults of 21 Nov 2026 (each check belongs to a fix of that night) ----
+    # The card of a position whose market is shut shows the closing-price figure the server gives (as Available
+    # Balance, the Master's screen and Excel do). Quotes that still arrived after the close moved the card and the
+    # Unrealised figure above it. The server's answer is stood in for, so no market has to be shut for the check.
+    page.evaluate("showTab('positions')"); page.wait_for_timeout(1500)
+    q = page.evaluate("""(async () => { const real = window.api; const l = await real('/positions'); const p = l.find(x => x.qty && !['CRYPTO', 'FOREX'].includes(x.exchange)); if (!p) return null;
+        window.__realApi = real; window.api = async (u, ...r) => { const x = await real(u, ...r); if (u === '/positions') { const y = x.find(z => z.id === p.id); if (y) { y.at_close = true; y.unrealised = 1234.5; } } return x; };
+        await refreshAll(); return {id: p.id, token: p.token, ltp: (state.prices[p.token] || {}).ltp}; })()""")
+    held = moved = None; ticks = 0
+    if q:
+        for _ in range(24):          # until at least two new quotes have come in for the contract
+            page.wait_for_timeout(500)
+            now = page.evaluate("(t) => (state.prices[t] || {}).ltp", q["token"])
+            if now != q["ltp"]:
+                ticks += 1; q["ltp"] = now
+            if ticks >= 2:
+                break
+        held = page.evaluate("(id) => (document.getElementById('pl' + id) || {}).textContent", q["id"])
+        page.evaluate("() => { window.api = window.__realApi; }")
+        for _ in range(30):          # the market "reopens": within a few seconds the card follows the quotes again
+            page.wait_for_timeout(500)
+            moved = page.evaluate("(id) => (document.getElementById('pl' + id) || {}).textContent", q["id"])
+            if moved != held:
+                break
+    ok("User: the card of a position whose market is shut keeps the closing-price figure while quotes still arrive, and follows the quotes again when the market reopens",
+       bool(q) and ticks >= 2 and held == "+1,234.50" and moved not in (None, held), f"{ticks} new quotes, card while shut {held!r}, after reopening {moved!r}")
     ctx.close()
 
 

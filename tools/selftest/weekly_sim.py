@@ -1083,6 +1083,28 @@ feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
 _lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
 ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
 
+# ---- a contract that expires while its price feed is down waits for the feed (21 Nov 2026) ----------------------
+# With the feed down since 3:20 pm a NIFTY future was settled at 3:40 pm against the index of 3:20 pm, although
+# the real close was 2% lower. It now waits until the feed is back and has delivered the underlying's price.
+F_DOWN_X = 42
+_dday = day(W16, 3, 12)
+feed.instruments[F_DOWN_X] = Instrument(F_DOWN_X, "NIFTY27FEBFUT", "NIFTY", "NFO", "NFO-FUT", "FUT", _dday.date().isoformat(), 0, 75, 0.05)
+at(_dday); feed.set(I_NIFTY, 29000); feed.set(F_DOWN_X, 29010)
+mk_user("expdown", 1_000_000)
+trade("expdown", F_DOWN_X, "BUY", 1)
+_dq = lambda: db.query(Position).filter_by(user_id=users["expdown"].id, token=F_DOWN_X, is_closed=False).count()
+at(day(W16, 3, 15, 20)); feed.set(I_NIFTY, 29000); feed.set(F_DOWN_X, 29010); W.remember_marks(engine, db)
+feed.connected = False                                     # the feed drops; the index really closes at 28,420
+try:
+    at(day(W16, 3, 15, 41)); run(engine._settle_expired()); db.expire_all()
+    ok("feed down at expiry: the contract is not settled at the price from before the outage", _dq() == 1,
+       "settled @ " + str(getattr(db.query(Trade).filter_by(user_id=users["expdown"].id).order_by(Trade.id.desc()).first(), "price", None)))
+finally:
+    feed.connected = True
+feed.set(I_NIFTY, 28420); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=users["expdown"].id).order_by(Trade.id.desc()).first()
+ok("feed down at expiry: once the feed is back it settles at the underlying's price delivered then", _dq() == 0 and near(_lt.price, 28420, 0.001), f"open {_dq()}, @ {_lt.price}")
+
 # ---- a bought option while its market's contract list is not loaded (21 Nov 2026) --------------------------------
 # After a restart in the night (until the day's price-feed login) and all weekend the NSE / BSE / MCX / Currency
 # contract list is not loaded. A bought option was then treated like a future: its running loss, already paid for

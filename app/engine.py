@@ -331,18 +331,18 @@ class Engine:
         its crypto position had a NIFTY lot "squared off" at the price from before the outage, 54,945
         coins better than any real close, and an intraday position was squared off at that old price at
         3:30 pm (found 21 Nov 2026). They now wait until prices are arriving again."""
+        return self.feed_up(ins) and bool(self.feed.live(ins.token))
+
+    def feed_up(self, ins) -> bool:
+        """True when the price feed this contract belongs to is connected and has not gone silent."""
         tok = ins.token
         cry = getattr(self.feed, "crypto", None)
         fx = getattr(self.feed, "forex", None)
         if cry is not None and tok in getattr(cry, "items", {}):
-            if not cry.connected or getattr(cry, "quiet", lambda: False)():
-                return False
-        elif fx is not None and tok in getattr(fx, "items", {}):
-            if not fx.connected or getattr(fx, "quiet", lambda: False)():
-                return False
-        elif not self.feed.connected:
-            return False
-        return bool(self.feed.live(tok))
+            return bool(cry.connected) and not getattr(cry, "quiet", lambda: False)()
+        if fx is not None and tok in getattr(fx, "items", {}):
+            return bool(fx.connected) and not getattr(fx, "quiet", lambda: False)()
+        return bool(self.feed.connected)
 
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
@@ -1637,6 +1637,17 @@ class Engine:
                             if p.id not in self._unsettled_warned:
                                 self._unsettled_warned.add(p.id)
                                 log.error("cannot settle %s for user %s: contract no longer listed by the feed", p.symbol, p.user_id)
+                            continue
+                        if ins is not None and not self.feed_up(ins):
+                            # The contract's price feed is down (or silent) at the moment it expires: every
+                            # price in memory, the underlying's too, is as old as the outage. With the feed
+                            # down since 3:20 pm a NIFTY future and a put were settled at 3:40 pm against the
+                            # index of 3:20 pm while the real close was 2% lower (72,900 coins too much on the
+                            # one, 145,800 too little on the other, found 21 Nov 2026). Wait for the feed: the
+                            # underlying then has to deliver a new price first (see _settle_underlying).
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s yet: its price feed is down", p.symbol, p.user_id)
                             continue
                         ltp = None
                         is_opt = bool(ins and ins.instrument_type in ("CE", "PE"))

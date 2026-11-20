@@ -2201,6 +2201,9 @@ async def backup_loop():
                         log.error("daily backup did not pass its check: %s", chk["why"])
                         await asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
                             f"⚠️ limefx: today's backup ({today.name}) did not pass its check: {chk['why']}. The books themselves are not affected; tell Claude.")
+                        # as above: set the damaged file aside so that the next round writes a fresh one. Before 21 Nov 2026
+                        # a file left half-written by a restart stayed as the day's backup, and was sent off-server as it was.
+                        today.rename(today.with_suffix(".bad"))
                 for old in sorted(d.glob("limefx-*.db"))[:-14]:
                     old.unlink(missing_ok=True)
                 if _tg_ready() and today.exists() and _tg_state().get("sent") != today.name:

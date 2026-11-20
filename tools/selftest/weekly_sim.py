@@ -1058,6 +1058,68 @@ try:
 finally:
     _WD._err_file = _wd_file; _WD._errors.clear(); _WD._errors.extend(_wd_err)
 
+# ---- the daily backup that does not pass its check (alarm "backup bad"; Technology officer, 21 Nov 2026) ----
+# One round of the real backup job at a time, on this script's own database. The owner is told once per damaged
+# file, the damaged file is set aside and the next round writes a good one. Also when the damaged file was
+# already there at the start (the site restarted while the backup was being written): before 21 Nov 2026 that
+# file stayed as the day's backup and was sent off-server as it was.
+_bk_dir = M.config.DATA_DIR / "backups"
+_bk_keep = (M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram, M.get_setting_safe("backup_check"))
+_bk_told, _bk_sent = [], []
+try:
+    import json as _json
+    for _x in (_bk_dir.glob("limefx-*") if _bk_dir.exists() else []):
+        _x.unlink()
+    _PB._telegram = lambda _m: (_bk_told.append(_m), "")[1]
+    M._tg_ready = lambda: False
+
+    def _bk_round():
+        async def _one():
+            try:
+                await asyncio.wait_for(M.backup_loop(), timeout=3)
+            except asyncio.TimeoutError:
+                pass
+        run(_one())
+        _f = sorted(_bk_dir.glob("limefx-*.db"))
+        return _f[-1] if _f else None, _json.loads(M.get_setting_safe("backup_check") or "{}")
+
+    _f, _c = _bk_round()
+    ok("backup: a healthy round writes today's backup, opens it and tells nobody", _f is not None and _c.get("ok") is True and _c.get("file") == _f.name and not _bk_told, f"{_f} {_c}")
+    _today = _f
+    _tabs = lambda _p: {r[0]: r[1] for r in __import__("sqlite3").connect(str(_p)).execute(
+        "select name, (select count(*) from pragma_table_info(name)) from sqlite_master where type='table'")}
+    ok("backup: the backup holds every table of the books", _tabs(_today) == _tabs(M._db_file()) and len(_tabs(_today)) >= 11, str(sorted(_tabs(_today))))
+    _today.unlink()
+    M._backup_to = lambda _dest: open(_dest, "wb").write(b"SQLite format 3\x00" + os.urandom(4000))
+    _f, _c = _bk_round()
+    ok("backup: a backup that is damaged when written is reported to the owner, once", len(_bk_told) == 1 and "did not pass its check" in _bk_told[0] and _c.get("ok") is False, f"{len(_bk_told)} {_c}")
+    ok("backup: the damaged file is set aside, not kept as today's backup", _f is None and _today.with_suffix(".bad").exists(), str(_f))
+    ok("backup: Site health shows the failed check", M._health()["backup"]["check"].get("ok") is False)
+    M._backup_to = _bk_keep[0]
+    _f, _c = _bk_round()
+    ok("backup: the next round writes a good one", _f is not None and _c.get("ok") is True and _WD.check_backup(_f, M._db_file())["ok"] and len(_bk_told) == 1, f"{_f} {_c}")
+    # the site was restarted while the backup was being written: today's file is there, cut short, and no check of it is on record
+    _bk_keep[0](_today); open(_today, "r+b").truncate(os.path.getsize(_today) // 2)
+    M.set_setting_safe("backup_check", _json.dumps({"file": "limefx-2000-01-01.db", "ok": True}))
+    M._tg_ready = lambda: True; M._tg_state = lambda: ({"sent": _bk_sent[-1][0]} if _bk_sent else {})
+    M._tg_send = lambda _snap, daily=True: (_bk_sent.append((_snap.name, _WD.check_backup(_snap, M._db_file())["ok"])), {})[1]
+    _bk_told.clear()
+    _f, _c = _bk_round()
+    ok("backup: a file left half-written by a restart is reported and set aside", len(_bk_told) == 1 and _c.get("ok") is False and _f is None, f"told {len(_bk_told)} {_c} {_f}")
+    ok("backup: a damaged file is never sent off-server", not _bk_sent, str(_bk_sent))
+    _f, _c = _bk_round()
+    ok("backup: after it the next round writes a good backup, and that one is sent off-server", _f is not None and _c.get("ok") is True and _WD.check_backup(_f, M._db_file())["ok"]
+       and _bk_sent == [(_f.name, True)] and len(_bk_told) == 1, f"{_f} {_c} {_bk_sent}")
+    # pruning: fourteen kept, always the newest ones
+    for _i in range(1, 21):
+        _bk_keep[0](_bk_dir / f"limefx-2026-10-{_i:02d}.db")
+    _f, _c = _bk_round()
+    _left = sorted(x.name for x in _bk_dir.glob("limefx-*.db"))
+    ok("backup: old backups are pruned to fourteen, the newest always kept", len(_left) == 14 and _left[-1] == _today.name and _left[0] == "limefx-2026-10-08.db", str(_left))
+finally:
+    M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram = _bk_keep[:5]
+    M.set_setting_safe("backup_check", _bk_keep[5])
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

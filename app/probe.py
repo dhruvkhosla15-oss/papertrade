@@ -1707,7 +1707,7 @@ class Probe:
                     self.ok("the Master's all-users Excel builds with every sheet", all(n in wb.sheetnames for n in need), ", ".join(wb.sheetnames))
                     for nm in ("index.html", "admin.html"):
                         import os as _os
-                        fp = _os.path.join(_os.path.dirname(_os.path.abspath(M.__file__)), "static", nm)
+                        fp = _os.path.join(_os.path.dirname(_os.path.abspath(M.__file__)), "pages" if nm == "admin.html" else "static", nm)
                         txt = open(fp, encoding="utf-8").read() if _os.path.exists(fp) else ""
                         self.ok(f"the {'user app' if nm == 'index.html' else 'Master page'} is in place and complete", len(txt) > 50000 and txt.rstrip().endswith("</html>"), f"{len(txt)} characters")
             except Exception as e:

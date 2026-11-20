@@ -14,7 +14,7 @@ with those coins and see their profit/loss. No real money moves anywhere.
 | `app/feed/kite.py` | Live Zerodha Kite Connect feed (WebSocket ticks + daily instrument download) |
 | `app/feed/mock.py` | Simulated feed for trying the app without a Zerodha login |
 | `app/static/index.html` | Trainee app — watchlist, option chain, futures, charts, market depth, order ticket, positions, orders, ledger (mobile-first) |
-| `app/static/admin.html` | Master panel — create trainees, add/remove coins, watch every position, square off, freeze |
+| `app/pages/admin.html` | Master panel — create trainees, add/remove coins, watch every position, square off, freeze |
 
 ## Rules the engine follows
 

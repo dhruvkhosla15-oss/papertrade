@@ -181,6 +181,23 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 .maintbar{display:flex;align-items:center;gap:9px;padding:8px 12px;font-size:12.5px;line-height:1.35;background:rgba(245,158,11,.14);border-bottom:1px solid rgba(245,158,11,.5);color:#fcd34d}.maintbar b{color:#fde68a}.maintbar.now{background:rgba(239,68,68,.16);border-bottom-color:rgba(239,68,68,.5);color:#fca5a5}.maintbar.now b{color:#fecaca}.maintbar.hidden{display:none}
 :root[data-theme="light"] .maintbar{color:#92400e}:root[data-theme="light"] .maintbar b{color:#78350f}:root[data-theme="light"] .maintbar.now{color:#991b1b}:root[data-theme="light"] .maintbar.now b{color:#7f1d1d}
 .mpop{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px}.mpop .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:360px;width:100%}
+
+/* Order Book on a phone: each order is a small card, so Status and Cancel are always on the screen (owner's request, 20 Nov 2026). Wider screens keep the table. */
+@media(max-width:640px){
+#ordTbl,#ordTbl tbody{display:block;width:100%}#ordTbl thead{display:none}
+#ordTbl tr{display:grid;grid-template-columns:auto auto 1fr auto;gap:4px 10px;align-items:center;padding:11px 12px;border-top:1px solid var(--line)}
+#ordTbl tbody tr:first-child{border-top:0}
+#ordTbl td{display:block;padding:0;border:0;white-space:normal;text-align:left;min-width:0;overflow-wrap:anywhere}
+#ordTbl td:nth-child(1){grid-column:1/4;grid-row:1}
+#ordTbl td:nth-child(7){grid-column:4;grid-row:1;text-align:right}
+#ordTbl td:nth-child(2){grid-column:1;grid-row:2;font-weight:700}
+#ordTbl td:nth-child(3){grid-column:2;grid-row:2}
+#ordTbl td:nth-child(4){grid-column:3;grid-row:2}
+#ordTbl td:nth-child(5){grid-column:4;grid-row:2;text-align:right}
+#ordTbl td:nth-child(6){grid-column:1/-1;grid-row:3}
+#ordTbl td[colspan]{grid-column:1/-1;grid-row:auto}
+#ordTbl tr:has(td[colspan]){padding-top:0;border-top:0}
+}
 </style>
 </head>
 <body>

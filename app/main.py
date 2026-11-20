@@ -465,8 +465,17 @@ async def service_worker():
 
 
 @app.get("/admin")
-def admin_page():
-    return FileResponse(STATIC / "admin.html", headers=_NOCACHE)
+def admin_page(request: Request, db: Session = Depends(get_db)):
+    """The Master page is sent only to a logged-in Master (owner's decision, 20 Nov 2026). Anyone else, a
+    visitor or an ordinary user, gets a small page that holds nothing but the login: no Master code and no
+    names of anything behind the site."""
+    try:
+        u = current_user(request, db)
+    except HTTPException:
+        u = None
+    if u is None or not u.is_admin:
+        return FileResponse(STATIC / "admin_login.html", headers=_NOCACHE)
+    return FileResponse(STATIC.parent / "pages" / "admin.html", headers=_NOCACHE)   # kept outside /static, which is open to everybody
 
 
 # ---- auth -------------------------------------------------------------------------

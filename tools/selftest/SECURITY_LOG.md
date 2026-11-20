@@ -1194,3 +1194,18 @@ The health page lost the day's errors at every restart. Errors are now also writ
 - STILL OPEN for the UI officer (from the 19 Nov live audit): at laptop size the Master's Users, Live Positions and
   Performance tables are wider than their box, so the last column needs a sideways scroll. Fit the columns at
   1280 / 1440 / 1728 wide and add a site_check for it.
+
+## Owner's decisions, 20 Nov 2026
+- Nobody holds a position above 50x (live audit, 20 Nov), so there is nothing to ask users to close. Closed.
+- A shorter Monday-noon grace for Crypto: NOT decided. Leave as it is; do not raise again unless he asks.
+- The Master page is sent only to a logged-in Master. The file now lives in app/pages/admin.html (NOT under
+  app/static, which is open to everybody). /admin gives anyone else app/static/admin_login.html, which holds
+  nothing but the login (no Master code, no provider names). Never move admin.html back under static.
+- Order Book on a phone (640 px and narrower): each order is a small card, so Status and Cancel are always on
+  the screen. Wider screens keep the table.
+
+## 21 Nov 2026 (early morning, owner's requests)
+Live: Stop-loss / Target button and the fuller Master activity record (held from the night before); the Master
+page behind the login; the Order Book cards on a phone. NEED checks added by the officers: /admin without a login
+or with a user's login returns the small login page (no "api/admin", no provider names) and /static/admin.html
+is 404; on a 360 and 412 wide screen no status pill or Cancel button of the Order Book is off the screen.

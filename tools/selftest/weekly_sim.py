@@ -994,6 +994,25 @@ try:
 finally:
     time.time = _rt
 
+# ---- Master activity record (21 Nov 2026): every Master address that changes something says what it did ----
+# Looked at the way each address is built, without calling it: a new changing address added without its line
+# of plain words for the activity record (main._note) fails here on the day it is written.
+if True:
+    import inspect as _insp
+    _silent = []; _n = 0
+    for _r in M.app.routes:
+        _path, _meth = getattr(_r, "path", ""), (getattr(_r, "methods", None) or set())
+        if not _path.startswith("/api/admin") or not (_meth - {"GET", "HEAD", "OPTIONS"}):
+            continue
+        _n += 1
+        if "_note(" not in _insp.getsource(_r.endpoint):
+            _silent.append(f"{sorted(_meth)[0]} {_path}")
+    ok("activity record: every Master address that changes something says what it did", _n >= 30 and not _silent, f"{_n} addresses; silent: {_silent[:6]}")
+    _src = "\n".join(_l for _l in _insp.getsource(M).splitlines() if "_note(" in _l and "def _note" not in _l)
+    _bad = [_w for _w in ("body.password", "password_hash", "totp_secret", "{secret", "body.token", "refresh_token", "body.code", "pre_token", "{tok", "{t}", "SECRET", "_tg_cfg") if _w in _src]
+    ok("activity record: no line is built from a password, a two-step secret, a code or a key", _src.count("_note(") >= 30 and not _bad, str(_bad))
+    ok("activity record: a line is cut to a fixed length", M._note.__code__.co_consts and 400 in M._note.__code__.co_consts)
+
 # ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
 # On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
 # offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.

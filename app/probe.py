@@ -1644,10 +1644,14 @@ class Probe:
                         f"filled {o1['fill_price']}, asks {min(seen)}–{max(seen)}")
             st, o2, d2 = await self._order(ca, token=ins.token, side="BUY", lots=want)
             q2 = o2.get("qty", 0) if (st == 200 and o2.get("status") == "FILLED") else 0
-            if want > depth_lots and q1 and [tuple(a[:2]) for a in asks2] == [tuple(a[:2]) for a in asks]:
+            # the book must also be the same right AFTER the second order: a tick that lands between the two
+            # orders brings new sellers, and filling against those is not "the same sellers" (seen once on the
+            # private copy, 21 Nov 2026: 98 lots of a fresh book)
+            asks3 = (self.feed.prices.get(ins.token) or {}).get("asks") or []
+            if want > depth_lots and q1 and [tuple(a[:2]) for a in asks2] == [tuple(a[:2]) for a in asks] == [tuple(a[:2]) for a in asks3]:
                 self.ok("the same sellers cannot be taken twice (repeat order gets nothing)", q2 == 0, f"second order filled {q2 // ins.lot_size} lots" if q2 else d2)
             elif q1:
-                self.ok("two back-to-back orders together stay within what was offered", q1 + q2 <= depth + sum(a[1] for a in asks2) + 1e-6,
+                self.ok("two back-to-back orders together stay within what was offered", q1 + q2 <= depth + max(sum(a[1] for a in asks2), sum(a[1] for a in asks3)) + 1e-6,
                         f"{(q1 + q2) // ins.lot_size} lots filled")
             for _ in range(3):
                 await self._flatten(ca)

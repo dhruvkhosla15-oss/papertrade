@@ -1896,7 +1896,10 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                 if mk is None and up is not None: mk = up.last_mark
             u = (mk - pos["avg"]) * pos["qty"] * pos["vf"] if mk is not None else 0.0
             r = row(uid); r["unrealised"] += u
-            ins = feed.instruments.get(token); lot = ins.lot_size if ins else 0
+            ins = feed.instruments.get(token)
+            # contract list not loaded (after a restart, until the day's price-feed login): the lot size the position itself keeps;
+            # the mirrored positions used to show "0 lots" all night and all weekend (found 21 Nov 2026)
+            lot = ins.lot_size if ins else (up.lot_size if up is not None else 0)
             positions.append({"user": r["user"], "symbol": pos["symbol"], "exchange": pos["exchange"], "our_side": "BUY" if pos["qty"] > 0 else "SELL",
                               "lots": abs(pos["qty"]) // lot if lot else 0, "qty": abs(pos["qty"]), "avg_price": round(pos["avg"], 4),
                               "ltp": mk, "unrealised": round(u, 2)})

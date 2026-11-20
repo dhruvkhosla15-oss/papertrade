@@ -1092,6 +1092,10 @@ try:
        f"{_nf0['maintenance']} -> {_nf1['maintenance']}")
     engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
     ok("no contract list: nothing of the account's crypto position is squared off because of it", _bq() == 740, f"BTC lots {_bq()}")
+    # Shadow Book: the mirrored position showed "0 lots" while the contract list was not loaded
+    _sh = M.admin_shadow(None, None, users["master"], db)
+    _sp = next((x for x in _sh["positions"] if x["user"] == _nl.display_name and x["symbol"] == _keep_i.symbol), None)
+    ok("no contract list: the Shadow Book still shows the lots of a mirrored position", _sp is not None and _sp["lots"] == 1 and _sp["qty"] == 75, str(_sp))
 finally:
     feed.instruments[O_CE] = _keep_i; feed.prices[O_CE] = _keep_p
 

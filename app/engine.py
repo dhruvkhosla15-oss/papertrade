@@ -740,7 +740,10 @@ class Engine:
             ref_price = limit_price if order_type == "LIMIT" else ltp
             need = self._opening_margin(db, user, ins, side, qty, ref_price, leverage)
             f = self.funds(db, user)
-            if need > f["available"] + 1e-6:
+            # (an order that only closes what is held needs nothing: it is taken also while Available Balance is
+            # below zero. Until 21 Nov 2026 a stop-loss or target for one's own position was refused then with
+            # "Insufficient coins: need ₹0.00", just when the position most needed its stop.)
+            if need > 1e-6 and need > f["available"] + 1e-6:
                 order.status = "REJECTED"; order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{f['available']:,.2f}"
             else:
                 order.margin_blocked = need
@@ -1615,6 +1618,13 @@ class Engine:
                             # traded price: on a thin contract that can be hours old and far from the book,
                             # and a user could buy at the ask below it and be settled at it for a free profit.
                             ltp = self.value_price(p)
+                            if ltp is None:
+                                ltp = self.feed.ltp(p.token)
+                            # ...and where nobody is quoting on that side, never beyond the other side of
+                            # the book (see weekly.inside_book: sellers only and an old last trade above
+                            # their offer paid a buyer at the offer the difference, 21 Nov 2026)
+                            from .weekly import inside_book as _inside
+                            ltp = _inside(self, p, ltp)
                         if ltp is None:
                             ltp = self.feed.ltp(p.token)
                         if ltp is None:

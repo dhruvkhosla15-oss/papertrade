@@ -312,6 +312,16 @@ class Probe:
             f1 = await self._funds(ca)
             st, _, d = await self._order(ca, token=ins.token, side="BUY", lots=1)
             self.ok("short of margin: a new order is refused", st == 400, d)
+            # ...but a stop-loss for the position itself needs no coins and is taken (21 Nov 2026: it was refused
+            # with "need ₹0.00" while Available Balance was below zero). Cancelled again at once. Only that
+            # refusal counts as a failure: if the square-off has already reduced the position, or the exchange
+            # band refuses the price, the answer says something else and nothing is concluded.
+            b2 = self._quote(ins.token)[0] or bid
+            st, o2, d = await self._order(ca, token=ins.token, side="SELL", lots=lots0, order_type="SL", trigger_price=round(b2 * 0.99, 4))
+            if st == 200 and o2.get("id"):
+                await ca.delete(f"/api/orders/{o2['id']}")
+            if st == 200 or "need ₹0.00" in d:
+                self.ok("short of margin: a stop-loss that only closes the position is still accepted", st == 200, d)
             lots1, f2 = lots0, f1
             for _ in range(30):
                 await asyncio.sleep(0.5)
@@ -580,6 +590,24 @@ class Probe:
         if peak <= 0 or good < 40:
             self.note("turns of one login not measured", f"{good} of 40 requests answered, {peak} seen by the turnstile"); return
         self.ok(name, peak <= ts.PER, f"40 requests at the same instant from one test account: {peak} worked on at a time (limit {ts.PER})")
+        # The user's own report and Excel file are seconds of work for an account with thousands of trades:
+        # one at a time for one login (21 Nov 2026: eight at a time, sent without pause by one account, made
+        # every other user's clicks take over a second). Six reports of the test account at the same instant.
+        name = "one login's reports and Excel files are worked out one at a time"
+        if not hasattr(ts, "watch_heavy"):
+            self.ok(name, False, "not limited"); return
+        c = self._client(ub)
+        try:
+            ts.watch_heavy[who] = 0
+            rs = await asyncio.gather(*[c.get("/api/report") for _ in range(6)], return_exceptions=True)
+            peak = ts.watch_heavy.get(who, 0)
+        finally:
+            ts.watch_heavy.pop(who, None); ts.heavy_now.pop(who, None)
+            await c.aclose()
+        good = sum(1 for r in rs if getattr(r, "status_code", 0) == 200)
+        if peak <= 0 or good < 6:
+            self.note("reports of one login not measured", f"{good} of 6 answered, {peak} seen by the turnstile"); return
+        self.ok(name, peak == 1, f"6 reports at the same instant from one test account: {peak} worked on at a time, all answered")
 
     async def _frozen(self, label, ins, ua):
         """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.
@@ -870,6 +898,59 @@ class Probe:
                 locked and not got and len(_wdg._errors) == errs,
                 "; ".join(got[:3]) or ("" if locked else "an address under /auth/ is built without a login")
                 or (f"{len(_wdg._errors) - errs} error line(s) logged" if len(_wdg._errors) != errs else f"{len(built)} addresses, called as a visitor and as a test user"))
+        # The Master page itself is sent only to a logged-in Master (owner's decision, 20 Nov 2026). A visitor
+        # and a test user get the small login page: it holds no Master address and names no price provider.
+        # The file is not under /static any more and no other spelling of the address may hand it out.
+        import re as _re
+        got = []
+        for who, c in (("test user", self._client(ua)), ("visitor", self._client())):
+            try:
+                r = await c.get("/admin")
+                t = r.text
+                named = _re.search(r"zerodha|kite|c-?trader|ic ?markets|spotware|delta", t, _re.I)
+                if r.status_code != 200 or 'id="loginBtn"' not in t or len(t) > 12000:
+                    got.append(f"{who} /admin -> {r.status_code}, {len(t)} characters: not the small login page")
+                elif "api/admin" in t or named:
+                    got.append(f"{who} /admin holds {named.group(0) if named else 'api/admin'}")
+                if "no-store" not in r.headers.get("cache-control", ""):
+                    got.append(f"{who} /admin may be kept by the browser ({r.headers.get('cache-control', 'no cache rule')})")
+                for path in ("/static/admin.html", "/pages/admin.html", "/static/pages/admin.html", "/static/..%2fpages/admin.html",
+                             "/static/%2e%2e/pages/admin.html", "/static//admin.html", "/admin.html", "/admin/", "/static/admin_login.html/../../pages/admin.html"):
+                    r = await c.get(path, follow_redirects=True)
+                    if "api/admin" in r.text or (path == "/static/admin.html" and r.status_code != 404):
+                        got.append(f"{who} {path} -> {r.status_code}, {len(r.text)} characters")
+            finally:
+                await c.aclose()
+        self.ok("the Master page is sent only to a logged-in Master (a visitor and a user get the small login page; /static/admin.html is 404)",
+                not got, "; ".join(got[:3]) or "nine other spellings of the address tried as well")
+        # The Master's activity record holds the Master's actions only. The two-step set-up answers a user
+        # under a Master address too; until 21 Nov 2026 every such call by a user wrote a line there under the
+        # user's name (200 calls pushed every Master action off the screen). The test account asks for a
+        # set-up (never confirmed, and taken back here) and must leave no line.
+        from .db import AdminLog
+        from sqlalchemy import func as _f
+        db = SessionLocal()
+        try:
+            top = db.query(_f.max(AdminLog.id)).scalar() or 0
+        finally:
+            db.close()
+        c = self._client(ua)
+        try:
+            r = await c.post("/api/admin/2fa/setup")
+        finally:
+            await c.aclose()
+        db = SessionLocal()
+        try:
+            mine = db.query(AdminLog).filter(AdminLog.id > top, AdminLog.admin_id == ua.id).count()
+            u = db.get(User, ua.id)
+            if u is not None and not u.totp_enabled and u.totp_secret:
+                u.totp_secret = ""; db.commit()
+        finally:
+            db.close()
+        if r.status_code == 200:
+            self.ok("a user's call under a Master address leaves no line in the Master's activity record", mine == 0, f"{mine} line(s) under the test account's name")
+        else:
+            self.note("activity record: the test account's two-step set-up was not accepted, nothing to look at", f"HTTP {r.status_code}")
         open_ = []
         c = self._client()
         try:
@@ -914,6 +995,21 @@ class Probe:
         self.area = "Logins"
         c = self._client(ub)
         try:
+            # Wrong tries at the current password (the change-password box) are counted like wrong tries at
+            # the login. Until 21 Nov 2026 they were not: whoever held a login of an account could guess its
+            # password without limit, and one login guessing without pause slowed every other user. The test
+            # account has no password that anything could match, so nothing is ever changed here.
+            from . import main as _mn
+            key, codes = f"pwchange:{ub.id}", []
+            _mn._fails.pop(key, None)
+            try:
+                for i in range(7):
+                    r = await c.post("/api/password", json={"old_password": f"zz-wrong-{i}", "new_password": "zz-never-used-1"})
+                    codes.append(r.status_code)
+            finally:
+                _mn._fails.pop(key, None)
+            self.ok("wrong tries at the current password are counted: after five, further tries are refused for a while",
+                    codes == [400] * 5 + [429] * 2, str(codes))
             r1 = await c.get("/api/me")
             async with self.engine._lock:
                 db = SessionLocal()
@@ -1473,6 +1569,47 @@ class Probe:
                 pass
             await self._wipe()          # a position stuck without buyers must not colour the next test
 
+    def _one_sided(self):
+        """The closing price kept for an open future (what it is settled at when it expires) is never beyond
+        the other side of its order book. Loophole of 21 Nov 2026: on a thin contract in its last hours with
+        sellers only and an old last trade above their offer, a buy at the offer was settled at the old trade
+        (and the same the other way round with buyers only).
+        Tried on a future nobody is streaming and with a position that exists only inside this function: a
+        one-sided book is put in memory for the length of this call (nothing else on the site runs in
+        between), the closing price is worked out the way the server does it every minute, and what was in
+        memory before is put back. Nothing is stored."""
+        self.area = "Expiry"
+        from . import weekly as _W
+        feed, eng = self.feed, self.engine
+        if not getattr(eng, "_mark_at_book", True):
+            self.note("closing price with one side of the book empty not tested", "the Master has switched the order-book rules off"); return
+        c = next((i for i in feed.instruments.values() if i.instrument_type == "FUT" and i.exchange in ("MCX", "NFO", "BFO", "CDS")
+                  and i.token not in feed._refcount), None)
+        if c is None:
+            self.note("closing price with one side of the book empty not tested", "every future is being streamed"); return
+
+        class _Nowhere:
+            def commit(self):
+                pass
+        T = c.token
+        had, real, got = T in feed.prices, feed.prices.get(T), []
+        try:
+            for sign, last, bid, ask in ((1, 1100.0, None, 1000.0), (-1, 1000.0, 1100.0, None)):
+                feed.prices[T] = {"token": T, "ltp": last, "bid": bid, "ask": ask, "ts": time.time(), "ltt": time.time() - 6 * 3600,
+                                  "bids": [[bid, c.lot_size * 10, 1]] if bid else [], "asks": [[ask, c.lot_size * 10, 1]] if ask else []}
+                pos = Position(user_id=0, token=T, symbol=c.symbol, exchange=c.exchange, lot_size=c.lot_size, qty=sign * c.lot_size,
+                               avg_price=ask or bid, expiry=c.expiry)
+                _W.remember_marks(eng, _Nowhere(), only=[pos])
+                got.append(pos.last_mark)
+        finally:
+            if had:
+                feed.prices[T] = real
+            else:
+                feed.prices.pop(T, None)
+        self.ok("a future with nobody quoting on its exit side is not valued beyond the other side of the book (an old last trade is not a closing price)",
+                got == [1000.0, 1100.0], f"{c.symbol}: offered at 1000, last trade 1100: bought lot valued {got[0] if got else None}; "
+                                         f"bid 1100, last trade 1000: sold lot valued {got[1] if len(got) > 1 else None}")
+
     def _price_sanity(self):
         self.area = "Prices"
         bad, crossed, far, n = [], [], [], 0
@@ -1981,6 +2118,11 @@ class Probe:
                 except Exception as e:
                     log.exception("probe %s check crashed", name)
                     self.ok(f"the {name} check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._one_sided()
+            except Exception as e:
+                log.exception("probe closing-price check crashed")
+                self.ok("the closing-price check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

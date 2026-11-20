@@ -92,6 +92,23 @@ def _exit_quote(engine, p: Position) -> Optional[float]:
     return q if isinstance(q, (int, float)) and math.isfinite(q) and q >= 0 else None
 
 
+def inside_book(engine, p: Position, mk: Optional[float]) -> Optional[float]:
+    """A long is never valued above the best offer in the book, nor a short below the best bid: nobody would
+    pay more than the price it is on offer at. Matters when nobody is quoting on the side the position
+    would be closed at and its value falls back to the last trade or to an older quote. Until 21 Nov 2026
+    only the weekly valuation did this; the closing price a future is settled at when it expires did not:
+    on a thin contract in its last hours with sellers only and an old last trade above their offer, a buy
+    at the offer was settled at the old trade (1,000 paid, 1,100 settled, in the test), and the same the
+    other way round for a sale with buyers only."""
+    if mk is None or not getattr(engine, "_mark_at_book", True):
+        return mk
+    t = engine.feed.prices.get(p.token) or {}
+    other = t.get("ask") if p.qty > 0 else t.get("bid")
+    if isinstance(other, (int, float)) and math.isfinite(other) and other > 0:
+        return min(mk, other) if p.qty > 0 else max(mk, other)
+    return mk
+
+
 def _trade_after_mark(engine, p: Position) -> bool:
     """True when the contract has traded since the price kept in last_mark was seen."""
     ltt = (engine.feed.prices.get(p.token) or {}).get("ltt")
@@ -178,12 +195,16 @@ def remember_marks(engine, db, only: Optional[list] = None) -> int:
         mk = _exit_quote(engine, p)
         if mk is None:
             if p.last_mark is not None and not _trade_after_mark(engine, p):
-                if only is not None and engine.feed.live(p.token):     # still the best price known, as of now
+                held = inside_book(engine, p, p.last_mark)             # the other side has come through the kept quote
+                if held != p.last_mark and math.isfinite(held) and held >= 0:
+                    p.last_mark = float(held); p.last_mark_at = datetime.utcnow(); n += 1
+                elif only is not None and engine.feed.live(p.token):   # still the best price known, as of now
                     p.last_mark_at = datetime.utcnow(); n += 1
                 continue
             mk = engine.mark_price(p.token, p.qty)
             if mk is None:
                 mk = engine.feed.ltp(p.token)
+            mk = inside_book(engine, p, mk)
         if mk is None or not math.isfinite(mk) or mk < 0:
             continue
         if p.last_mark != mk or only is not None:

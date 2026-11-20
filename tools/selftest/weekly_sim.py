@@ -83,6 +83,9 @@ feed.load_instruments([
     Instrument(12, "USDINR27JANFUT", "USDINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
     Instrument(13, "EURINR27JANFUT", "EURINR", "CDS", "CDS-FUT", "FUT", THIN_EXP, 0, 1000, 0.0025),
     Instrument(14, "NATURALGAS27JANFUT", "NATURALGAS", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 1250, 0.1),
+    Instrument(15, "ALUMINIUM27JANFUT", "ALUMINIUM", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 100, 0.05),
+    Instrument(16, "ZINC27JANFUT", "ZINC", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 100, 0.05),
+    Instrument(17, "LEAD27JANFUT", "LEAD", "MCX", "MCX-FUT", "FUT", THIN_EXP, 0, 100, 0.05),
     Instrument(F_SILVER, "SILVER27DECFUT", "SILVER", "MCX", "MCX-FUT", "FUT", FAR, 0, 30, 1.0),
     Instrument(F_SILVERM, "SILVERM27DECFUT", "SILVERM", "MCX", "MCX-FUT", "FUT", FAR, 0, 5, 1.0),
     Instrument(O_CE, "NIFTY27DEC26000CE", "NIFTY", "NFO", "NFO-OPT", "CE", FAR, 26000, 75, 0.05),
@@ -663,6 +666,21 @@ at(day(W10, 3, 15, 41)); feed.set(I_NIFTY, 30110); run(engine._settle_expired())
 for n in ("idle", "hold"):
     ok(f"expiry {n}: an index future settles at the index's closing value", flat(n, F_NIFTY_X) and near(last_trade(n, F_NIFTY_X).price, 30110, 0.001), str(last_trade(n, F_NIFTY_X).price))
 ok("expiry: the commodity future is still open until its own session ends", not flat("idle", F_THIN))
+# One side of the book empty (loophole of 21 Nov 2026): sellers only and an old last trade above their offer. A buy
+# at the offer was settled at the old trade; the same the other way round with buyers only. Third contract: the
+# sellers leave before the close, so that nothing at all is in the book when the contract stops.
+F_ONE_A, F_ONE_B, F_ONE_C = 15, 16, 17
+
+
+def _one_sided(tok, last, bid=None, ask=None):
+    feed.prices[tok] = {"token": tok, "ltp": last, "bid": bid, "ask": ask, "ts": time.time(), "ltt": time.time() - 6 * 3600,
+                        "bids": [[bid, 10 ** 8, 1]] if bid else [], "asks": [[ask, 10 ** 8, 1]] if ask else []}
+
+
+at(day(W10, 3, 16)); _one_sided(F_ONE_A, 1100.0, ask=1000.0); _one_sided(F_ONE_B, 500.0, bid=550.0); _one_sided(F_ONE_C, 880.0, ask=800.0)
+trade("idle", F_ONE_A, "BUY", 1); trade("hold", F_ONE_B, "SELL", 1); trade("idle", F_ONE_C, "BUY", 1)
+W.remember_marks(engine, db)
+_one_sided(F_ONE_C, 880.0)
 # The closing price of a contract in its last minutes is kept fresh (loophole of 15 Nov 2026: it was up to a
 # minute old, so a user who saw the market drop in the last seconds added at the new price and was settled
 # at the old one).
@@ -685,6 +703,10 @@ for n, side, want in (("idle", "SELL", 899.0), ("hold", "BUY", 901.0)):
     ok(f"expiry {n}: a thin commodity future is settled at the exit side of the book, not at the old last trade", tr.side == side and near(tr.price, want, 0.001), f"{tr.side} @ {tr.price}")
     ok(f"expiry {n}: nothing can be made from the gap between last trade and book", tr.realised_pnl <= 0, str(tr.realised_pnl))
     ok(f"expiry {n}: position closed and margin released", flat(n, F_THIN))
+for n, tok, paid in (("idle", F_ONE_A, 1000.0), ("hold", F_ONE_B, 550.0), ("idle", F_ONE_C, 800.0)):
+    tr = last_trade(n, tok)
+    ok(f"expiry {n}: with nobody quoting on the exit side a future is not settled beyond the other side of the book ({feed.instruments[tok].name})",
+       flat(n, tok) and near(tr.price, paid, 0.001) and tr.realised_pnl <= 0, f"dealt at {paid}, settled @ {tr.price}, {tr.realised_pnl}")
 check_running("after the expiries")
 
 # ---- trading access: a segment that is not activated takes no new trades; exits always go through ----

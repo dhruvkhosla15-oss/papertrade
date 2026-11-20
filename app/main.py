@@ -576,6 +576,7 @@ def twofa_setup(admin: User = Depends(current_user), db: Session = Depends(get_d
         raise HTTPException(400, "2FA is already on. Turn it off first to set up a new device.")
     secret = pyotp.random_base32()
     admin.totp_secret = secret; db.commit()
+    _note(f"Two-step login: set-up started for {admin.username} (not on until the code is confirmed)")     # never the secret
     uri = pyotp.TOTP(secret).provisioning_uri(name=admin.username, issuer_name="limeFX Master" if admin.is_admin else "limeFX")
     buf = _io.BytesIO(); segno.make(uri, error="m").save(buf, kind="png", scale=10, border=4, dark="#000000", light="#ffffff")
     import base64
@@ -592,6 +593,7 @@ def twofa_confirm(body: CodeIn, admin: User = Depends(current_user), db: Session
     if not admin.totp_secret or not _totp_ok(admin.totp_secret, body.code):
         raise HTTPException(400, "That code didn't match — check the time on your phone and try again")
     admin.totp_enabled = True; db.commit()
+    _note(f"Two-step login turned on for {admin.username}")
     return {"ok": True}
 
 
@@ -601,6 +603,7 @@ def twofa_disable(body: CodeIn, admin: User = Depends(current_user), db: Session
     if not _totp_ok(admin.totp_secret, body.code):
         raise HTTPException(400, "Wrong authenticator code")
     admin.totp_enabled = False; admin.totp_secret = ""; db.commit()
+    _note(f"Two-step login turned off for {admin.username}")
     return {"ok": True}
 
 
@@ -775,7 +778,7 @@ def admin_access_default(body: AccessIn, admin: User = Depends(current_admin), d
     """Change the default table. Everyone follows it except for the switches the Master set on a user himself."""
     _b = dict(_access.default(db))
     _access.set_default(db, body.values or {})
-    _note("Default trading access: " + (_diff(_b, dict(_access.default(db))) or "nothing changed"))
+    _note("Default trading access: " + (_diff(_b, dict(_access.default(db)), _access.LABEL) or "nothing changed"))
     n = sum(_access.cancel_resting(engine, db, u) for u in db.query(User).filter_by(is_admin=False).all())
     return {**_access_view(db), "cancelled": n}
 
@@ -799,7 +802,7 @@ def admin_user_access(uid: int, body: AccessIn, admin: User = Depends(current_ad
         raise HTTPException(404, "User not found")
     _b = dict(_access.effective(db, u))
     _access.set_user(db, uid, body.values)
-    _note(f"Trading access of {u.username}: " + (("back to the default; " if body.values is None else "") + _diff(_b, dict(_access.effective(db, u))) or "nothing changed"))
+    _note(f"Trading access of {u.username}: " + (("back to the default; " if body.values is None else "") + _diff(_b, dict(_access.effective(db, u)), _access.LABEL) or "nothing changed"))
     n = _access.cancel_resting(engine, db, u)
     engine._emit(u.id, {"type": "refresh"})
     return {**_access_view(db, u), "cancelled": n}
@@ -817,6 +820,7 @@ def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admi
     if not u or not body.text.strip():
         raise HTTPException(400, "Unknown user or empty message")
     engine._user_alert(db, u, (body.title.strip() or "Notice")[:60], body.text.strip()[:1200])
+    _note(f"Message left for {u.username}, titled: {(body.title.strip() or 'Notice')[:60]}")     # the title only: the text is between the Master and the user
     return {"ok": True, "pending": len(_user_alerts(db, u))}
 
 
@@ -1741,6 +1745,7 @@ if os.getenv("PT_WEEK_TEST") == "1":          # private test copy only: never se
             for r in db.query(_weekly.WeekSettlement).filter(_weekly.WeekSettlement.created_at > now).all():
                 r.created_at = now
             db.commit()
+            _note(f"Weekly cut-off run by hand for the week ending {we} (test copy only)")
             return out
 
 
@@ -2006,12 +2011,14 @@ def admin_set_notice(body: NoticeIn, admin: User = Depends(current_admin), db: S
         raise HTTPException(400, "Write the notice first")
     set_setting(db, "notice_text", text); set_setting(db, "notice_title", (body.title.strip() or "Notice")[:60])
     set_setting(db, "notice_id", (datetime.utcnow() + timedelta(hours=5.5)).strftime("%Y%m%d%H%M%S")); db.commit()
+    _note(f"Notice for every user: {(body.title.strip() or 'Notice')[:60]}: {text[:200]}")
     return {"notice": _notice(db)}
 
 
 @app.delete("/api/admin/notice")
 def admin_clear_notice(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     set_setting(db, "notice_text", ""); db.commit()
+    _note("Notice for every user removed")
     return {"notice": None}
 
 
@@ -2027,12 +2034,14 @@ def admin_set_maintenance(body: MaintIn, admin: User = Depends(current_admin), d
         start += timedelta(days=1)       # a time already past means tomorrow
     set_setting(db, "maint_at", start.isoformat()); set_setting(db, "maint_mins", str(max(1, min(body.minutes, 240))))
     set_setting(db, "maint_msg", body.message.strip()[:200]); db.commit()
+    _note(f"Maintenance notice set: {start:%d %b %Y %H:%M} IST for {max(1, min(body.minutes, 240))} minutes" + (f"; message: {body.message.strip()[:200]}" if body.message.strip() else ""))
     return {"maintenance": _maintenance(db)}
 
 
 @app.delete("/api/admin/maintenance")
 def admin_clear_maintenance(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     set_setting(db, "maint_at", ""); db.commit()
+    _note("Maintenance notice removed")
     return {"ok": True}
 
 
@@ -2224,6 +2233,9 @@ async def backup_loop():
                         log.error("daily backup did not pass its check: %s", chk["why"])
                         await asyncio.get_event_loop().run_in_executor(None, _probe._telegram,
                             f"⚠️ limefx: today's backup ({today.name}) did not pass its check: {chk['why']}. The books themselves are not affected; tell Claude.")
+                        # as above: set the damaged file aside so that the next round writes a fresh one. Before 21 Nov 2026
+                        # a file left half-written by a restart stayed as the day's backup, and was sent off-server as it was.
+                        today.rename(today.with_suffix(".bad"))
                 for old in sorted(d.glob("limefx-*.db"))[:-14]:
                     old.unlink(missing_ok=True)
                 if _tg_ready() and today.exists() and _tg_state().get("sent") != today.name:
@@ -2335,6 +2347,7 @@ async def admin_probe_run(admin: User = Depends(current_admin)):
     res = await _probe.run_and_report(app, engine, feed)
     if res.get("busy"):
         raise HTTPException(409, "A safety check is already running")
+    _note(f"Safety check run by hand: {res.get('passed')} passed, {res.get('failed')} failed")
     return res
 
 
@@ -2364,6 +2377,7 @@ def admin_offsite_send(admin: User = Depends(current_admin)):
         tmp.unlink(missing_ok=True)
     if not ok:
         raise HTTPException(502, st.get("error") or "Could not send")
+    _note("Encrypted off-server backup sent by hand")
     return {"ok": True, "sent_at": st.get("sent_at")}
 
 
@@ -2375,8 +2389,19 @@ def admin_backup(admin: User = Depends(current_admin)):
     import tempfile
     name = f"limefx-backup-{datetime.utcnow() + timedelta(hours=5.5):%Y-%m-%d-%H%M}.db"
     tmp = Path(tempfile.gettempdir()) / name
+    # the copy made for the download is removed once it has been sent (before 21 Nov 2026 every download left a
+    # full, unencrypted copy of the books in the server's temporary folder); one left by a broken download goes
+    # with the next
+    for old in Path(tempfile.gettempdir()).glob("limefx-backup-*.db"):
+        try:
+            if old != tmp and time.time() - old.stat().st_mtime > 600:
+                old.unlink()
+        except OSError:
+            pass
     _backup_to(tmp)
-    return FileResponse(tmp, filename=name, media_type="application/octet-stream", headers=_NOCACHE)
+    from starlette.background import BackgroundTask
+    return FileResponse(tmp, filename=name, media_type="application/octet-stream", headers=_NOCACHE,
+                        background=BackgroundTask(tmp.unlink, missing_ok=True))
 
 
 @app.get("/api/admin/backups")
@@ -2409,8 +2434,10 @@ def admin_audit(admin: User = Depends(current_admin), db: Session = Depends(get_
 def admin_self_test_coins(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """The master's own test balance for trying trades in the trader view. Kept out of every user
     total (all user lists and summaries filter on is_admin=False)."""
+    _b = admin.balance or 0.0
     engine._ledger(db, admin, 1000000.0, "ADMIN_CREDIT", "master test coins")
     db.commit()
+    _note(f"Added 1,000,000.00 test coins to the Master's own trying-out balance ({admin.username}): balance {_b:,.2f} → {admin.balance or 0.0:,.2f}")
     return {"ok": True, "funds": engine.funds(db, admin)}
 
 
@@ -2492,6 +2519,8 @@ def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_ad
     if body.reset_2fa:
         _note(f"{u.username}: two-step login cleared")
         u.totp_enabled = False; u.totp_secret = ""
+    if not (_audit_notes.get() or []):
+        _note(f"{u.username}: saved, nothing changed")
     db.commit()
     return _user_dict(u)
 
@@ -2594,8 +2623,9 @@ def _settings_flat(admin, db) -> dict:
     """The settings a Master can change, as one flat table, for saying what a save changed."""
     s_ = admin_settings(admin, db)
     out = {k: s_.get(k) for k in _SETTING_NAMES}
+    plain = {"NFO": "NFO (Nifty / Bank Nifty)", "BFO": "BFO (Sensex)", "STK": "Stock F&O", "MCX": "MCX (other commodities)", "CDS": "Currency", "CRYPTO": "Crypto"}
     for k, v in (s_.get("margin_pct") or {}).items():
-        out[f"margin % {k}"] = v
+        out[f"margin % {plain.get(k) or config.MCX_GROUP_LABELS.get(k, k).split(' (')[0]}"] = v
     return out
 
 
@@ -3169,6 +3199,7 @@ def feed_disconnect(admin: User = Depends(current_admin)):
     if not hasattr(feed, "disconnect"):
         raise HTTPException(400, "Not available for this feed")
     feed.disconnect()
+    _note("Price feed of the Indian markets disconnected")
     log.info("live feed disconnected by master %s", admin.username)
     return feed.status()
 
@@ -3178,6 +3209,7 @@ def crypto_disconnect(admin: User = Depends(current_admin)):
     if not crypto:
         raise HTTPException(400, "Crypto feed is not enabled")
     crypto.disconnect()
+    _note("Crypto price feed disconnected")
     log.info("crypto feed disconnected by master %s", admin.username)
     return crypto.status()
 
@@ -3187,6 +3219,7 @@ def crypto_reconnect(admin: User = Depends(current_admin)):
     if not crypto:
         raise HTTPException(400, "Crypto feed is not enabled")
     crypto.reconnect()
+    _note("Crypto price feed reconnected")
     log.info("crypto feed reconnect by master %s", admin.username)
     return crypto.status()
 
@@ -3210,6 +3243,7 @@ def forex_token(body: ForexTokenIn, admin: User = Depends(current_admin)):
         raise HTTPException(400, "No token found")
     forex.save_token(t, (body.refresh_token or "").strip() or None)
     forex.reconnect()
+    _note("Forex / Global price feed: new access key saved, reconnecting")     # never the key
     log.info("forex token set by master %s", admin.username)
     return forex.status()
 
@@ -3247,14 +3281,14 @@ def admin_global_check(admin: User = Depends(current_admin)):
 def forex_disconnect(admin: User = Depends(current_admin)):
     if not forex:
         raise HTTPException(400, "Forex feed is not configured")
-    forex.disconnect(); return forex.status()
+    forex.disconnect(); _note("Forex / Global price feed disconnected"); return forex.status()
 
 
 @app.post("/api/admin/feed/forex/reconnect")
 def forex_reconnect(admin: User = Depends(current_admin)):
     if not forex:
         raise HTTPException(400, "Forex feed is not configured")
-    forex.reconnect(); return forex.status()
+    forex.reconnect(); _note("Forex / Global price feed reconnected"); return forex.status()
 
 
 @app.post("/api/admin/feed/reconnect")
@@ -3265,6 +3299,7 @@ def feed_reconnect(admin: User = Depends(current_admin)):
     log.info("live feed reconnect by master %s -> %s", admin.username, ok)
     if not ok:
         raise HTTPException(400, "Today's Zerodha login is needed first — use Connect Zerodha")
+    _note("Price feed of the Indian markets reconnected")
     return feed.status()
 
 

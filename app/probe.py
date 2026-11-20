@@ -1526,6 +1526,47 @@ class Probe:
                 pass
             await self._wipe()          # a position stuck without buyers must not colour the next test
 
+    def _one_sided(self):
+        """The closing price kept for an open future (what it is settled at when it expires) is never beyond
+        the other side of its order book. Loophole of 21 Nov 2026: on a thin contract in its last hours with
+        sellers only and an old last trade above their offer, a buy at the offer was settled at the old trade
+        (and the same the other way round with buyers only).
+        Tried on a future nobody is streaming and with a position that exists only inside this function: a
+        one-sided book is put in memory for the length of this call (nothing else on the site runs in
+        between), the closing price is worked out the way the server does it every minute, and what was in
+        memory before is put back. Nothing is stored."""
+        self.area = "Expiry"
+        from . import weekly as _W
+        feed, eng = self.feed, self.engine
+        if not getattr(eng, "_mark_at_book", True):
+            self.note("closing price with one side of the book empty not tested", "the Master has switched the order-book rules off"); return
+        c = next((i for i in feed.instruments.values() if i.instrument_type == "FUT" and i.exchange in ("MCX", "NFO", "BFO", "CDS")
+                  and i.token not in feed._refcount), None)
+        if c is None:
+            self.note("closing price with one side of the book empty not tested", "every future is being streamed"); return
+
+        class _Nowhere:
+            def commit(self):
+                pass
+        T = c.token
+        had, real, got = T in feed.prices, feed.prices.get(T), []
+        try:
+            for sign, last, bid, ask in ((1, 1100.0, None, 1000.0), (-1, 1000.0, 1100.0, None)):
+                feed.prices[T] = {"token": T, "ltp": last, "bid": bid, "ask": ask, "ts": time.time(), "ltt": time.time() - 6 * 3600,
+                                  "bids": [[bid, c.lot_size * 10, 1]] if bid else [], "asks": [[ask, c.lot_size * 10, 1]] if ask else []}
+                pos = Position(user_id=0, token=T, symbol=c.symbol, exchange=c.exchange, lot_size=c.lot_size, qty=sign * c.lot_size,
+                               avg_price=ask or bid, expiry=c.expiry)
+                _W.remember_marks(eng, _Nowhere(), only=[pos])
+                got.append(pos.last_mark)
+        finally:
+            if had:
+                feed.prices[T] = real
+            else:
+                feed.prices.pop(T, None)
+        self.ok("a future with nobody quoting on its exit side is not valued beyond the other side of the book (an old last trade is not a closing price)",
+                got == [1000.0, 1100.0], f"{c.symbol}: offered at 1000, last trade 1100: bought lot valued {got[0] if got else None}; "
+                                         f"bid 1100, last trade 1000: sold lot valued {got[1] if len(got) > 1 else None}")
+
     def _price_sanity(self):
         self.area = "Prices"
         bad, crossed, far, n = [], [], [], 0
@@ -2034,6 +2075,11 @@ class Probe:
                 except Exception as e:
                     log.exception("probe %s check crashed", name)
                     self.ok(f"the {name} check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._one_sided()
+            except Exception as e:
+                log.exception("probe closing-price check crashed")
+                self.ok("the closing-price check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

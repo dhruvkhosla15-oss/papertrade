@@ -1615,6 +1615,13 @@ class Engine:
                             # traded price: on a thin contract that can be hours old and far from the book,
                             # and a user could buy at the ask below it and be settled at it for a free profit.
                             ltp = self.value_price(p)
+                            if ltp is None:
+                                ltp = self.feed.ltp(p.token)
+                            # ...and where nobody is quoting on that side, never beyond the other side of
+                            # the book (see weekly.inside_book: sellers only and an old last trade above
+                            # their offer paid a buyer at the offer the difference, 21 Nov 2026)
+                            from .weekly import inside_book as _inside
+                            ltp = _inside(self, p, ltp)
                         if ltp is None:
                             ltp = self.feed.ltp(p.token)
                         if ltp is None:

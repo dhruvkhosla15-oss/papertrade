@@ -552,6 +552,108 @@ class Probe:
                 pass
             await ca.aclose()
 
+    async def _offline_auto(self, label, ins, ua):
+        """While a market's prices are not arriving, the SYSTEM may not close a position there either. Users'
+        own orders have been refused in that state since 16 Nov 2026 (see _offline); the automatic closes
+        (margin shortfall, margin call, intraday square-off) still sold at the price from before the outage:
+        with the NSE feed down and the real market 3% lower, a NIFTY lot was "squared off" 54,945 coins
+        better than any real close (found 21 Nov 2026, prices and clock set by hand).
+        The test account opens one lot. Then, for the length of one function call during which nothing else
+        on the site can run, that market's feed is marked as down (and, for crypto / forex, as silent) and
+        the engine is asked to close the test account's own position the way an automatic square-off does.
+        It must decline. Whatever it did is not kept (rolled back); the lot is closed the normal way after."""
+        self.area = label
+        if not self._feed_up(ins) or not self.engine.tradable_now(ins):
+            return
+        T = ins.token
+        bid, ask, ltp = self._quote(T)
+        if not (bid and ask and ltp):
+            return
+        name = "the automatic square-off waits while that market's price feed is down (no close at the price from before the outage)"
+        if not hasattr(self.engine, "feed_delivering"):
+            self.ok(name, False, "the engine does not ask whether prices are arriving before an automatic close"); return
+        cry = getattr(self.feed, "crypto", None); fx = getattr(self.feed, "forex", None)
+        src = cry if ins.exchange == "CRYPTO" else fx if ins.exchange == "FOREX" else self.feed
+        ca = self._client(ua)
+        try:
+            await self._flatten(ca); await self._set_balance(ua.id, 1_000_000.0)
+            st, o, d = await self._order(ca, token=T, side="BUY", lots=1)
+            pos = [p for p in (await self._positions(ca)) or [] if p["token"] == T and p["qty"] > 0]
+            if not (st == 200 and o.get("status") == "FILLED" and pos):
+                self.note("automatic close while prices are offline not tested", f"could not open a test position ({d or o.get('reason', '')})"[:150]); return
+
+            async def attempt(attr, value):
+                """Automatic close with the feed marked down / silent. Nothing is awaited while the mark is set."""
+                async with self.engine._lock:
+                    db = SessionLocal()
+                    was = getattr(src, attr)
+                    try:
+                        u = db.get(User, ua.id)
+                        p = db.query(Position).filter_by(user_id=ua.id, token=T, is_closed=False).first()
+                        if u is None or p is None or not p.qty:
+                            return None
+                        setattr(src, attr, value)
+                        try:
+                            return bool(self.engine._force_close(db, u, p, "daily check"))
+                        finally:
+                            setattr(src, attr, was)
+                    finally:
+                        db.rollback()
+                        db.close()
+
+            res = await attempt("connected", False)
+            if res is None:
+                self.note("automatic close while prices are offline not tested", "the test position was gone"); return
+            self.ok(name, res is False, "position closed at the price from before the outage" if res else "")
+            attr = "_last_msg" if src is cry else "_last_px" if src is fx else None
+            if attr and res is False and hasattr(src, "quiet") and hasattr(src, attr):
+                res = await attempt(attr, time.time() - 3600)
+                if res is not None:
+                    self.ok("the automatic square-off waits while a connected feed has gone silent", res is False,
+                            "position closed at the last price before the silence" if res else "")
+        finally:
+            try:
+                await self._flatten(ca)
+            except Exception:
+                pass
+            await ca.aclose()
+
+    def _option_symbols(self):
+        """Read only. While a market's contract list is not loaded (after a restart, until the day's price-feed
+        login) the engine tells a bought option from the position's own symbol (engine._bought_option), so
+        that its paid-for loss is not counted against Available Balance a second time (found 21 Nov 2026: a
+        crypto position squared off for it). This looks at every listed contract and every open position:
+        the symbol alone must give the same answer as the contract."""
+        self.area = "All accounts"
+        fn = getattr(self.engine, "_bought_option", None)
+        name = "a bought option is recognised from its symbol alone (for the hours the contract list is not loaded)"
+        if fn is None:
+            self.ok(name, False, "the engine cannot tell a bought option without the contract list"); return
+
+        class _P:
+            def __init__(self, symbol, exchange, qty):
+                self.symbol, self.exchange, self.qty = symbol, exchange, qty
+        bad, n = [], 0
+        for ins in list(self.feed.instruments.values()):
+            if ins.segment == "INDICES":
+                continue
+            n += 1
+            for q in (1, -1):
+                p = _P(ins.symbol, ins.exchange, q)
+                if fn(p, None) != fn(p, ins):
+                    bad.append(ins.symbol); break
+        db = SessionLocal()
+        try:
+            for p in db.query(Position).filter_by(is_closed=False).all():
+                ins = self.feed.instruments.get(p.token)
+                if ins is not None and p.qty and fn(p, None) != fn(p, ins):
+                    bad.append(f"position {p.symbol}")
+        finally:
+            db.close()
+        if not n:
+            self.note("option symbols not checked", "no contract list loaded right now"); return
+        self.ok(name, not bad, (f"{len(bad)} of {n} contracts misjudged: " + ", ".join(bad[:6])) if bad else f"{n} contracts")
+
     async def _one_login(self, ub):
         """Requests take turns (80 at a time for the whole site). One login must not be able to take them
         all: before 17 Nov 2026 one account sending 300 Excel downloads at once kept every other user
@@ -1927,6 +2029,7 @@ class Probe:
                     await self._after_reconnect(label, ins, ua)
                     await self._offline(label, ins, ua)
                     await self._session_open(label, ins, ua)
+                    await self._offline_auto(label, ins, ua)
                 except Exception as e:
                     log.exception("probe attack on %s crashed", label)
                     self.area = label; self.ok("the check itself ran to the end", False, f"{type(e).__name__}: {e}")
@@ -1991,6 +2094,11 @@ class Probe:
             except Exception as e:
                 log.exception("probe books check crashed")
                 self.ok("the books check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._option_symbols()
+            except Exception as e:
+                log.exception("probe option-symbol check crashed")
+                self.ok("the option-symbol check ran to the end", False, f"{type(e).__name__}: {e}")
         finally:
             await self._wipe(balances=(0.0, 0.0))
         failed = [r for r in self.rows if r["ok"] is False]

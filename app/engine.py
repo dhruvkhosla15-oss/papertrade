@@ -366,17 +366,17 @@ class Engine:
             return ltp, "", qty
         bids, asks = tick.get("bids") or [], tick.get("asks") or []
         if side == "BUY" and not asks:
-            raise EngineError("Illiquid: no sellers in the order book for this contract")
+            raise EngineError("Nobody is selling this contract right now — try again in a moment, or choose a more actively traded contract")
         if side == "SELL" and not bids:
-            raise EngineError("Illiquid: no buyers in the order book for this contract")
+            raise EngineError("Nobody is buying this contract right now — try again in a moment, or choose a more actively traded contract")
         if bids and asks:
             mid = (bids[0][0] + asks[0][0]) / 2
             spread_pct = (asks[0][0] - bids[0][0]) / mid * 100 if mid else 0
             if max_spread > 0 and spread_pct > max_spread:
-                raise EngineError(f"Illiquid: bid {bids[0][0]} / ask {asks[0][0]} — spread {spread_pct:.1f}% exceeds {max_spread:g}% limit")
+                raise EngineError(f"Too little trading in this contract right now: the gap between the buying price {bids[0][0]} and the selling price {asks[0][0]} is {spread_pct:.1f}%, more than the {max_spread:g}% allowed — try again later, or choose a more actively traded contract")
         ltt = tick.get("ltt")
         if stale_min > 0 and ltt and time.time() - ltt > stale_min * 60 and self.market_open(ins.exchange):
-            raise EngineError(f"Illiquid: no trade in this contract for {int((time.time() - ltt) // 60)} minutes")
+            raise EngineError(f"Nobody has traded this contract for {int((time.time() - ltt) // 60)} minutes — try again later, or choose a more actively traded contract")
         # --- shadow book: subtract quantity already consumed by paper fills since this book snapshot ---
         sig = (tuple((x[0], x[1]) for x in bids), tuple((x[0], x[1]) for x in asks))
         sh = self._consumed.get(ins.token)
@@ -419,7 +419,7 @@ class Engine:
         # whole lots only (like the exchange)
         filled = (filled // ins.lot_size) * ins.lot_size
         if filled <= 0:
-            raise EngineError(f"Not enough liquidity: less than one lot available in the order book")
+            raise EngineError("Less than one lot is on offer in this contract right now — try again in a moment")
         if filled < qty:
             # recompute cost for the lots we can actually fill
             remaining, cost = filled, 0.0
@@ -672,7 +672,7 @@ class Engine:
         if not self.market_open(ins.exchange):
             raise EngineError(self._closed_text(ins.exchange))
         if self.expired(ins):
-            raise EngineError("This contract has expired — open positions in it are settled automatically")
+            raise EngineError("This contract has expired — choose a later one in the Market tab. Open positions in it are settled automatically")
         cry = getattr(self.feed, "crypto", None)
         # A feed that is connected but has gone silent is as good as down: its prices stand still while
         # the real market moves (see quiet() in the feeds).
@@ -731,7 +731,7 @@ class Engine:
         from .config import FREEZE_QTY
         fz = FREEZE_QTY.get(ins.name) if ins.exchange in ("NFO", "BFO") else None
         if fz and qty > fz:
-            raise EngineError(f"Exceeds the exchange freeze quantity for {ins.name} ({fz // ins.lot_size} lots per order) — split the order")
+            raise EngineError(f"Too many lots for one order: {ins.name} takes at most {fz // ins.lot_size} lots per order — split it into smaller orders")
         if ins.pos_limit:
             pos = self._position(db, user.id, token)
             cur = pos.qty if pos else 0

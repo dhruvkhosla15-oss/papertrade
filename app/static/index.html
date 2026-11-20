@@ -166,7 +166,9 @@ td:first-child,th:first-child{text-align:left}
 .sym{font-weight:600}
 .small{font-size:12px}
 h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transform:uppercase;letter-spacing:.04em}
-.wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}#wlist .wl-item .sym{overflow-wrap:anywhere}
+.wl-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}#wlist .wl-item .sym{overflow-wrap:anywhere}/* position card, last line: a figure stays beside its label ("Exit / px 123.40" was broken over two lines beside the three buttons); when both do not fit, the buttons go under the figures */
+.pfoot{flex-wrap:wrap}.pfoot .pv{white-space:nowrap;display:inline-block}
+#wlist .wmeta{line-height:1.3}/* market, lot size and expiry under the name: on a narrow phone it takes a second line (it was cut off with … : "Lot 10…" for a lot of 100) */
 .drag{color:var(--mut);cursor:grab;padding:4px 6px 4px 0;touch-action:none;user-select:none;font-size:14px;letter-spacing:-2px;flex:0 0 auto}
 .wl-item.dragging{opacity:.45;background:var(--seg)}.wl-item.over-top{box-shadow:inset 0 2px 0 var(--acc)}.wl-item.over-bot{box-shadow:inset 0 -2px 0 var(--acc)}
 .banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}.banner.soft{background:#3f3a12;color:#fde68a}.banner b{color:#fff}
@@ -198,6 +200,8 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 #ordTbl td[colspan]{grid-column:1/-1;grid-row:auto}
 #ordTbl tr:has(td[colspan]){padding-top:0;border-top:0}
 }
+/* Order Book as a table (wider than a phone): a long note under the status (a refusal reason, the matched prices) takes two or three lines instead of pushing Status and Cancel off the right edge */
+@media(min-width:641px){#ordTbl td:nth-child(6) .small{white-space:normal;min-width:110px;max-width:300px;margin-left:auto}}
 </style>
 </head>
 <body>
@@ -532,7 +536,7 @@ const ccyToggleHtml=()=>`<div class="seg ccyseg" style="flex:0 0 auto;padding:2p
 function setCcy(c){CCCY=c;try{localStorage.setItem('lfx_cccy',c)}catch(e){}$$('.ccyseg button').forEach(b=>b.classList.toggle('active',b.dataset.ccy===c));if(typeof renderWatch==='function')renderWatch();if(state.sel)$('#oSym').textContent=dsym(state.sel.exchange,state.sel.symbol);if(state.sel)updateMargin();
   onPrices(Object.values(state.prices).filter(t=>isCryptoTok(t.token)));if(state.chain?.length&&isCryptoTok(state.chain[0].token))renderChainRows();renderPositions();renderOrders();if(state.sel)openSheetPrices(state.sel);loadPulse();}
 function bindCcyToggles(){$$('.ccyseg button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));}
-const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt2=n=>n==null?'—':Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}).replace(/^-0\.00$/,'0.00');   // nothing is never shown with a minus sign ("+-0.00")
 // rupee amount shown in $ when the user is viewing a crypto contract in the $ mode
 const usdOn=ex=>ex==='CRYPTO'&&CCCY==='USD'&&!!state.usdinr;
 const money=(ex,v,dec)=>v==null?'—':(usdOn(ex)?'$'+Number(v/state.usdinr).toLocaleString('en-IN',{minimumFractionDigits:dec??2,maximumFractionDigits:dec??2}):(dec===0?inr(v):'₹'+fmt2(v)));
@@ -564,7 +568,7 @@ $('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';
     location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
 $('#otpBtn').onclick=async()=>{$('#loginErr').textContent='';try{await api('/login/2fa',{method:'POST',body:{pre_token:preTok,code:$('#lcode').value}});location.reload();}catch(e){$('#loginErr').textContent=e.message;}};
-$('#otpBack').onclick=()=>{$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
+$('#otpBack').onclick=()=>{$('#loginErr').textContent='';$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
 $('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click()});
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#121c2e'},textColor:t==='light'?'#6b7280':'#8da2c0'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1e2a44'},horzLines:{color:t==='light'?'#eef0f3':'#1e2a44'}}});}
@@ -982,7 +986,7 @@ function initDrag(){const list=$('#wlist');
 async function loadWatch(){state.watch=await api('/watchlist');renderWatch();sub(state.watch.map(w=>w.token));onPrices(state.watch.map(w=>state.prices[w.token]).filter(Boolean));}
 function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length>0);
   $('#wlist').innerHTML=state.watch.map(w=>`<div class="wl-item" data-tok="${w.token}" style="align-items:center;gap:8px">
-    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':(GNAME[w.symbol]||dsym(w.exchange,w.symbol))}</span><div class="small mut" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):(GNAME[w.symbol]?'Global · '+w.symbol:({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange))+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
+    ${state.guest?'':'<span class="drag" title="Drag to reorder">⋮⋮</span>'}<span style="min-width:0;flex:1"><span class="sym">${w.segment==='INDICES'?w.name+' <span class="small mut">SPOT</span>':(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?w.name+' <span class="small mut">'+monthName(w.expiry)+'</span>':(GNAME[w.symbol]||dsym(w.exchange,w.symbol))}</span><div class="small mut wmeta">${w.segment==='INDICES'?(w.kind==='stock'?'NSE stock · F&O':w.exchange==='BSE'?'BSE index':'NSE index'):(w.exchange==='MCX'&&w.instrument_type==='FUT'&&isNearMonth(w))?'MCX · Lot '+w.lot_size+' · Exp '+w.expiry.slice(5):(GNAME[w.symbol]?'Global · '+w.symbol:({CRYPTO:'Crypto · 24×7',FOREX:'Forex · 24×5',CDS:'NSE currency'}[w.exchange]||w.exchange))+' · Lot '+w.lot_size+(w.expiry?' · Exp '+w.expiry.slice(5):'')}</div></span>
     <span style="text-align:right;flex:0 0 auto"><b class="num" id="p${w.token}">—</b> <span class="small num mut" id="c${w.token}"></span>${(w.segment==='INDICES'&&w.kind!=='stock')?'':`<div class="small" style="white-space:nowrap"><span class="up num" id="b${w.token}"></span> <span class="mut">/</span> <span class="dn num" id="a${w.token}"></span></div>`}</span>
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:8px 12px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
@@ -1009,8 +1013,8 @@ function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positi
       <div class="cfr"><span>Settled in earlier weeks</span><b class="num ${pnlCls(p.settled_earlier)}">${pmoney(p,p.settled_earlier)}</b></div>
       <div class="cfr"><span>This week so far</span><b class="num ${pnlCls(p.unrealised)}" id="pw${p.id}">${pmoney(p,p.unrealised)}</b></div>
       <div class="cfr tot"><span>Total since entry</span><b class="num ${pnlCls(p.total_since_entry)}" id="pt${p.id}">${pmoney(p,p.total_since_entry)}</b></div></div>`:''}
-    <div class="row" style="margin-top:10px;align-items:center"><div class="small"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.carried_week?p.entry_avg:p.avg_price)}</span>${p.carried_week?` &nbsp; <span class="mut">Carried at</span> <b class="num">${cpx(p.exchange,p.avg_price)}</b>`:''} &nbsp; <span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b> &nbsp; <span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></div>
-      <div style="flex:0 0 auto;display:flex;gap:6px"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="ghost" data-slt="${p.id}" style="padding:8px 10px;white-space:nowrap">SL / Target</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
+    <div class="row pfoot" style="margin-top:10px;align-items:center"><div class="small"><span class="pv"><span class="mut">Avg</span> <span class="num">${cpx(p.exchange,p.carried_week?p.entry_avg:p.avg_price)}</span></span>${p.carried_week?` &nbsp; <span class="pv"><span class="mut">Carried at</span> <b class="num">${cpx(p.exchange,p.avg_price)}</b></span>`:''} &nbsp; <span class="pv"><span class="mut">Exit px</span> <b class="num" id="pltp${p.id}">${cpx(p.exchange,p.mark??p.ltp)}</b></span> &nbsp; <span class="pv"><span class="mut">Margin</span> <span class="num">${money(p.exchange,p.margin,usdOn(p.exchange)?2:0)}</span></span></div>
+      <div style="flex:0 0 auto;display:flex;gap:6px;margin-left:auto"><button class="ghost" data-add="${p.token}" style="padding:8px 12px">Add</button><button class="ghost" data-slt="${p.id}" style="padding:8px 10px;white-space:nowrap">SL / Target</button><button class="${p.qty>0?'sell':'buy'}" data-close="${p.id}" style="padding:8px 14px">Exit</button></div></div></div>`).join('');
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});
   // Stop-loss / Target straight from the position: the same order sheet, on the exit side, for the whole position, opened on Stop-loss

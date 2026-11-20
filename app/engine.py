@@ -321,6 +321,29 @@ class Engine:
             return True
         return ((self.feed.prices.get(ins.token) or {}).get("ts") or 0) >= opened + self.OPEN_SETTLE_SECS
 
+    def feed_delivering(self, ins) -> bool:
+        """True when the price in memory for this contract is being delivered right now: its price feed is
+        connected, has not gone silent, and a price has arrived since the contract's streaming last
+        (re)started. False while that feed is down, silent, or has only just come back: what is in memory
+        then is the price from before the outage. Orders placed by users have been refused in that state
+        since 16 Nov 2026; the automatic closes (margin shortfall, margin call, intraday square-off) were
+        not. With the NSE feed down and the real market 3% lower, an account that ran short of margin on
+        its crypto position had a NIFTY lot "squared off" at the price from before the outage, 54,945
+        coins better than any real close, and an intraday position was squared off at that old price at
+        3:30 pm (found 21 Nov 2026). They now wait until prices are arriving again."""
+        tok = ins.token
+        cry = getattr(self.feed, "crypto", None)
+        fx = getattr(self.feed, "forex", None)
+        if cry is not None and tok in getattr(cry, "items", {}):
+            if not cry.connected or getattr(cry, "quiet", lambda: False)():
+                return False
+        elif fx is not None and tok in getattr(fx, "items", {}):
+            if not fx.connected or getattr(fx, "quiet", lambda: False)():
+                return False
+        elif not self.feed.connected:
+            return False
+        return bool(self.feed.live(tok))
+
     # ---- liquidity / order book ------------------------------------------------
     def liquidity_settings(self, db: Session):
         on = (get_setting(db, "liquidity_check", "true") or "true").lower() == "true"
@@ -1130,7 +1153,8 @@ class Engine:
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""
         ins = self.feed.instruments.get(p.token)
-        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+        if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                or not self.feed_delivering(ins):
             return False
         side = "SELL" if p.qty > 0 else "BUY"
         try:
@@ -1392,7 +1416,8 @@ class Engine:
         rows = []
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+            if not ins or not p.qty or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                    or not self.feed_delivering(ins):
                 continue
             mk = self.mark_price(p.token, p.qty)
             rows.append(((mk - p.avg_price) * p.qty * self.vf(ins) if mk is not None else 0.0, p, ins))
@@ -1451,7 +1476,8 @@ class Engine:
         closed, detail, charged = 0, [], 0.0
         for p in db.query(Position).filter_by(user_id=user.id, is_closed=False).all():
             ins = self.feed.instruments.get(p.token)
-            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins):
+            if not ins or not self.tradable_now(ins) or not self.rupee_known(ins) or not self.session_price(ins) \
+                    or not self.feed_delivering(ins):
                 continue
             side = "SELL" if p.qty > 0 else "BUY"
             try:

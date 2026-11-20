@@ -994,6 +994,57 @@ try:
 finally:
     time.time = _rt
 
+# ---- the automatic closes wait while a price feed is down or has only just come back (21 Nov 2026) --------------
+# Users' own orders are refused while a feed is down (16 Nov 2026). The automatic square-off, the margin call
+# and the intraday square-off were not: they sold at the price from before the outage, whatever the real
+# market had done in the meantime (a NIFTY lot 54,945 coins better than any real close in the test).
+W16 = W14 + timedelta(days=14)
+at(day(W16, 1, 11)); px(nifty=30000)
+mk_user("outage", 1_000_000)
+trade("outage", F_NIFTY, "BUY", 3)
+_gq = lambda n: sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, token=F_NIFTY, is_closed=False))
+_live0 = feed.live
+try:
+    feed.connected = False                                 # the feed is gone; the last book (30,000) stays in memory
+    coins("outage", -300_000, "coins taken out while the feed is down")      # the account is now short of margin
+    ok("feed down: the account is short of margin", engine.funds(db, users["outage"])["margin_short"])
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: nothing is squared off at the price from before the outage", _gq("outage") == 225, f"qty {_gq('outage')}")
+    feed.connected = True; feed.live = lambda t: False     # connected again, but no new price has arrived yet
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: nor in the instant after the feed is back, before its first new price", _gq("outage") == 225, f"qty {_gq('outage')}")
+    feed.live = _live0; feed.set(F_NIFTY, 29100); feed.set(I_NIFTY, 29100)       # the first new price: the market had fallen 3%
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: with the first new price the shortfall is squared off at that price",
+       0 < _gq("outage") < 225 and _lt.side == "SELL" and near(_lt.price, 29099.95, 0.001), f"qty {_gq('outage')}, {_lt.side} @ {_lt.price}")
+    # the margin call (everything closed) waits in the same way
+    mk_user("outage2", 1_000_000)
+    trade("outage2", F_NIFTY, "BUY", 3)
+    feed.connected = False
+    coins("outage2", -700_000, "coins taken out while the feed is down")
+    _f2 = engine.funds(db, users["outage2"])
+    ok("feed down: the second account is below its maintenance requirement", _f2["equity"] < _f2["maintenance"], str(_f2))
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    ok("feed down: a margin call does not close anything at the price from before the outage", _gq("outage2") == 225, f"qty {_gq('outage2')}")
+    feed.connected = True; feed.set(F_NIFTY, 29000); feed.set(I_NIFTY, 29000)
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage2"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: once prices arrive again the margin call closes at the new price", _gq("outage2") == 0 and near(_lt.price, 28999.95, 0.001), f"qty {_gq('outage2')}, @ {_lt.price}")
+    # intraday square-off ten minutes before the close
+    mk_user("outage3", 1_000_000)
+    trade("outage3", F_NIFTY, "BUY", 1, product="MIS")
+    os.environ["PT_SESSION_END"] = "1"
+    feed.connected = False
+    at(day(W16, 1, 15, 31)); run(engine.session_end_pass()); db.expire_all()
+    ok("feed down: the intraday square-off does not sell at the price from before the outage", _gq("outage3") == 75, f"qty {_gq('outage3')}")
+    feed.connected = True; feed.set(F_NIFTY, 28900); feed.set(I_NIFTY, 28900)
+    engine._consumed.clear(); run(engine.session_end_pass()); db.expire_all()
+    _lt = db.query(Trade).filter_by(user_id=users["outage3"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("feed down: once prices arrive again the intraday position is squared off at the new price", _gq("outage3") == 0 and near(_lt.price, 28899.95, 0.001), f"qty {_gq('outage3')}, @ {_lt.price}")
+finally:
+    feed.connected = True; feed.live = _live0; os.environ.pop("PT_SESSION_END", None)
+
 # ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
 # On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
 # offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.

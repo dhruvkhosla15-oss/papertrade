@@ -52,6 +52,107 @@ def sheet_rows(wb, name):
     return rows[h], rows[h + 1:]
 
 
+# ---------------- Accounts officer's block (21 Nov 2026) ----------------
+def accounts_block(br, actx, uctx, ok, near):
+    """Figures and records of the owner's requests of 19 Nov 2026: the Master activity record's lines for coins
+    added and removed say the same as the ledger, to the paisa; and an order placed through the Stop-loss /
+    Target sheet of a position is the same order, with the same reservation, as from the ordinary ticket."""
+    A = actx.request
+    cid = A.post(f"{B}/api/admin/users", data={"username": "sitecoins", "password": "Coins@12345", "display_name": "Site Coins", "initial_coins": 20000000}).json().get("id")
+    for amt, note in ((1234.56, "top-up"), (-234.5, "taken back")):
+        A.post(f"{B}/api/admin/users/{cid}/coins", data={"amount": amt, "note": note})
+    led = [x for x in reversed(A.get(f"{B}/api/admin/users/{cid}/detail").json().get("ledger") or []) if x["kind"] in ("ADMIN_CREDIT", "ADMIN_DEBIT")]
+    # (an account number is handed out again after a delete: only this account's own lines count)
+    acts = [x for x in A.get(f"{B}/api/admin/audit").json() if f"/users/{cid}/coins" in x.get("action", "") and "sitecoins:" in (x.get("detail") or "")][::-1]
+    said = []; same = len(led) == 3 and len(acts) == 2
+    for l, a in zip(led[1:], acts):
+        m = re.match(r"(Added|Removed) ([\d,]+\.\d\d) coins (?:to|from) sitecoins: balance (-?[\d,]+\.\d\d) → (-?[\d,]+\.\d\d)", a.get("detail") or "")
+        said.append(a.get("detail"))
+        f = lambda t: float(t.replace(",", ""))
+        same = same and bool(m) and (m.group(1) == "Added") == (l["kind"] == "ADMIN_CREDIT") and near(f(m.group(2)), abs(l["amount"]), 0.001) \
+            and near(f(m.group(4)), l["balance_after"], 0.001) and near(f(m.group(3)), l["balance_after"] - l["amount"], 0.001)
+    ok("Master activity record: coins added and removed read 'balance from → to' and agree with the ledger to the paisa", same, f"{said} against {[(x['amount'], x['balance_after']) for x in led]}")
+    if cid:
+        A.delete(f"{B}/api/admin/users/{cid}")
+    # Stop-loss / Target sheet against the ordinary ticket, on a position the test user holds (phone screen)
+    ctx = br.new_context(viewport={"width": 412, "height": 900}, service_workers="block"); ctx.add_cookies(uctx.cookies())
+    page = ctx.new_page(); sent = []
+    page.on("request", lambda q: sent.append(q.post_data_json) if q.method == "POST" and q.url.endswith("/api/orders") else None)
+    page.goto(f"{B}/"); page.wait_for_timeout(5000)
+    page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('positions')"); page.wait_for_timeout(2500)
+    p = page.evaluate("""() => { const p = state.positions.find(x => x.qty && ['NFO', 'BFO'].includes(x.exchange) && document.querySelector(`[data-slt="${x.id}"]`));
+        return p ? {id: p.id, token: p.token, qty: p.qty, lots: Math.abs(p.lots), ltp: (state.prices[p.token] || {}).ltp || p.ltp || p.avg_price} : null; }""")
+    got = {}; opened = None
+    if p:
+        side = "SELL" if p["qty"] > 0 else "BUY"
+        trig = round(round(p["ltp"] * (0.9 if side == "SELL" else 1.1) / 0.05) * 0.05, 2)
+        for path in ("sheet", "ticket"):
+            if path == "sheet":
+                page.evaluate("(id) => document.querySelector(`[data-slt=\"${id}\"]`).click()", p["id"]); page.wait_for_timeout(1800)
+                opened = page.evaluate("({open: !document.querySelector('#sheet').classList.contains('hidden'), side: state.side, type: state.otype, lots: +document.querySelector('#oLots').value, hint: !document.querySelector('#sltHint').classList.contains('hidden')})")
+            else:
+                page.evaluate("(t) => document.querySelector(`[data-add=\"${t}\"]`).click()", p["token"]); page.wait_for_timeout(1800)
+                page.evaluate("(sd) => { document.querySelector(sd === 'SELL' ? '#sideSell' : '#sideBuy').click(); document.querySelector('[data-ot=\"SL\"]').click(); }", side); page.wait_for_timeout(400)
+            page.fill("#oLots", str(p["lots"])); page.fill("#oTrig", str(trig)); page.wait_for_timeout(600)
+            used0 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]; n0 = len(sent)
+            page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(2500)
+            used1 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]
+            mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
+            got[path] = {"body": sent[n0] if len(sent) > n0 else None, "reserved": round(used1 - used0, 2), "resting": len(mine)}
+            for o in mine:
+                ctx.request.delete(f"{B}/api/orders/{o['id']}")
+            page.wait_for_timeout(800); page.evaluate("typeof refreshAll === 'function' && refreshAll()"); page.wait_for_timeout(1200)
+    ok("User: the Stop-loss / Target button opens the order sheet on the exit side for the whole position, and its order is the same order, with the same reservation, as from the ordinary ticket",
+       bool(p) and bool(opened) and opened["open"] and opened["side"] == side and opened["type"] == "SL" and opened["lots"] == p["lots"] and opened["hint"]
+       and bool(got.get("sheet", {}).get("body")) and got["sheet"]["body"] == got.get("ticket", {}).get("body") and got["sheet"]["resting"] == 1 and got["ticket"]["resting"] == 1
+       and near(got["sheet"]["reserved"], got["ticket"]["reserved"], 0.011), f"position {p}, sheet {opened}, orders {str(got)[:240]}")
+    # ---- faults of 21 Nov 2026 (each check belongs to a fix of that night) ----
+    # The card of a position whose market is shut shows the closing-price figure the server gives (as Available
+    # Balance, the Master's screen and Excel do). Quotes that still arrived after the close moved the card and the
+    # Unrealised figure above it. The server's answer is stood in for, so no market has to be shut for the check.
+    page.evaluate("showTab('positions')"); page.wait_for_timeout(1500)
+    q = page.evaluate("""(async () => { const real = window.api; const l = await real('/positions'); const p = l.find(x => x.qty && !['CRYPTO', 'FOREX'].includes(x.exchange)); if (!p) return null;
+        window.__realApi = real; window.api = async (u, ...r) => { const x = await real(u, ...r); if (u === '/positions') { const y = x.find(z => z.id === p.id); if (y) { y.at_close = true; y.unrealised = 1234.5; } } return x; };
+        await refreshAll(); return {id: p.id, token: p.token, ltp: (state.prices[p.token] || {}).ltp}; })()""")
+    held = moved = None; ticks = 0
+    if q:
+        for _ in range(24):          # until at least two new quotes have come in for the contract
+            page.wait_for_timeout(500)
+            now = page.evaluate("(t) => (state.prices[t] || {}).ltp", q["token"])
+            if now != q["ltp"]:
+                ticks += 1; q["ltp"] = now
+            if ticks >= 2:
+                break
+        held = page.evaluate("(id) => (document.getElementById('pl' + id) || {}).textContent", q["id"])
+        page.evaluate("() => { window.api = window.__realApi; }")
+        for _ in range(30):          # the market "reopens": within a few seconds the card follows the quotes again
+            page.wait_for_timeout(500)
+            moved = page.evaluate("(id) => (document.getElementById('pl' + id) || {}).textContent", q["id"])
+            if moved != held:
+                break
+    ok("User: the card of a position whose market is shut keeps the closing-price figure while quotes still arrive, and follows the quotes again when the market reopens",
+       bool(q) and ticks >= 2 and held == "+1,234.50" and moved not in (None, held), f"{ticks} new quotes, card while shut {held!r}, after reopening {moved!r}")
+    # A commission, a cost or a loss of less than 50 paise is written ₹0, never "-₹0" (user's P&L tab and weekly list,
+    # the Master's user row and the split lines of his Weekly Settlement tab)
+    utxt = page.evaluate("""(async () => { showTab('account'); setPf('pnl'); const real = window.api;
+        window.api = async (u, ...r) => { if (u === '/weekly') return {week_end: '2026-12-13', row: {closed: 3.2, valuation: -0.3, commission: 0.07, result: 2.83}, weeks: []};
+            if (u.startsWith('/report')) return {users: [{allocated: 500000, equity: 500002.83, overall_pnl: 2.83}]}; return real(u, ...r); };
+        state.funds = Object.assign({}, state.funds, {equity: 500002.83, unrealised: -0.3}); await loadPerf(); window.api = real;
+        return document.querySelector('#pnlCards').innerText + ' | ' + document.querySelector('#wkList').innerText; })()""")
+    ctx.close()
+    ctx = br.new_context(viewport={"width": 1440, "height": 900}, service_workers="block"); ctx.add_cookies(actx.cookies())
+    page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+    mtxt = page.evaluate("""(async () => { const keep = users, mode = PD.mode; users = [Object.assign({}, users[0], {commission_total: 0.07})]; PD.mode = 'all'; renderUsers();
+        let t = document.querySelector('#uTbl tbody').innerText; users = keep; PD.mode = mode; renderUsers();
+        const real = window.api; window.api = async (u, ...r) => { const x = await real(u, ...r); if (u.startsWith('/admin/weekly') && x.rows && x.rows[0]) { Object.assign(x.rows[0], {commission: 0.07, commission_crypto: 0.07}); wkOpen.add(x.rows[0].user_id); } return x; };
+        document.querySelector('[data-nav="weekly"]').click(); await new Promise(r => setTimeout(r, 1500)); await loadWeekly(); window.api = real;
+        return t + ' | ' + document.querySelector('#wkTbl tbody').innerText; })()""")
+    ctx.close()
+    zero = re.findall(r"[^|\n]{0,24}[-−]₹0(?![0-9.,])", utxt + " || " + mtxt)
+    ok("A commission or a loss of less than 50 paise is written ₹0, never '-₹0' (user's P&L tab and weekly list, Master's user row and Weekly Settlement split)",
+       "Commission" in utxt and "₹0" in utxt and len(mtxt) > 40 and not zero, zero[:4] or (utxt[:120], mtxt[:120]))
+
+
 def main():
     with sync_playwright() as pw:
         br = pw.chromium.launch()
@@ -721,6 +822,7 @@ def main():
         ok("Activity record: every line has its time and the Master's name", all(x.get("at") and x.get("admin") for x in lines))
         # ======== Master activity record — end of block ========
 
+        accounts_block(br, actx, uctx, ok, near)      # Accounts officer's block, 21 Nov 2026 (above main)
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

@@ -1818,6 +1818,20 @@ class Probe:
                                                              and abs(d["settled_earlier"] + d["unrealised"] - d["total_since_entry"]) > 0.02):
                     wk_pos.append(p.symbol)
             self.ok("finished weeks in the weekly report match the ledger on every account", not wk_led, ", ".join(wk_led[:6]))
+            # Nothing fills between Sunday 23:59:59 and the moment the cut-off runs (fills are held for those
+            # seconds). A trade booked before the settlement line but dated after it is counted in two weeks
+            # (21 Nov 2026: the hold could be slept through). Looked at for the newest cut-off only.
+            from datetime import timedelta as _tdw
+            two = []
+            for u in users:
+                cutl = (db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind == "WEEKLY_SETTLEMENT", Ledger.created_at > datetime.utcnow() - _tdw(days=8))
+                        .order_by(Ledger.id.desc()).first())
+                if cutl is not None:
+                    n2 = db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.id < cutl.id, Ledger.created_at > cutl.created_at,
+                                                 ~Ledger.kind.in_(["WEEKLY_VALUATION", "WEEKLY_SETTLEMENT"])).count()
+                    if n2:
+                        two.append(f"{u.username}: {n2} line(s)")
+            self.ok("nothing was booked in the finished week while dated after its cut-off (no trade counted in two weeks)", not two, "; ".join(two[:6]))
             self.ok("every finished week adds up (closed trades + open positions at week close − commission)", not wk_sum, "; ".join(wk_sum[:6]))
             self.ok("every carried position keeps its original average (settled earlier + this week = total since entry)", not wk_pos, ", ".join(sorted(set(wk_pos))[:8]))
             nopx = sorted({p.symbol for p in db.query(Position).filter_by(is_closed=False).all() if p.qty and _wk.close_price(self.engine, p) is None})
@@ -1941,6 +1955,32 @@ class Probe:
                                 if not (lo - t <= sum(days) <= hi + t):
                                     bad_d.append(f"{u.username}: days {sum(days):,.0f} vs week {w3['result']:,.0f}")
                     self.ok("Excel statements build for every user and their Net P&L (Settlement) equals the weekly report", not bad_x, "; ".join(bad_x[:4]))
+                    # The week that has just finished tells one story: its Net P&L (Settlement) on the Performance tab
+                    # and in the Excel file is the Weekly Settlement's final result, to the paisa (21 Nov 2026: it was
+                    # measured to the Monday day-start record, taken some seconds after the cut-off, so every account
+                    # holding Crypto over Sunday midnight showed a slightly different figure). Only weeks whose
+                    # cut-off ran on time are compared.
+                    bad_w, seen_w = [], 0
+                    lsun = mon - _td(days=1); lmon = mon - _td(days=7)
+                    for u in users:
+                        if M._cut_overall(db, u, lsun) is None:
+                            continue
+                        if M._cut_overall(db, u, lmon - _td(days=1)) is None:
+                            # No on-time cut-off before this week. Then the week is only comparable if the account began
+                            # in it: an account's FIRST settlement holds everything since the account was opened, not
+                            # just that calendar week, and after a late cut-off the week's start is not exact.
+                            first = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.created_at).first()
+                            if first is None or (first.created_at + _td(hours=5, minutes=30)).date() < lmon:
+                                continue
+                        row = db.query(WeekSettlement).filter_by(user_id=u.id, week_end=lsun.isoformat()).first()
+                        got = M.build_report(db, [u], lmon.isoformat(), lsun.isoformat())["users"][0]["total_pnl"]
+                        seen_w += 1
+                        if abs(got - row.result) > 0.011:
+                            bad_w.append(f"{u.username}: Performance / Excel {got:,.2f} vs Weekly Settlement {row.result:,.2f}")
+                    if seen_w:
+                        self.ok("last week's Net P&L (Settlement) on the Performance tab and in Excel equals the Weekly Settlement, on every account", not bad_w, "; ".join(bad_w[:4]))
+                    else:
+                        self.note("last week on the Performance tab against the Weekly Settlement", "no account has a week that was closed on time yet")
                     self.ok("the daily figures of this week add up to the week's result", not bad_d, "; ".join(bad_d[:4]))
                     wb = _lw(_io.BytesIO(M.build_xlsx(db, users, None, None)))
                     self.ok("the Master's all-users Excel builds with every sheet", all(n in wb.sheetnames for n in need), ", ".join(wb.sheetnames))

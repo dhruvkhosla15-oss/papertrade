@@ -655,6 +655,10 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   loadWatch();
   refreshAll();
   setInterval(refreshFunds,5000);
+/* A position whose market is shut shows the closing-price figure the server works out (the same one as Available Balance, the Master's screen and the Excel files); quotes that still arrive after the close used to move its card and the Unrealised figure above it. While such a position is held the list is read again every few seconds, so it goes live the moment its market reopens. */
+async function shutPoll(){if(document.hidden||!state.positions||!state.positions.some(p=>p.at_close))return;try{const l=await api('/positions');
+  if(l.length!==state.positions.length||l.some(n=>{const o=state.positions.find(x=>x.id===n.id);return !o||o.at_close!==n.at_close||o.qty!==n.qty||(n.at_close&&o.unrealised!==n.unrealised);})){state.positions=l;renderPositions();sub(l.map(p=>p.token));}}catch(e){}}
+setInterval(shutPoll,5000);
   if(me.week_warning){window._wkWarn=1;showAlerts([me.week_warning].concat((me.alerts||[]).filter(a=>!/margin shortfall/i.test(a.title||''))),(me.alerts||[]).filter(a=>/margin shortfall/i.test(a.title||'')));}else showAlerts(me.alerts);   /* a waiting pop-up shows as the app opens, not five seconds later in the middle of a tap */
 }
 function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours()%12||12)+(x.getMinutes()?':'+String(x.getMinutes()).padStart(2,'0'):'')+(x.getHours()<12?' am':' pm');};
@@ -823,7 +827,8 @@ function onPrices(ticks){
   }
   // live P&L on positions
   let unreal=0,touched=false;
-  for(const p of state.positions){const pr=state.prices[p.token];if(!pr)continue;touched=true;
+  for(const p of state.positions){if(p.at_close){unreal+=p.unrealised||0;touched=true;continue;}   /* market shut: the closing-price figure the server gave stays, whatever quotes still arrive (see shutPoll) */
+    const pr=state.prices[p.token];if(!pr)continue;touched=true;
     const mk=(state.me?.liquidity?.on&&((p.qty>0&&pr.bid!=null)?pr.bid:(p.qty<0&&pr.ask!=null)?pr.ask:null))??pr.ltp;
     const u=(mk-p.avg_price)*p.qty*(p.value_factor||1);unreal+=u;
     const l=document.getElementById('pl'+p.id),lt=document.getElementById('pltp'+p.id);if(l){const old=parseFloat((l.textContent||'0').replace(/[^0-9.-]/g,''))||0;l.textContent=(u>=0?'+':'')+(usdOn(p.exchange)?'$'+fmt2(u/state.usdinr):fmt2(u));l.className='big num '+pnlCls(u);if(Math.abs(u-old)>0.004)flash(l,Math.sign(u-old));}if(lt)lt.textContent=cpx(p.exchange,mk);
@@ -1092,10 +1097,10 @@ async function loadPerf(){try{const d=istDay(),q=dateQS('pnl');
   const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';let rows;
   let wk=null;try{wk=await api('/weekly');}catch(e){}
   if(!q){const w=(wk&&wk.row)||{},un=f.unrealised!=null?f.unrealised:(w.valuation||0),comm=w.commission||0,eq=(f.equity!=null?f.equity:a.equity)||0,net=eq-(a.allocated||0),pl=Math.round((net+comm)*100)/100||0,real=Math.round((pl-un)*100)/100||0;   /* no closed trades = exactly 0, not a stray -0.00000001 shown as -₹0 in red */
-    rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L (This Week)',sg(net),c(net)],['Net Balance',inr(eq),'']];
+    rows=[['Allocated',inr(a.allocated||0),''],['Available Balance',inr(f.available||0),''],['Margin Used',inr(f.used_margin||0),''],['Unrealised',sg(un),c(un)],['Realised',sg(real),c(real)],['P&L',sg(pl),c(pl)],['Commission',comm?inr(-comm):inr(0),'mut'],['Net P&L (This Week)',sg(net),c(net)],['Net Balance',inr(eq),'']];
     if(wk&&wk.weeks&&wk.weeks.length){const all=a.overall_pnl!=null?a.overall_pnl:net;rows.push(['Net P&L (All Time, with finished weeks)',sg(all),c(all)]);}}
   else{const real=(a.gross_profit||0)+(a.gross_loss||0),val=a.valuation||0,comm=a.commission||0,net=(a.net_pnl||0)+val;
-    rows=[['Realised (Closed Trades)',sg(real),c(real)]].concat(val?[['Open Positions At Week Close',sg(val),c(val)]]:[],[['Commission',comm?'-'+inr(comm):inr(0),'mut'],['Net P&L',sg(net),c(net)]]);}
+    rows=[['Realised (Closed Trades)',sg(real),c(real)]].concat(val?[['Open Positions At Week Close',sg(val),c(val)]]:[],[['Commission',comm?inr(-comm):inr(0),'mut'],['Net P&L',sg(net),c(net)]]);}
   renderWeeks(wk);
   $('#pnlCards').innerHTML=rows.map(([k,x,cl],i)=>`<div class="plrow${(['P&L','Net Balance'].includes(k)||k.startsWith('Net P&L'))?' tot':''}${i&&['Unrealised','Commission','Net Balance'].includes(k)?' sep':''}"><span>${k}</span><b class="num ${cl}">${x}</b></div>`).join('');
   $('#perfMeta').textContent=a.closing_trades?`${a.closing_trades} Closed Trades · ${a.win_rate}% Winners · Best ${inr(a.best)} · Worst ${inr(a.worst)}`:(q?'No closed trades in these dates':'');}catch(e){}}
@@ -1103,11 +1108,11 @@ async function loadPerf(){try{const d=istDay(),q=dateQS('pnl');
 let wkCache={};
 async function renderWeeks(wk){const el=$('#wkList');if(!el||!wk)return;
   const lab=w=>{const b=new Date(w+'T00:00:00Z'),a=new Date(b);a.setUTCDate(b.getUTCDate()-6);const f=(x,o)=>x.toLocaleDateString('en-IN',{timeZone:'UTC',...o});return f(a,{day:'numeric',month:'short'})+' – '+f(b,{day:'numeric',month:'short'});};
-  const sg=x=>(x>0?'+':x<0?'-':'')+inr(Math.abs(x)),c=x=>x>0?'up':x<0?'dn':'';
+  const sg=x=>(x>0?'+':'')+inr(x),c=x=>x>0?'up':x<0?'dn':'';   /* inr() writes the minus itself, and none for an amount that rounds to ₹0 */
   const start=w=>{const b=new Date(w+'T00:00:00Z');b.setUTCDate(b.getUTCDate()-6);return b.toISOString().slice(0,10);};
   for(const w of wk.weeks){if(!wkCache[w]){try{const r=await api('/weekly?week_end='+w);wkCache[w]=r.row;}catch(e){}}}
   const line=(w,r,fin)=>r?`<div class="wkrow"><div style="flex:1;min-width:0"><b>${lab(w)}</b> <span class="pill ${fin?'FILLED':'OPEN'}">${fin?'FINAL':'RUNNING'}</span>
-      <div class="small mut" style="margin-top:3px">Closed trades ${sg(r.closed)} · Open positions ${fin?'at week close':'now'} ${sg(r.valuation)} · Commission ${r.commission?'-'+inr(r.commission):inr(0)}</div></div>
+      <div class="small mut" style="margin-top:3px">Closed trades ${sg(r.closed)} · Open positions ${fin?'at week close':'now'} ${sg(r.valuation)} · Commission ${r.commission?inr(-r.commission):inr(0)}</div></div>
       <div style="text-align:right;flex:0 0 auto"><b class="num ${c(r.result)}" style="font-size:16px">${sg(r.result)}</b><div><a class="small" style="color:var(--acc)" href="/api/export.xlsx?from=${start(w)}&to=${w}">⬇ Excel</a></div></div></div>`:'';
   el.innerHTML='<h3 style="margin:16px 0 8px">Weekly Settlement</h3><div class="small mut" style="margin-bottom:8px">A week runs Monday to Sunday. At Sunday 11:59 pm open positions are valued at the closing price and carried forward at it, the week is settled, and your coins go back to the allocated amount.</div>'
     +'<div class="card" style="padding:4px 12px">'+line(wk.week_end,wk.row,false)+wk.weeks.map(w=>line(w,wkCache[w],true)).join('')+'</div>';}

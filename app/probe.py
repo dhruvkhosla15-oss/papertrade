@@ -1013,7 +1013,7 @@ class Probe:
                 if r.status_code != 200 or 'id="loginBtn"' not in t or len(t) > 12000:
                     got.append(f"{who} /admin -> {r.status_code}, {len(t)} characters: not the small login page")
                 elif "api/admin" in t or named:
-                    got.append(f"{who} /admin holds {named.group(0) if named else 'api/admin'}")
+                    got.append(f"{who} /admin holds {'the name of a price provider' if named else 'api/admin'}")
                 if "no-store" not in r.headers.get("cache-control", ""):
                     got.append(f"{who} /admin may be kept by the browser ({r.headers.get('cache-control', 'no cache rule')})")
                 for path in ("/static/admin.html", "/pages/admin.html", "/static/pages/admin.html", "/static/..%2fpages/admin.html",
@@ -1832,7 +1832,7 @@ class Probe:
                         .order_by(Ledger.id.desc()).first())
                 if cutl is not None:
                     n2 = db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.id < cutl.id, Ledger.created_at > cutl.created_at,
-                                                 ~Ledger.kind.in_(["WEEKLY_VALUATION", "WEEKLY_SETTLEMENT"])).count()
+                                                 Ledger.kind.in_(["REALISED_PNL", "COMMISSION", "EXPIRY_SETTLEMENT", "LIQUIDATION"])).count()   # trading lines only: coins moved by the Master in that second are not a trade
                     if n2:
                         two.append(f"{u.username}: {n2} line(s)")
             self.ok("nothing was booked in the finished week while dated after its cut-off (no trade counted in two weeks)", not two, "; ".join(two[:6]))

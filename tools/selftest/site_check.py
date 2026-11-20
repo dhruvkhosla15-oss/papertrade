@@ -132,7 +132,25 @@ def accounts_block(br, actx, uctx, ok, near):
                 break
     ok("User: the card of a position whose market is shut keeps the closing-price figure while quotes still arrive, and follows the quotes again when the market reopens",
        bool(q) and ticks >= 2 and held == "+1,234.50" and moved not in (None, held), f"{ticks} new quotes, card while shut {held!r}, after reopening {moved!r}")
+    # A commission, a cost or a loss of less than 50 paise is written ₹0, never "-₹0" (user's P&L tab and weekly list,
+    # the Master's user row and the split lines of his Weekly Settlement tab)
+    utxt = page.evaluate("""(async () => { showTab('account'); setPf('pnl'); const real = window.api;
+        window.api = async (u, ...r) => { if (u === '/weekly') return {week_end: '2026-12-13', row: {closed: 3.2, valuation: -0.3, commission: 0.07, result: 2.83}, weeks: []};
+            if (u.startsWith('/report')) return {users: [{allocated: 500000, equity: 500002.83, overall_pnl: 2.83}]}; return real(u, ...r); };
+        state.funds = Object.assign({}, state.funds, {equity: 500002.83, unrealised: -0.3}); await loadPerf(); window.api = real;
+        return document.querySelector('#pnlCards').innerText + ' | ' + document.querySelector('#wkList').innerText; })()""")
     ctx.close()
+    ctx = br.new_context(viewport={"width": 1440, "height": 900}, service_workers="block"); ctx.add_cookies(actx.cookies())
+    page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+    mtxt = page.evaluate("""(async () => { const keep = users, mode = PD.mode; users = [Object.assign({}, users[0], {commission_total: 0.07})]; PD.mode = 'all'; renderUsers();
+        let t = document.querySelector('#uTbl tbody').innerText; users = keep; PD.mode = mode; renderUsers();
+        const real = window.api; window.api = async (u, ...r) => { const x = await real(u, ...r); if (u.startsWith('/admin/weekly') && x.rows && x.rows[0]) { Object.assign(x.rows[0], {commission: 0.07, commission_crypto: 0.07}); wkOpen.add(x.rows[0].user_id); } return x; };
+        document.querySelector('[data-nav="weekly"]').click(); await new Promise(r => setTimeout(r, 1500)); await loadWeekly(); window.api = real;
+        return t + ' | ' + document.querySelector('#wkTbl tbody').innerText; })()""")
+    ctx.close()
+    zero = re.findall(r"[^|\n]{0,24}[-−]₹0(?![0-9.,])", utxt + " || " + mtxt)
+    ok("A commission or a loss of less than 50 paise is written ₹0, never '-₹0' (user's P&L tab and weekly list, Master's user row and Weekly Settlement split)",
+       "Commission" in utxt and "₹0" in utxt and len(mtxt) > 40 and not zero, zero[:4] or (utxt[:120], mtxt[:120]))
 
 
 def main():

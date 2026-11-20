@@ -1641,11 +1641,19 @@ class Engine:
                             # traded price: on a thin contract that can be hours old and far from the book,
                             # and a user could buy at the ask below it and be settled at it for a free profit.
                             ltp = self.value_price(p)
+                        if ltp is None and is_opt:
+                            # No price for the underlying, also after the three-minute wait above. The option's
+                            # own last trade is not a settlement price: it can be hours old, and an option that
+                            # expired worthless was paid out at the premium of that morning (5 lots of a crude
+                            # call worth nothing settled at 420: 210,000 coins, found 21 Nov 2026). Wait for
+                            # the underlying, as for a contract whose list is not loaded.
+                            if p.id not in self._unsettled_warned:
+                                self._unsettled_warned.add(p.id)
+                                log.error("cannot settle %s for user %s yet: no price for its underlying", p.symbol, p.user_id)
+                            continue
                         if ltp is None:
                             ltp = self.feed.ltp(p.token)
                         if ltp is None:
-                            if ins and ins.instrument_type in ("CE", "PE"):
-                                continue  # wait until the underlying price is available
                             ltp = p.avg_price
                         user = db.get(User, p.user_id)
                         realised = (ltp - p.avg_price) * p.qty * self.vf(ins)

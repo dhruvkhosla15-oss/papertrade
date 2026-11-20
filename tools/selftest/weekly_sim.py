@@ -1045,6 +1045,31 @@ try:
 finally:
     feed.connected = True; feed.live = _live0; os.environ.pop("PT_SESSION_END", None)
 
+# ---- an expired option whose underlying has no price is not settled at its own last trade (21 Nov 2026) --------
+# After the three-minute wait for the underlying, an option fell back to its own last traded price: 5 lots of a
+# crude call that expired worthless were paid out at the premium of that morning (420 a unit, 210,000 coins).
+O_NOUND = 41
+_xday = day(W16, 2, 12)
+feed.instruments[O_NOUND] = Instrument(O_NOUND, "CRUDEOIL27FEB6000CE", "CRUDEOIL", "MCX", "MCX-OPT", "CE", _xday.date().isoformat(), 6000, 100, 0.1)
+at(_xday); feed.set(F_CRUDE, 5900); feed.set(O_NOUND, 40.0)
+mk_user("nound", 1_000_000)
+trade("nound", O_NOUND, "BUY", 5)
+at(day(W16, 2, 23, 50)); feed.set(O_NOUND, 3.0); feed.prices[O_NOUND]["ltp"] = 420.0     # worth 3 now; the last trade is from the morning
+_crude_px = feed.prices.pop(F_CRUDE)                       # nothing in memory for the underlying future (restart, feed not delivering it)
+_nq = lambda: db.query(Position).filter_by(user_id=users["nound"].id, token=O_NOUND, is_closed=False).count()
+try:
+    at(day(W16, 2, 23, 58)); run(engine._settle_expired()); db.expire_all()
+    ok("no underlying price: an expired option first waits for its underlying", _nq() == 1)
+    engine._und_wait[F_CRUDE] = time.time() - 200          # three minutes later there is still no price for it
+    run(engine._settle_expired()); db.expire_all()
+    ok("no underlying price: after the wait it is NOT settled at its own old last trade", _nq() == 1,
+       "settled @ " + str(getattr(db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first(), "price", None)))
+finally:
+    feed.prices[F_CRUDE] = _crude_px
+feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
+_lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
+ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
+
 # ---- the price-feed login that is refused, and errors kept through a restart (owner's requests of 19 Nov 2026; checks added 20 Nov) ----
 # On 19 Nov a login the broker had cleared was retried for two hours (about 300 errors) while the Master's page
 # offered no way to log in again. Three refusals in a row must stop the retrying and ask for a fresh login.

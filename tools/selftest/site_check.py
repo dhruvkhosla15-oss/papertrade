@@ -587,6 +587,129 @@ def main():
         ok("Master: no label of a figure card is cut off on Performance and Shadow Book (tablet, phone)", not cutl, cutl[:4])
         ok("Master Settings: the note beside the crypto margin gives the 50x limit", "50×" in note and "200" not in note, note[:120])
 
+        # ======== UI / user experience officer, 21 Nov 2026: owner's changes of 19-20 Nov and the faults of tonight ========
+        # (a) Stop-loss / Target button on every open position: the sheet opens on the exit side, for the whole position,
+        #     on Stop-loss, with its hint; a stop and a target placed through it really rest.
+        ctx = br.new_context(viewport={"width": 412, "height": 800}, service_workers="block"); ctx.add_cookies(uctx.cookies())
+        page = ctx.new_page(); page.goto(f"{B}/"); page.wait_for_timeout(4000)
+        page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('positions')"); page.wait_for_timeout(1500)
+        held = [x for x in uget("/api/positions") if x.get("qty")]
+        cards = page.evaluate("[document.querySelectorAll('#posList > div').length, document.querySelectorAll('#posList [data-slt]').length, [...document.querySelectorAll('#posList [data-slt]')].filter(b => b.getBoundingClientRect().right > window.innerWidth || b.getBoundingClientRect().width < 30).length]")
+        ok("User Positions: every open position has its Stop-loss / Target button, on the screen", len(held) >= 1 and cards[1] == len(held) and cards[2] == 0, f"{len(held)} positions, {cards}")
+        hp = held[0] if held else None
+        if hp:
+            want_side = "SELL" if hp["qty"] > 0 else "BUY"; away = 0.97 if hp["qty"] > 0 else 1.03
+            page.click(f"[data-slt='{hp['id']}']"); page.wait_for_timeout(1500)
+            sh = page.evaluate("""() => ({open: !document.querySelector('#sheet').classList.contains('hidden'), side: document.querySelector('#sideBuy').classList.contains('active') ? 'BUY' : 'SELL', ot: (document.querySelector('[data-ot].active') || {dataset: {}}).dataset.ot,
+                lots: +document.querySelector('#oLots').value, hint: !document.querySelector('#sltHint').classList.contains('hidden') && document.querySelector('#sltHint').offsetParent ? document.querySelector('#sltHint').innerText : '', trig: +document.querySelector('#oTrig').value, sym: document.querySelector('#oSym').innerText})""")
+            ok("User Positions: Stop-loss / Target opens the order sheet on the exit side, for the whole position, on Stop-loss, with its hint",
+               sh["open"] and sh["side"] == want_side and sh["ot"] == "SL" and near(sh["lots"], abs(hp["lots"]), 1e-6) and "Stop-loss" in sh["hint"] and "Target" in sh["hint"] and sh["trig"] > 0, sh)
+            n_open = lambda kind: len([o for o in uget("/api/orders") if o["status"] == "OPEN" and o["token"] == hp["token"] and o["order_type"] == kind and o["side"] == want_side])
+            s0, l0 = n_open("SL"), n_open("LIMIT"); ref = sh["trig"] or hp.get("ltp") or hp["avg_price"]
+            page.fill("#oTrig", str(round(ref * away, 1))); page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1800)
+            page.click(f"[data-slt='{hp['id']}']"); page.wait_for_timeout(1200)
+            page.click("[data-ot='LIMIT']"); page.fill("#oLimit", str(round(ref * (2 - away), 1))); page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1800)
+            ok("User Positions: a stop-loss and a target placed through that sheet rest as pending orders", (n_open("SL"), n_open("LIMIT")) == (s0 + 1, l0 + 1), f"stop {s0}->{n_open('SL')}, target {l0}->{n_open('LIMIT')}")
+            page.evaluate("async (t) => { const i = await api('/instrument/' + t); openSheet(i, 'BUY'); }", hp["token"]); page.wait_for_timeout(900)
+            ok("User: the Stop-loss / Target hint is not left on an ordinary order sheet", page.evaluate("document.querySelector('#sltHint').classList.contains('hidden')"))
+            page.evaluate("document.querySelector('#sheet').classList.add('hidden')")
+        # position card on a 360-wide phone: every figure of the last line stays beside its label (they broke apart beside the three buttons)
+        order(mcx["token"], "BUY", 400)          # refused for lack of coins: a long reason for the Order Book checks below
+        page.set_viewport_size({"width": 360, "height": 800}); page.evaluate("showTab('positions'); renderPositions()"); page.wait_for_timeout(1200)
+        pv = page.evaluate("""() => { const pv = [...document.querySelectorAll('#posList .pv')]; return [pv.length, pv.filter(e => e.getClientRects().length > 1 || e.getBoundingClientRect().right > window.innerWidth).map(e => e.innerText),
+            [...document.querySelectorAll('#posList button')].filter(b => b.getBoundingClientRect().right > window.innerWidth + 1).length]; }""")
+        ok("User (360-wide phone) Positions: each figure of a position's last line stays beside its label, buttons on the screen", pv[0] >= 3 and not pv[1] and pv[2] == 0, pv)
+        ok("User: an amount of nothing never reads '+-0.00' or '-0.00'", page.evaluate("[pmoney({exchange: 'NFO'}, -0), fmt2(-0.001), fmt2(-0.006), fmt2(-12.5)]") == ["+0.00", "0.00", "-0.01", "-12.50"], page.evaluate("[pmoney({exchange: 'NFO'}, -0), fmt2(-0.001), fmt2(-0.006), fmt2(-12.5)]"))
+        page.evaluate("showTab('watch', 'watch')"); page.wait_for_timeout(1500)
+        wm = page.evaluate("[document.querySelectorAll('#wlist .wmeta').length, [...document.querySelectorAll('#wlist .wmeta')].filter(e => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > window.innerWidth).map(e => e.innerText)]")
+        ok("User (360-wide phone) Watchlist: lot size and expiry under a name are not cut off", wm[0] >= 2 and not wm[1], wm)
+        # (b) Order Book on a phone: each order is a card (640 px and narrower); no status pill or Cancel button is off the
+        #     screen at 360 and 412; a refused order's reason is readable; Cancel on a card really cancels
+        for wv in (360, 412):
+            page.set_viewport_size({"width": wv, "height": 800}); page.evaluate("showTab('account'); setPf('orders')"); page.wait_for_timeout(1800)
+            ob = page.evaluate("""() => { const W = window.innerWidth, off = []; document.querySelectorAll('#ordTbl .pill, #ordTbl [data-cxl], #ordTbl td .small').forEach(x => { const b = x.getBoundingClientRect(); if (b.width && (b.right > W + 1 || b.left < -1)) off.push(x.innerText.slice(0, 24)); });
+                const rj = [...document.querySelectorAll('#ordTbl td .small.dn')].map(x => x.getBoundingClientRect()).filter(b => b.width > 40 && b.height > 10);
+                return {off, pills: document.querySelectorAll('#ordTbl .pill').length, cancels: document.querySelectorAll('#ordTbl [data-cxl]').length, card: getComputedStyle(document.querySelector('#ordTbl tbody tr')).display, reasons: rj.length, page: document.documentElement.scrollWidth, W}; }""")
+            ok(f"User ({wv}-wide phone) Order Book: every order is a card with its status and Cancel on the screen, and a refusal reason can be read",
+               ob["card"] == "grid" and ob["pills"] >= 5 and ob["cancels"] >= 1 and ob["reasons"] >= 1 and not ob["off"] and ob["page"] <= ob["W"] + 2, ob)
+        if hp:
+            before_c = len([o for o in uget("/api/orders") if o["status"] == "OPEN"])
+            bb = page.query_selector("#ordTbl [data-cxl]").bounding_box()
+            page.evaluate("(y) => window.scrollBy(0, y - 300)", bb["y"]); page.wait_for_timeout(300); bb = page.query_selector("#ordTbl [data-cxl]").bounding_box()
+            page.mouse.click(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2); page.wait_for_timeout(2000)
+            after_c = len([o for o in uget("/api/orders") if o["status"] == "OPEN"])
+            ok("User (phone) Order Book: Cancel on a card really cancels that order", after_c == before_c - 1, f"open orders {before_c} -> {after_c}")
+        # ... and as a table (tablet, computer) a long note under the status wraps instead of pushing Status and Cancel off the right edge
+        tw = []
+        for wv in (768, 1440):
+            page.set_viewport_size({"width": wv, "height": 800}); page.evaluate("showTab('account'); setPf('orders')"); page.wait_for_timeout(1500)
+            tw.append(page.evaluate("[document.querySelector('#ordTbl').scrollWidth, document.querySelector('#ordTbl').parentElement.clientWidth, getComputedStyle(document.querySelector('#ordTbl tbody tr')).display]"))
+        ok("User (tablet, computer) Order Book: the table with a long refusal reason fits its card (Status and Cancel on the screen)", all(t[0] <= t[1] + 1 and t[2] == "table-row" for t in tw), tw)
+        for o in uget("/api/orders"):
+            if o["status"] == "OPEN" and hp and o["token"] == hp["token"]:
+                U.delete(f"{B}/api/orders/{o['id']}")
+        ctx.close()
+        # refusals in plain words (reworded 21 Nov 2026): too many lots for one order
+        rfz = U.post(f"{B}/api/orders", data={"token": fut["token"], "side": "BUY", "lots": 400})
+        tfz = (rfz.json().get("detail") if rfz.status == 400 else "") or ""
+        ok("User: more lots than one order may carry is refused in plain words", "lots per order" in tfz and "split" in tfz and "freeze" not in tfz.lower(), f"{rfz.status} {tfz!r}")
+        # (c) The Master page behind the login, in the browser: /admin without a login is the small login page; a user's
+        #     login there is refused and leaves no session; the Master's two-step login lands on the Master page; log-out
+        #     ends on the login page; light and dark theme
+        lctx = br.new_context(viewport={"width": 412, "height": 800}, service_workers="block")
+        lctx.add_init_script("try { if (!localStorage.getItem('lfx_theme_set')) { localStorage.setItem('lfx_theme', 'light'); localStorage.setItem('lfx_theme_set', '1'); } } catch (e) {}")
+        page = lctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(1200)
+        lp = page.evaluate("""() => ({login: !!document.querySelector('#loginBtn') && !!document.querySelector('#lu'), nav: document.querySelectorAll('[data-nav]').length, size: document.documentElement.outerHTML.length, admin: document.documentElement.outerHTML.includes('api/admin'),
+            theme: document.documentElement.getAttribute('data-theme'), bg: getComputedStyle(document.body).backgroundColor, page: document.documentElement.scrollWidth, W: window.innerWidth})""")
+        ok("Master login page: /admin without a login shows only the small login page (phone, light theme)", lp["login"] and lp["nav"] == 0 and lp["size"] < 12000 and not lp["admin"] and lp["theme"] == "light" and lp["bg"] == "rgb(243, 244, 246)" and lp["page"] <= lp["W"] + 2, lp)
+        page.fill("#lu", "sitecheck"); page.fill("#lp", "Site@67890"); page.click("#loginBtn"); page.wait_for_timeout(1500)
+        ur = [page.evaluate("document.querySelector('#loginErr').textContent"), lctx.request.get(f"{B}/api/me").status, page.evaluate("!!document.querySelector('#loginBtn') && !document.querySelector('[data-nav]')")]
+        ok("Master login page: a user's login is refused with its message and leaves no session", "master only" in ur[0] and ur[1] == 401 and ur[2], ur)
+        page.fill("#lu", "admin"); page.fill("#lp", "admin123"); page.click("#loginBtn"); page.wait_for_timeout(1200)
+        st2 = page.evaluate("!document.querySelector('#otpStep').classList.contains('hidden')")
+        page.fill("#lcode", "000000"); page.click("#otpBtn"); page.wait_for_timeout(1000)
+        wrong = page.evaluate("document.querySelector('#loginErr').textContent"); page.click("#otpBack"); page.wait_for_timeout(300)
+        ok("Master login page: a wrong code is refused, and going Back clears that message", st2 and "code" in wrong.lower() and page.evaluate("document.querySelector('#loginErr').textContent") == "" and page.evaluate("!document.querySelector('#pwStep').classList.contains('hidden')"), wrong)
+        page.fill("#lu", "admin"); page.fill("#lp", "admin123"); page.click("#loginBtn"); page.wait_for_timeout(1200)
+        page.fill("#lcode", pyotp.TOTP(secret).now()); page.press("#lcode", "Enter")
+        for _ in range(16):
+            page.wait_for_timeout(500)
+            if page.evaluate("document.querySelectorAll('[data-nav]').length >= 5 && document.querySelectorAll('#uTbl tbody tr').length >= 1"):
+                break
+        ok("Master login page: the Master's two-step login lands on the Master page", page.evaluate("document.querySelectorAll('[data-nav]').length >= 5 && !document.querySelector('main').classList.contains('hidden') && document.querySelectorAll('#uTbl tbody tr').length >= 1"), page.url)
+        page.evaluate("document.querySelector('#logoutBtn').click()"); page.wait_for_timeout(2500)
+        ok("Master page: Log out ends on the login page, with no session left", page.evaluate("!!document.querySelector('#loginBtn') && !document.querySelector('[data-nav]')") and lctx.request.get(f"{B}/api/me").status == 401, page.url)
+        page.evaluate("try { localStorage.setItem('lfx_theme', 'dark') } catch (e) {}"); page.reload(); page.wait_for_timeout(800)
+        ok("Master login page: dark theme", page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(11, 18, 32)", page.evaluate("getComputedStyle(document.body).backgroundColor"))
+        lctx.close()
+        # (d) Master at laptop size: the Users, Live Positions and Performance tables fit their box (the last column needed a
+        #     sideways scroll), and the user panel shows a forex price with its decimals and keeps the Status of Orders on the screen
+        wide = []; rowsn = 0
+        for wv in (1280, 1440, 1728):
+            ctx = br.new_context(viewport={"width": wv, "height": 900}, service_workers="block"); ctx.add_cookies(actx.cookies())
+            page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(3000)
+            for nav in ("trainees", "perf"):
+                page.evaluate("(n) => document.querySelector(`[data-nav=\"${n}\"]`).click()", nav); page.wait_for_timeout(1200)
+                for tid, tw_, bw, nr in page.evaluate("(n) => [...document.querySelectorAll('#nav-' + n + ' table[id]')].filter(t => t.offsetParent && ['uTbl', 'lpTbl', 'pTbl'].includes(t.id)).map(t => [t.id, t.scrollWidth, t.parentElement.clientWidth, t.querySelectorAll('tbody tr').length])", nav):
+                    rowsn += nr
+                    if tw_ > bw + 1:
+                        wide.append(f"{wv} wide: {tid} is {tw_} in a box of {bw}")
+            if wv == 1440:
+                page.evaluate("(id) => openDetail(id)", uid); page.wait_for_timeout(2500)
+                page.evaluate("document.querySelector('[data-dt=\"orders\"]').click()"); page.wait_for_timeout(1500)
+                dto = page.evaluate("[document.querySelector('#dTbl').scrollWidth, document.querySelector('#dTbl').parentElement.clientWidth, document.querySelectorAll('#dTbl .pill').length, [...document.querySelectorAll('#dTbl .pill')].filter(x => x.getBoundingClientRect().right > document.querySelector('#detail .box').getBoundingClientRect().right).length]")
+                # the first position is stood in for by a forex one (the test user holds none), so no trade is needed
+                fxp = page.evaluate("""(async () => { const real = window.api; window.api = async (p, ...r) => { const x = await real(p, ...r);
+                        if (/\\/admin\\/users\\/\\d+\\/detail$/.test(p) && x.positions && x.positions[0]) Object.assign(x.positions[0], {symbol: 'EURUSD', exchange: 'FOREX', avg_price: 1.12289, entry_avg: 1.12317, mark: 1.12301, ltp: 1.12301, unrealised: -0.001, carried_week: '2026-11-15'}); return x; };
+                    dtab = 'positions'; await refreshDetail(); window.api = real; const t = [...document.querySelectorAll('#dTbl tbody tr')].map(r => r.innerText).find(x => x.includes('EURUSD')) || '';
+                    return [t.includes('1.1229'), t.includes('1.1232'), t.includes('1.1230'), /(^|[^0-9.,])-0\\.00/.test(t), fmt(-0)]; })()""")
+                page.evaluate("document.querySelector('[data-dt=\"positions\"]').click()")
+            ctx.close()
+        ok("Master (1280 / 1440 / 1728 wide): the Users, Live Positions and Performance tables fit their box", rowsn >= 9 and not wide, wide or f"{rowsn} rows")
+        ok("Master user panel: the Status of every order is on the screen (a long reason wraps)", dto[2] >= 5 and dto[3] == 0 and dto[0] <= dto[1] + 1, dto)
+        ok("Master user panel: a forex price keeps its decimals, and nothing reads '-0.00'", fxp == [True, True, True, False, "0.00"], fxp)
+        # ======== end of the UI / user experience block of 21 Nov 2026 ========
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

@@ -1726,8 +1726,13 @@ class Probe:
                     for u in users:
                         if M._cut_overall(db, u, lsun) is None:
                             continue
-                        if M._cut_overall(db, u, lmon - _td(days=1)) is None and db.query(WeekSettlement).filter_by(user_id=u.id, week_end=(lmon - _td(days=1)).isoformat()).first() is not None:
-                            continue                  # the week before was closed late: its start is not exact
+                        if M._cut_overall(db, u, lmon - _td(days=1)) is None:
+                            # No on-time cut-off before this week. Then the week is only comparable if the account began
+                            # in it: an account's FIRST settlement holds everything since the account was opened, not
+                            # just that calendar week, and after a late cut-off the week's start is not exact.
+                            first = db.query(Ledger).filter_by(user_id=u.id).order_by(Ledger.created_at).first()
+                            if first is None or (first.created_at + _td(hours=5, minutes=30)).date() < lmon:
+                                continue
                         row = db.query(WeekSettlement).filter_by(user_id=u.id, week_end=lsun.isoformat()).first()
                         got = M.build_report(db, [u], lmon.isoformat(), lsun.isoformat())["users"][0]["total_pnl"]
                         seen_w += 1

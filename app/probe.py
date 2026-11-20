@@ -870,6 +870,31 @@ class Probe:
                 locked and not got and len(_wdg._errors) == errs,
                 "; ".join(got[:3]) or ("" if locked else "an address under /auth/ is built without a login")
                 or (f"{len(_wdg._errors) - errs} error line(s) logged" if len(_wdg._errors) != errs else f"{len(built)} addresses, called as a visitor and as a test user"))
+        # The Master page itself is sent only to a logged-in Master (owner's decision, 20 Nov 2026). A visitor
+        # and a test user get the small login page: it holds no Master address and names no price provider.
+        # The file is not under /static any more and no other spelling of the address may hand it out.
+        import re as _re
+        got = []
+        for who, c in (("test user", self._client(ua)), ("visitor", self._client())):
+            try:
+                r = await c.get("/admin")
+                t = r.text
+                named = _re.search(r"zerodha|kite|c-?trader|ic ?markets|spotware|delta", t, _re.I)
+                if r.status_code != 200 or 'id="loginBtn"' not in t or len(t) > 12000:
+                    got.append(f"{who} /admin -> {r.status_code}, {len(t)} characters: not the small login page")
+                elif "api/admin" in t or named:
+                    got.append(f"{who} /admin holds {named.group(0) if named else 'api/admin'}")
+                if "no-store" not in r.headers.get("cache-control", ""):
+                    got.append(f"{who} /admin may be kept by the browser ({r.headers.get('cache-control', 'no cache rule')})")
+                for path in ("/static/admin.html", "/pages/admin.html", "/static/pages/admin.html", "/static/..%2fpages/admin.html",
+                             "/static/%2e%2e/pages/admin.html", "/static//admin.html", "/admin.html", "/admin/", "/static/admin_login.html/../../pages/admin.html"):
+                    r = await c.get(path, follow_redirects=True)
+                    if "api/admin" in r.text or (path == "/static/admin.html" and r.status_code != 404):
+                        got.append(f"{who} {path} -> {r.status_code}, {len(r.text)} characters")
+            finally:
+                await c.aclose()
+        self.ok("the Master page is sent only to a logged-in Master (a visitor and a user get the small login page; /static/admin.html is 404)",
+                not got, "; ".join(got[:3]) or "nine other spellings of the address tried as well")
         open_ = []
         c = self._client()
         try:

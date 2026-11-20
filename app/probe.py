@@ -1702,6 +1702,27 @@ class Probe:
                                 if not (lo - t <= sum(days) <= hi + t):
                                     bad_d.append(f"{u.username}: days {sum(days):,.0f} vs week {w3['result']:,.0f}")
                     self.ok("Excel statements build for every user and their Net P&L (Settlement) equals the weekly report", not bad_x, "; ".join(bad_x[:4]))
+                    # The week that has just finished tells one story: its Net P&L (Settlement) on the Performance tab
+                    # and in the Excel file is the Weekly Settlement's final result, to the paisa (21 Nov 2026: it was
+                    # measured to the Monday day-start record, taken some seconds after the cut-off, so every account
+                    # holding Crypto over Sunday midnight showed a slightly different figure). Only weeks whose
+                    # cut-off ran on time are compared.
+                    bad_w, seen_w = [], 0
+                    lsun = mon - _td(days=1); lmon = mon - _td(days=7)
+                    for u in users:
+                        if M._cut_overall(db, u, lsun) is None:
+                            continue
+                        if M._cut_overall(db, u, lmon - _td(days=1)) is None and db.query(WeekSettlement).filter_by(user_id=u.id, week_end=(lmon - _td(days=1)).isoformat()).first() is not None:
+                            continue                  # the week before was closed late: its start is not exact
+                        row = db.query(WeekSettlement).filter_by(user_id=u.id, week_end=lsun.isoformat()).first()
+                        got = M.build_report(db, [u], lmon.isoformat(), lsun.isoformat())["users"][0]["total_pnl"]
+                        seen_w += 1
+                        if abs(got - row.result) > 0.011:
+                            bad_w.append(f"{u.username}: Performance / Excel {got:,.2f} vs Weekly Settlement {row.result:,.2f}")
+                    if seen_w:
+                        self.ok("last week's Net P&L (Settlement) on the Performance tab and in Excel equals the Weekly Settlement, on every account", not bad_w, "; ".join(bad_w[:4]))
+                    else:
+                        self.note("last week on the Performance tab against the Weekly Settlement", "no account has a week that was closed on time yet")
                     self.ok("the daily figures of this week add up to the week's result", not bad_d, "; ".join(bad_d[:4]))
                     wb = _lw(_io.BytesIO(M.build_xlsx(db, users, None, None)))
                     self.ok("the Master's all-users Excel builds with every sheet", all(n in wb.sheetnames for n in need), ", ".join(wb.sheetnames))

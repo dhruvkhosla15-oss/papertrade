@@ -624,7 +624,22 @@ for n, u in users.items():
         ok(f"daily {n}: yesterday's result does not move with today's prices", near(pp(u, tue, tue), t1[u.id] - t0[u.id], 0.6), f"{pp(u, tue, tue)} vs {t1[u.id] - t0[u.id]:.2f}")
         ok(f"daily {n}: today starts from yesterday's close", near(pp(u, wed, wed), truth_total(u.id) - t1[u.id], 0.6), f"{pp(u, wed, wed)} vs {truth_total(u.id) - t1[u.id]:.2f}")
         ok(f"daily {n}: the two days add up to the two-day result", near(pp(u, tue, tue) + pp(u, wed, wed), pp(u, tue, wed), 0.02))
-ok("daily: a day with no day-start record is reported as unknown, never guessed", pp(users["hold"], day(W10, 0, 0, 0), day(W10, 0, 0, 0)) is None)
+# (a day in the middle of an earlier week; a Monday needs no record of its own any more, see below)
+ok("daily: a day with no day-start record is reported as unknown, never guessed", pp(users["hold"], day(W9, 2, 0, 0), day(W9, 2, 0, 0)) is None)
+# A Monday starts at the weekly cut-off itself (Sunday 23:59:59), where the P&L since the beginning is exactly the sum of
+# the finished weeks; and a finished week on the Performance report is the Weekly Settlement's result to the paisa. Both
+# used to hang on the Monday day-start record, which is written some seconds after midnight (21 Nov 2026).
+mon10 = day(W10, 0, 0, 0); _s9 = day(W9, 6, 0, 0).date()          # this Monday, and the Sunday that closed the week before
+_seen9 = 0
+for n, u in users.items():
+    if not u.is_admin and M._cut_overall(db, u, _s9) is not None:
+        _seen9 += 1
+        ok(f"daily {n}: Monday is measured from the weekly cut-off", pp(u, mon10, mon10) is not None and near(pp(u, mon10, mon10), t0[u.id] - W.settled_total(db, u), 0.6), f"{pp(u, mon10, mon10)} vs {t0[u.id] - W.settled_total(db, u):.2f}")
+        _r9 = db.query(WeekSettlement).filter_by(user_id=u.id, week_end=_s9.isoformat()).first()
+        if _r9 is not None:
+            _t9 = M.build_report(db, [u], (_s9 - timedelta(days=6)).isoformat(), _s9.isoformat())["users"][0]["total_pnl"]
+            ok(f"finished week {n}: the Performance report's Net P&L (Settlement) is the Weekly Settlement's result", near(_t9, _r9.result, 0.011), f"{_t9} vs {_r9.result}")
+ok("daily: the week before was closed on time for the accounts, so the two checks above were really made", _seen9 >= 3, str(_seen9))
 
 # ---- expiry: index and currency futures settle against the underlying, a commodity future at the book ----
 F_NIFTY_X, F_USDINR_X, F_EURINR_X = 11, 12, 13

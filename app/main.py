@@ -1626,9 +1626,27 @@ def take_day_snaps(db, day: str, exact: bool = True) -> int:
     return n
 
 
+def _cut_overall(db, u, sunday: date):
+    """P&L of an account since the very beginning AT the weekly cut-off of the week ending `sunday`. At that
+    moment its coins are back to Allocated and every open position stands at the week-close price, so it is
+    exactly the sum of its finished weeks up to then. None when this account has no settlement for that week,
+    or when that cut-off did not run on time (then the day-start record is used, as before)."""
+    rows = db.query(_weekly.WeekSettlement).filter(_weekly.WeekSettlement.user_id == u.id, _weekly.WeekSettlement.week_end <= sunday.isoformat()).all()
+    mine = next((r for r in rows if r.week_end == sunday.isoformat()), None)
+    if mine is None or not mine.exact or mine.created_at != _weekly.cutoff_utc(sunday):
+        return None
+    return round(sum(r.result for r in rows), 2)
+
+
 def _period_pnl(db, u, f: date, t: date, overall_now: float):
     """True result of the IST days f..t for one account (closed trades + the move in open positions −
-    commission), from the day-start snapshots. None when a snapshot it needs was never taken."""
+    commission), from the day-start snapshots. None when a snapshot it needs was never taken.
+
+    A period that starts on a Monday or ends on a Sunday is measured from / to the weekly cut-off itself
+    (Sunday 23:59:59), not from the Monday day-start record: that record is written some seconds after
+    midnight, and whatever Crypto did in those seconds was counted in the finished week. The Performance tab
+    and the Excel file of a finished week then differed from the Weekly Settlement tab, and the days of a
+    week did not add up to the week (found 21 Nov 2026)."""
     from .db import DaySnap
     from .engine import ist_now as _now
     today = _now().date()
@@ -1641,17 +1659,21 @@ def _period_pnl(db, u, f: date, t: date, overall_now: float):
         # so that record must not be used as the starting point.)
         a = 0.0
     else:
-        s = db.query(DaySnap).filter_by(day=f.isoformat(), user_id=u.id).first()
-        if s is None:
-            return None
-        a = s.overall
+        a = _cut_overall(db, u, f - timedelta(days=1)) if f.weekday() == 0 else None
+        if a is None:
+            s = db.query(DaySnap).filter_by(day=f.isoformat(), user_id=u.id).first()
+            if s is None:
+                return None
+            a = s.overall
     if t >= today:
         b = overall_now
     else:
-        e = db.query(DaySnap).filter_by(day=(t + timedelta(days=1)).isoformat(), user_id=u.id).first()
-        if e is None:
-            return None
-        b = e.overall
+        b = _cut_overall(db, u, t) if t.weekday() == 6 else None
+        if b is None:
+            e = db.query(DaySnap).filter_by(day=(t + timedelta(days=1)).isoformat(), user_id=u.id).first()
+            if e is None:
+                return None
+            b = e.overall
     return round(b - a, 2)
 
 

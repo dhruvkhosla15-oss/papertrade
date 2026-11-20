@@ -587,6 +587,100 @@ def main():
         ok("Master: no label of a figure card is cut off on Performance and Shadow Book (tablet, phone)", not cutl, cutl[:4])
         ok("Master Settings: the note beside the crypto margin gives the 50x limit", "50×" in note and "200" not in note, note[:120])
 
+        # ======== Master activity record (Technology / Compliance officer, 21 Nov 2026) — start of block ========
+        # Every Master action leaves a line that says in plain words what changed, and no line ever holds a
+        # password, a two-step secret or a login. Works on its own accounts and puts every setting back.
+        def rec_last(path_part, n=1):
+            got = [x for x in (A.get(f"{B}/api/admin/audit").json() or []) if path_part in x.get("action", "")]
+            return (got[0].get("detail") or "") if got else None
+
+        def rec(name, path_part, pattern, detail=None):
+            d = rec_last(path_part) if detail is None else detail
+            ok(f"Activity record: {name}", d is not None and re.search(pattern, d or "") is not None, f"line: {d!r}")
+
+        rec_secrets = ["admin123", "Site@12345", "Site@67890", secret, "Rec@Secret111", "Rec@Secret222", "Rec@Secret333", "Rec@Secret444"]
+        rid = apost("/api/admin/users", {"username": "recuser", "password": "Rec@Secret111", "display_name": "Rec User", "initial_coins": 250000}).get("id")
+        rec("a user created says who and with how many coins", "POST /api/admin/users", r"Created user recuser \(Rec User\) with 250,000 coins")
+        apost(f"/api/admin/users/{rid}/coins", {"amount": 12345.5, "note": "top-up"})
+        rec("coins added say how many, to whom, the balance before and after, and the note", f"/users/{rid}/coins", r"Added 12,345\.50 coins to recuser: balance 250,000\.00 → 262,345\.50; note: top-up")
+        apost(f"/api/admin/users/{rid}/coins", {"amount": -2345.5})
+        rec("coins removed say how many, from whom, the balance before and after", f"/users/{rid}/coins", r"Removed 2,345\.50 coins from recuser: balance 262,345\.50 → 260,000\.00")
+        A.patch(f"{B}/api/admin/users/{rid}", data={"is_active": False})
+        rec("a freeze says so", f"PATCH /api/admin/users/{rid}", r"recuser: active → frozen")
+        A.patch(f"{B}/api/admin/users/{rid}", data={"is_active": True})
+        rec("an unfreeze says so", f"PATCH /api/admin/users/{rid}", r"recuser: frozen → active")
+        A.patch(f"{B}/api/admin/users/{rid}", data={"display_name": "Rec Renamed"})
+        rec("a new name says the old and the new one", f"PATCH /api/admin/users/{rid}", r"recuser: name Rec User → Rec Renamed")
+        A.patch(f"{B}/api/admin/users/{rid}", data={"password": "Rec@Secret222"})
+        rec("a password reset says so, without the password", f"PATCH /api/admin/users/{rid}", r"^recuser: password reset[^|]*$")
+        A.patch(f"{B}/api/admin/users/{rid}", data={"reset_2fa": True})
+        rec("a user's two-step login cleared says so", f"PATCH /api/admin/users/{rid}", r"recuser: two-step login cleared")
+        # settings: every figure the Master can save, one at a time, then everything back as it was
+        st0 = aget("/api/admin/settings")
+        skeys = ("commission_pct", "commission_pct_forex", "commission_pct_options", "commission_flat", "liq_charge_flat", "liq_charge_pct_crypto",
+                 "commission_pct_crypto", "mcx_option_factor", "liquidity_check", "max_spread_pct", "stale_minutes")
+        sbase = {"margin_pct": dict(st0["margin_pct"]), **{k: st0[k] for k in skeys}}
+        silent = []
+        for k in skeys:
+            new = (not st0[k]) if isinstance(st0[k], bool) else (int(st0[k]) + 3 if k == "stale_minutes" else round(float(st0[k]) * 1.5 + 0.01, 4))
+            apost("/api/admin/settings", {**sbase, k: new}); d1 = rec_last("POST /api/admin/settings") or ""
+            apost("/api/admin/settings", sbase); d2 = rec_last("POST /api/admin/settings") or ""
+            if not (re.search(r"^Settings: [^;|]+: \S+ → \S+$", d1) and re.search(r"^Settings: [^;|]+: \S+ → \S+$", d2)) or d1 == d2:
+                silent.append(f"{k}: {d1!r} / {d2!r}")
+        for ex, v in st0["margin_pct"].items():
+            apost("/api/admin/settings", {**sbase, "margin_pct": {**st0["margin_pct"], ex: float(v) + 1.5}}); d1 = rec_last("POST /api/admin/settings") or ""
+            apost("/api/admin/settings", sbase)
+            if not re.search(r"^Settings: [^;|]+: " + re.escape(f"{float(v):g}") + " → " + re.escape(f"{float(v) + 1.5:g}") + "$", d1):
+                silent.append(f"margin {ex}: {d1!r}")
+        ok("Activity record: each setting changed (11 figures, every margin) says which one, from what to what", not silent, silent[:3])
+        st1 = aget("/api/admin/settings")
+        ok("Activity record: the settings are back exactly as they were", st1.get("margin_pct") == st0["margin_pct"] and all(st1.get(k) == st0[k] for k in skeys))
+        apost("/api/admin/settings", sbase)
+        rec("a save that changes nothing says so", "POST /api/admin/settings", r"^Settings: saved, nothing changed$")
+        # trading access: default table (a switch nobody here uses, put back at once) and one user's own switches
+        dflt = (aget("/api/admin/access").get("default") or {}).get("CRYPTO_OPT")
+        apost("/api/admin/access/default", {"values": {"CRYPTO_OPT": not dflt}})
+        rec("a default access switch says which one, from what to what", "/access/default", r"^Default trading access: [^;|]+: (on → off|off → on)$")
+        apost("/api/admin/access/default", {"values": {"CRYPTO_OPT": dflt}})
+        ok("Activity record: the default access switch is back as it was", (aget("/api/admin/access").get("default") or {}).get("CRYPTO_OPT") == dflt)
+        apost(f"/api/admin/users/{rid}/access", {"values": {"CDS_FUT": False, "GLOBAL": False}})
+        rec("one user's access switches say whose, which, from what to what", f"/users/{rid}/access", r"^Trading access of recuser: [^;|]+: on → off; [^;|]+: on → off$")
+        A.post(f"{B}/api/admin/users/{rid}/access", data=json.dumps({"values": None}), headers={"Content-Type": "application/json"})
+        rec("one user put back on the default says so", f"/users/{rid}/access", r"^Trading access of recuser: back to the default; ")
+        # square-off pressed (the user holds one future)
+        rctx = br.new_context(); R = rctx.request
+        R.post(f"{B}/api/login", data={"username": "recuser", "password": "Rec@Secret222"})
+        R.post(f"{B}/api/password", data={"old_password": "Rec@Secret222", "new_password": "Rec@Secret333"})
+        R.post(f"{B}/api/orders", data={"token": fut["token"], "side": "BUY", "lots": 1})
+        held = len([p for p in (R.get(f"{B}/api/positions").json() or []) if p.get("qty")])
+        apost(f"/api/admin/users/{rid}/squareoff")
+        rec("Square off pressed says for whom and how many positions were closed", f"/users/{rid}/squareoff", rf"^Square off pressed for recuser: {held} position{'s' if held != 1 else ''} closed")
+        # a user's own call to the two-step set-up (it also answers under a Master-looking address) is not the Master's action
+        n0 = len([x for x in A.get(f"{B}/api/admin/audit").json() if x.get("admin") == "recuser"])
+        ur = [R.post(f"{B}/api/admin/2fa/setup").status for _ in range(3)]
+        n1 = len([x for x in A.get(f"{B}/api/admin/audit").json() if x.get("admin") == "recuser"])
+        ok("Activity record: a user's own request never writes a line into the Master's record", ur == [200, 200, 200] and n0 == 0 and n1 == 0, f"{ur} lines {n0} -> {n1}")
+        R.post(f"{B}/api/admin/users/{rid}/coins", data={"amount": 5})
+        ok("Activity record: a refused request of a user leaves the user's coins and the record alone",
+           not any(x.get("admin") == "recuser" for x in A.get(f"{B}/api/admin/audit").json()))
+        rctx.close()
+        # a second Master login: added, password changed, two-step cleared, removed
+        mid = apost("/api/admin/admins", {"username": "recmaster", "display_name": "Rec Master", "password": "Rec@Secret444"}).get("id")
+        rec("a Master login added says which", "POST /api/admin/admins", r"^Added Master login recmaster$")
+        apost(f"/api/admin/admins/{mid}/password", {"password": "Rec@Secret111"})
+        rec("a Master login's password change says whose, without the password", f"/admins/{mid}/password", r"^Password changed for Master login recmaster$")
+        apost(f"/api/admin/admins/{mid}/reset-2fa")
+        rec("a Master login's two-step login cleared says whose", f"/admins/{mid}/reset-2fa", r"^Two-step login cleared for Master login recmaster$")
+        A.delete(f"{B}/api/admin/admins/{mid}")
+        rec("a Master login removed says which", f"DELETE /api/admin/admins/{mid}", r"^Removed Master login recmaster$")
+        A.delete(f"{B}/api/admin/users/{rid}")
+        rec("a deleted user's line says who and the balance at that moment", f"DELETE /api/admin/users/{rid}", r"^Deleted user recuser \(Rec Renamed\); balance at that moment [\d,]+\.\d\d$")
+        lines = A.get(f"{B}/api/admin/audit").json()
+        leak = [f"{s_[:3]}… in {x.get('action')}" for x in lines for s_ in rec_secrets if s_ and s_ in json.dumps(x, ensure_ascii=False)]
+        ok("Activity record: no line holds a password or a two-step secret (every one used in this run)", len(lines) > 40 and not leak, leak[:3])
+        ok("Activity record: every line has its time and the Master's name", all(x.get("at") and x.get("admin") for x in lines))
+        # ======== Master activity record — end of block ========
+
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

@@ -272,9 +272,13 @@ async def _admin_audit(request: Request, call_next):
                 db = SessionLocal()
                 try:
                     u = db.get(User, data["uid"])
-                    db.add(AdminLog(admin_id=data["uid"], admin_name=u.username if u else "", ip=_client_ip(request),
-                                    action=f"{request.method} {path}"[:160], detail=" | ".join(box)[:1500]))
-                    db.commit()
+                    # only a Master's own request belongs in the Master activity record: the two-step set-up
+                    # also answers a user under /api/admin/2fa/..., and each of his calls was written here
+                    # (200 of them pushed every line of the Master off the list he sees; 21 Nov 2026)
+                    if u is not None and u.is_admin:
+                        db.add(AdminLog(admin_id=data["uid"], admin_name=u.username, ip=_client_ip(request),
+                                        action=f"{request.method} {path}"[:160], detail=" | ".join(box)[:1500]))
+                        db.commit()
                 finally:
                     db.close()
     except Exception:

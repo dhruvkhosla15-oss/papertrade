@@ -87,9 +87,16 @@ class _Turnstile:
     QUEUE = 200
     MAX_BODY = 1_000_000    # bytes in one request
     last = None             # the instance in use (the daily check looks at it)
+    # The user's own Excel file and report are worked out from every trade of the account: seconds of
+    # work for an account with thousands of trades. Eight of them at a time for one login (PER), sent
+    # without pause, made every other user's clicks take over a second and single orders up to four
+    # (21 Nov 2026, an account with 2,400 trades). One at a time for one login; nobody downloads two at once.
+    HEAVY = ("/api/export.xlsx", "/api/report")
 
     def __init__(self, app_):
         self.app = app_
+        self.watch_heavy = {}   # who -> most of its HEAVY requests worked on at the same moment (only for names put here)
+        self.heavy_now = {}
         self.sem = None
         self.mine = {}      # who -> [their own turnstile, requests of theirs being worked on or waiting, being worked on]
         self.watch = {}     # who -> most requests of theirs worked on at the same moment (only for names put here)
@@ -195,8 +202,23 @@ class _Turnstile:
                                 first[0] = False
                                 return {"type": "http.request", "body": body, "more_body": False}
                             return await inner_receive()
-                    async with self.sem:
-                        await self.app(scope, receive, send)
+                    if scope.get("path") in self.HEAVY:
+                        # one of these at a time for one login; its next one waits behind it (see HEAVY)
+                        if len(ent) < 4:
+                            ent.append(asyncio.Lock())
+                        async with ent[3]:
+                            if who in self.watch_heavy:
+                                self.heavy_now[who] = self.heavy_now.get(who, 0) + 1
+                                self.watch_heavy[who] = max(self.watch_heavy[who], self.heavy_now[who])
+                            try:
+                                async with self.sem:
+                                    await self.app(scope, receive, send)
+                            finally:
+                                if who in self.heavy_now:
+                                    self.heavy_now[who] -= 1
+                    else:
+                        async with self.sem:
+                            await self.app(scope, receive, send)
                 finally:
                     ent[2] -= 1
         finally:

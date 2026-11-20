@@ -580,6 +580,24 @@ class Probe:
         if peak <= 0 or good < 40:
             self.note("turns of one login not measured", f"{good} of 40 requests answered, {peak} seen by the turnstile"); return
         self.ok(name, peak <= ts.PER, f"40 requests at the same instant from one test account: {peak} worked on at a time (limit {ts.PER})")
+        # The user's own report and Excel file are seconds of work for an account with thousands of trades:
+        # one at a time for one login (21 Nov 2026: eight at a time, sent without pause by one account, made
+        # every other user's clicks take over a second). Six reports of the test account at the same instant.
+        name = "one login's reports and Excel files are worked out one at a time"
+        if not hasattr(ts, "watch_heavy"):
+            self.ok(name, False, "not limited"); return
+        c = self._client(ub)
+        try:
+            ts.watch_heavy[who] = 0
+            rs = await asyncio.gather(*[c.get("/api/report") for _ in range(6)], return_exceptions=True)
+            peak = ts.watch_heavy.get(who, 0)
+        finally:
+            ts.watch_heavy.pop(who, None); ts.heavy_now.pop(who, None)
+            await c.aclose()
+        good = sum(1 for r in rs if getattr(r, "status_code", 0) == 200)
+        if peak <= 0 or good < 6:
+            self.note("reports of one login not measured", f"{good} of 6 answered, {peak} seen by the turnstile"); return
+        self.ok(name, peak == 1, f"6 reports at the same instant from one test account: {peak} worked on at a time, all answered")
 
     async def _frozen(self, label, ins, ua):
         """A contract nobody is looking at stops receiving prices; its last one stays in memory, frozen.

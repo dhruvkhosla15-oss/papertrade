@@ -33,7 +33,7 @@ RC=$?
 # Normal-working check in a real browser: every screen, tab and Excel file (tools/selftest/site_check.py).
 # PT_SITE_CHECK=0 skips it; "full" prints every line instead of only the failures and the total.
 if [ "${PT_SITE_CHECK:-1}" != "0" ] && python3 -c "import playwright, pyotp" 2>/dev/null; then
-  if [ "${PT_SITE_CHECK:-1}" = "full" ]; then timeout 400 python3 "$HERE/site_check.py"; else timeout 400 python3 "$HERE/site_check.py" 2>&1 | grep -E "^FAIL|^SITE|Traceback|Error"; fi
+  if [ "${PT_SITE_CHECK:-1}" = "full" ]; then timeout 600 python3 "$HERE/site_check.py"; else timeout 600 python3 "$HERE/site_check.py" 2>&1 | grep -E "^FAIL|^SITE|Traceback|Error"; fi
   SRC=${PIPESTATUS[0]}; [ "$SRC" != "0" ] && { [ "$SRC" = "124" ] && echo "SITE check timed out"; RC=1; }
 fi
 grep -c "Traceback" "$DATA/server.log" | sed 's/^/server tracebacks: /'

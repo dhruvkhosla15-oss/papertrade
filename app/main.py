@@ -845,8 +845,17 @@ class PasswordIn(BaseModel):
 
 @app.post("/api/password")
 def change_password(body: PasswordIn, request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    # Wrong tries at the current password are counted like wrong tries at the login (five, then five minutes'
+    # wait). Until 21 Nov 2026 they were not counted at all: whoever held a login of an account (a shared
+    # phone, a copied login) could guess its password here without limit, and each guess is checked the slow
+    # way on purpose, so one login guessing without pause made every other user's screens and orders about
+    # five times slower.
+    key = f"pwchange:{user.id}"
+    _throttle_check(key)
     if not verify_password(body.old_password, user.password_hash):
+        _throttle_fail(key)
         raise HTTPException(400, "Current password is wrong")
+    _throttle_ok(key)
     if len(body.new_password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
     if body.new_password == body.old_password:

@@ -967,6 +967,21 @@ class Probe:
         self.area = "Logins"
         c = self._client(ub)
         try:
+            # Wrong tries at the current password (the change-password box) are counted like wrong tries at
+            # the login. Until 21 Nov 2026 they were not: whoever held a login of an account could guess its
+            # password without limit, and one login guessing without pause slowed every other user. The test
+            # account has no password that anything could match, so nothing is ever changed here.
+            from . import main as _mn
+            key, codes = f"pwchange:{ub.id}", []
+            _mn._fails.pop(key, None)
+            try:
+                for i in range(7):
+                    r = await c.post("/api/password", json={"old_password": f"zz-wrong-{i}", "new_password": "zz-never-used-1"})
+                    codes.append(r.status_code)
+            finally:
+                _mn._fails.pop(key, None)
+            self.ok("wrong tries at the current password are counted: after five, further tries are refused for a while",
+                    codes == [400] * 5 + [429] * 2, str(codes))
             r1 = await c.get("/api/me")
             async with self.engine._lock:
                 db = SessionLocal()

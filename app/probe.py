@@ -1579,6 +1579,20 @@ class Probe:
                                                              and abs(d["settled_earlier"] + d["unrealised"] - d["total_since_entry"]) > 0.02):
                     wk_pos.append(p.symbol)
             self.ok("finished weeks in the weekly report match the ledger on every account", not wk_led, ", ".join(wk_led[:6]))
+            # Nothing fills between Sunday 23:59:59 and the moment the cut-off runs (fills are held for those
+            # seconds). A trade booked before the settlement line but dated after it is counted in two weeks
+            # (21 Nov 2026: the hold could be slept through). Looked at for the newest cut-off only.
+            from datetime import timedelta as _tdw
+            two = []
+            for u in users:
+                cutl = (db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.kind == "WEEKLY_SETTLEMENT", Ledger.created_at > datetime.utcnow() - _tdw(days=8))
+                        .order_by(Ledger.id.desc()).first())
+                if cutl is not None:
+                    n2 = db.query(Ledger).filter(Ledger.user_id == u.id, Ledger.id < cutl.id, Ledger.created_at > cutl.created_at,
+                                                 ~Ledger.kind.in_(["WEEKLY_VALUATION", "WEEKLY_SETTLEMENT"])).count()
+                    if n2:
+                        two.append(f"{u.username}: {n2} line(s)")
+            self.ok("nothing was booked in the finished week while dated after its cut-off (no trade counted in two weeks)", not two, "; ".join(two[:6]))
             self.ok("every finished week adds up (closed trades + open positions at week close − commission)", not wk_sum, "; ".join(wk_sum[:6]))
             self.ok("every carried position keeps its original average (settled earlier + this week = total since entry)", not wk_pos, ", ".join(sorted(set(wk_pos))[:8]))
             nopx = sorted({p.symbol for p in db.query(Position).filter_by(is_closed=False).all() if p.qty and _wk.close_price(self.engine, p) is None})

@@ -1551,7 +1551,19 @@ async def weekly_loop():
                     asyncio.get_event_loop().run_in_executor(None, _probe._telegram, "limefx: the weekly settlement failed 3 times; trading continues, it will be retried in 15 minutes.")
                 except Exception:
                     pass
-        await asyncio.sleep(0.4 if fast else 1 if closing_fast else 5)
+        nap = 0.4 if fast else 1 if closing_fast else 5
+        # Be awake when the last three seconds of the week begin. Asleep for five seconds the loop could sleep
+        # right through them: then nothing was held, and an order filled between Sunday 23:59:59 and the moment
+        # the cut-off ran was settled with the old week but dated in the new one, so the new week's Weekly
+        # Settlement counted its result and commission a second time and showed the difference as "other"
+        # (found 21 Nov 2026).
+        try:
+            _n = datetime.utcnow() + ist
+            if _n.weekday() == 6 and _n.hour == 23 and _n.minute == 59 and not fast:
+                nap = min(nap, max(0.02, 57.02 - _n.second - _n.microsecond / 1e6))    # at once, if they have just begun
+        except Exception:
+            pass
+        await asyncio.sleep(nap)
 
 
 def _opens_soon(exchange: str, minutes: int = 60) -> bool:

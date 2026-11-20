@@ -198,6 +198,8 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 #ordTbl td[colspan]{grid-column:1/-1;grid-row:auto}
 #ordTbl tr:has(td[colspan]){padding-top:0;border-top:0}
 }
+/* Order Book as a table (wider than a phone): a long note under the status (a refusal reason, the matched prices) takes two or three lines instead of pushing Status and Cancel off the right edge */
+@media(min-width:641px){#ordTbl td:nth-child(6) .small{white-space:normal;min-width:110px;max-width:300px;margin-left:auto}}
 </style>
 </head>
 <body>
@@ -564,7 +566,7 @@ $('#loginBtn').onclick=async()=>{$('#loginErr').textContent='';
     location.reload();}catch(e){$('#loginErr').textContent=e.message;}
 };
 $('#otpBtn').onclick=async()=>{$('#loginErr').textContent='';try{await api('/login/2fa',{method:'POST',body:{pre_token:preTok,code:$('#lcode').value}});location.reload();}catch(e){$('#loginErr').textContent=e.message;}};
-$('#otpBack').onclick=()=>{$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
+$('#otpBack').onclick=()=>{$('#loginErr').textContent='';$('#otpStep').classList.add('hidden');$('#pwStep').classList.remove('hidden');};
 $('#lcode').addEventListener('keydown',e=>{if(e.key==='Enter')$('#otpBtn').click()});
 $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click()});
 function setTheme(t){try{localStorage.setItem('lfx_theme',t);}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light');else document.documentElement.removeAttribute('data-theme');$('#thDark').classList.toggle('active',t!=='light');$('#thLight').classList.toggle('active',t==='light');if(chart)chart.applyOptions({layout:{background:{color:t==='light'?'#ffffff':'#121c2e'},textColor:t==='light'?'#6b7280':'#8da2c0'},grid:{vertLines:{color:t==='light'?'#eef0f3':'#1e2a44'},horzLines:{color:t==='light'?'#eef0f3':'#1e2a44'}}});}

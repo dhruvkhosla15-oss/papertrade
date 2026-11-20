@@ -52,6 +52,63 @@ def sheet_rows(wb, name):
     return rows[h], rows[h + 1:]
 
 
+# ---------------- Accounts officer's block (21 Nov 2026) ----------------
+def accounts_block(br, actx, uctx, ok, near):
+    """Figures and records of the owner's requests of 19 Nov 2026: the Master activity record's lines for coins
+    added and removed say the same as the ledger, to the paisa; and an order placed through the Stop-loss /
+    Target sheet of a position is the same order, with the same reservation, as from the ordinary ticket."""
+    A = actx.request
+    cid = A.post(f"{B}/api/admin/users", data={"username": "sitecoins", "password": "Coins@12345", "display_name": "Site Coins", "initial_coins": 20000000}).json().get("id")
+    for amt, note in ((1234.56, "top-up"), (-234.5, "taken back")):
+        A.post(f"{B}/api/admin/users/{cid}/coins", data={"amount": amt, "note": note})
+    led = [x for x in reversed(A.get(f"{B}/api/admin/users/{cid}/detail").json().get("ledger") or []) if x["kind"] in ("ADMIN_CREDIT", "ADMIN_DEBIT")]
+    # (an account number is handed out again after a delete: only this account's own lines count)
+    acts = [x for x in A.get(f"{B}/api/admin/audit").json() if f"/users/{cid}/coins" in x.get("action", "") and "sitecoins:" in (x.get("detail") or "")][::-1]
+    said = []; same = len(led) == 3 and len(acts) == 2
+    for l, a in zip(led[1:], acts):
+        m = re.match(r"(Added|Removed) ([\d,]+\.\d\d) coins (?:to|from) sitecoins: balance (-?[\d,]+\.\d\d) → (-?[\d,]+\.\d\d)", a.get("detail") or "")
+        said.append(a.get("detail"))
+        f = lambda t: float(t.replace(",", ""))
+        same = same and bool(m) and (m.group(1) == "Added") == (l["kind"] == "ADMIN_CREDIT") and near(f(m.group(2)), abs(l["amount"]), 0.001) \
+            and near(f(m.group(4)), l["balance_after"], 0.001) and near(f(m.group(3)), l["balance_after"] - l["amount"], 0.001)
+    ok("Master activity record: coins added and removed read 'balance from → to' and agree with the ledger to the paisa", same, f"{said} against {[(x['amount'], x['balance_after']) for x in led]}")
+    if cid:
+        A.delete(f"{B}/api/admin/users/{cid}")
+    # Stop-loss / Target sheet against the ordinary ticket, on a position the test user holds (phone screen)
+    ctx = br.new_context(viewport={"width": 412, "height": 900}, service_workers="block"); ctx.add_cookies(uctx.cookies())
+    page = ctx.new_page(); sent = []
+    page.on("request", lambda q: sent.append(q.post_data_json) if q.method == "POST" and q.url.endswith("/api/orders") else None)
+    page.goto(f"{B}/"); page.wait_for_timeout(5000)
+    page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('positions')"); page.wait_for_timeout(2500)
+    p = page.evaluate("""() => { const p = state.positions.find(x => x.qty && ['NFO', 'BFO'].includes(x.exchange) && document.querySelector(`[data-slt="${x.id}"]`));
+        return p ? {id: p.id, token: p.token, qty: p.qty, lots: Math.abs(p.lots), ltp: (state.prices[p.token] || {}).ltp || p.ltp || p.avg_price} : null; }""")
+    got = {}; opened = None
+    if p:
+        side = "SELL" if p["qty"] > 0 else "BUY"
+        trig = round(round(p["ltp"] * (0.9 if side == "SELL" else 1.1) / 0.05) * 0.05, 2)
+        for path in ("sheet", "ticket"):
+            if path == "sheet":
+                page.evaluate("(id) => document.querySelector(`[data-slt=\"${id}\"]`).click()", p["id"]); page.wait_for_timeout(1800)
+                opened = page.evaluate("({open: !document.querySelector('#sheet').classList.contains('hidden'), side: state.side, type: state.otype, lots: +document.querySelector('#oLots').value, hint: !document.querySelector('#sltHint').classList.contains('hidden')})")
+            else:
+                page.evaluate("(t) => document.querySelector(`[data-add=\"${t}\"]`).click()", p["token"]); page.wait_for_timeout(1800)
+                page.evaluate("(sd) => { document.querySelector(sd === 'SELL' ? '#sideSell' : '#sideBuy').click(); document.querySelector('[data-ot=\"SL\"]').click(); }", side); page.wait_for_timeout(400)
+            page.fill("#oLots", str(p["lots"])); page.fill("#oTrig", str(trig)); page.wait_for_timeout(600)
+            used0 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]; n0 = len(sent)
+            page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(2500)
+            used1 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]
+            mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
+            got[path] = {"body": sent[n0] if len(sent) > n0 else None, "reserved": round(used1 - used0, 2), "resting": len(mine)}
+            for o in mine:
+                ctx.request.delete(f"{B}/api/orders/{o['id']}")
+            page.wait_for_timeout(800); page.evaluate("typeof refreshAll === 'function' && refreshAll()"); page.wait_for_timeout(1200)
+    ok("User: the Stop-loss / Target button opens the order sheet on the exit side for the whole position, and its order is the same order, with the same reservation, as from the ordinary ticket",
+       bool(p) and bool(opened) and opened["open"] and opened["side"] == side and opened["type"] == "SL" and opened["lots"] == p["lots"] and opened["hint"]
+       and bool(got.get("sheet", {}).get("body")) and got["sheet"]["body"] == got.get("ticket", {}).get("body") and got["sheet"]["resting"] == 1 and got["ticket"]["resting"] == 1
+       and near(got["sheet"]["reserved"], got["ticket"]["reserved"], 0.011), f"position {p}, sheet {opened}, orders {str(got)[:240]}")
+    ctx.close()
+
+
 def main():
     with sync_playwright() as pw:
         br = pw.chromium.launch()
@@ -587,6 +644,7 @@ def main():
         ok("Master: no label of a figure card is cut off on Performance and Shadow Book (tablet, phone)", not cutl, cutl[:4])
         ok("Master Settings: the note beside the crypto margin gives the 50x limit", "50×" in note and "200" not in note, note[:120])
 
+        accounts_block(br, actx, uctx, ok, near)      # Accounts officer's block, 21 Nov 2026 (above main)
         # technical health
         import httpx
         hz = httpx.get(f"{B}/healthz", timeout=20)

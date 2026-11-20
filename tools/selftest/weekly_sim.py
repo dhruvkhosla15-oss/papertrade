@@ -994,6 +994,19 @@ try:
 finally:
     time.time = _rt
 
+# ---- a nonsense dollar-rupee rate from the crypto exchange is not taken (21 Nov 2026) --------------------------
+# A rate message of 0 (or negative, or not a number) was taken as the rate: every crypto contract was then worth
+# nothing in rupees and an order needed no margin at all. The last good rate must stay in use.
+_f3 = PriceFeed(); _cry3 = DeltaCrypto(_f3); _cry3._save_inr = lambda: None
+_rate = lambda v: _cry3._handle({"type": "spot_price", "symbol": _cry3.INR_INDEX, "price": v})
+_rate("94.25")
+ok("crypto rate: an ordinary rate is taken", _cry3.usdinr() == 94.25, str(_cry3.usdinr()))
+for _bad in ("0", "-94", "nan", "inf", "abc", None):
+    _rate(_bad)
+    ok(f"crypto rate: a rate message of {_bad!r} is ignored and the last good rate stays", _cry3.usdinr() == 94.25, str(_cry3.usdinr()))
+_rate("94.5")
+ok("crypto rate: the next ordinary rate is taken again", _cry3.usdinr() == 94.5, str(_cry3.usdinr()))
+
 # ---- the automatic closes wait while a price feed is down or has only just come back (21 Nov 2026) --------------
 # Users' own orders are refused while a feed is down (16 Nov 2026). The automatic square-off, the margin call
 # and the intraday square-off were not: they sold at the price from before the outage, whatever the real

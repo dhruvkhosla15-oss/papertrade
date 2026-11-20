@@ -16,6 +16,7 @@ Sizes from Delta are in contracts, which is exactly our qty unit (lot_size=1).
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -207,7 +208,7 @@ class DeltaCrypto:
                 v = get_setting(db, "delta_usdt_inr"); t = get_setting(db, "delta_usdt_inr_ts")
             finally:
                 db.close()
-            if v:
+            if v and math.isfinite(float(v)) and float(v) > 0:
                 self._inr = (float(v), float(t or 0)); return self._inr
         except Exception:
             pass
@@ -371,7 +372,14 @@ class DeltaCrypto:
         sym = m.get("symbol")
         if t == "spot_price" and sym == self.INR_INDEX:
             try:
-                self._inr = (float(m["price"]), time.time()); self._save_inr()
+                v = float(m["price"])
+                # Only an ordinary positive number is a rate. A zero (or a negative or not-a-number value)
+                # from a hiccup of the index was taken as the dollar-rupee rate: every crypto contract was
+                # then worth nothing in rupees and an order needed no margin at all (an account with 1,000
+                # coins bought 500 BTC lots, tried 21 Nov 2026 with the message fed by hand). The last
+                # good rate stays in use.
+                if math.isfinite(v) and v > 0:
+                    self._inr = (v, time.time()); self._save_inr()
             except Exception:
                 pass
             return

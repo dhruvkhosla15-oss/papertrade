@@ -312,6 +312,16 @@ class Probe:
             f1 = await self._funds(ca)
             st, _, d = await self._order(ca, token=ins.token, side="BUY", lots=1)
             self.ok("short of margin: a new order is refused", st == 400, d)
+            # ...but a stop-loss for the position itself needs no coins and is taken (21 Nov 2026: it was refused
+            # with "need ₹0.00" while Available Balance was below zero). Cancelled again at once. Only that
+            # refusal counts as a failure: if the square-off has already reduced the position, or the exchange
+            # band refuses the price, the answer says something else and nothing is concluded.
+            b2 = self._quote(ins.token)[0] or bid
+            st, o2, d = await self._order(ca, token=ins.token, side="SELL", lots=lots0, order_type="SL", trigger_price=round(b2 * 0.99, 4))
+            if st == 200 and o2.get("id"):
+                await ca.delete(f"/api/orders/{o2['id']}")
+            if st == 200 or "need ₹0.00" in d:
+                self.ok("short of margin: a stop-loss that only closes the position is still accepted", st == 200, d)
             lots1, f2 = lots0, f1
             for _ in range(30):
                 await asyncio.sleep(0.5)

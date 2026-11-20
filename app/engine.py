@@ -740,7 +740,10 @@ class Engine:
             ref_price = limit_price if order_type == "LIMIT" else ltp
             need = self._opening_margin(db, user, ins, side, qty, ref_price, leverage)
             f = self.funds(db, user)
-            if need > f["available"] + 1e-6:
+            # (an order that only closes what is held needs nothing: it is taken also while Available Balance is
+            # below zero. Until 21 Nov 2026 a stop-loss or target for one's own position was refused then with
+            # "Insufficient coins: need ₹0.00", just when the position most needed its stop.)
+            if need > 1e-6 and need > f["available"] + 1e-6:
                 order.status = "REJECTED"; order.reason = f"Insufficient coins: need ₹{need:,.2f}, available ₹{f['available']:,.2f}"
             else:
                 order.margin_blocked = need

@@ -497,10 +497,26 @@ class Engine:
         restart over the weekend would show every open position at zero P&L."""
         if p.last_mark is not None and self.at_close_price(p):
             return p.last_mark
+        if p.last_mark is not None and self.awaiting_first_price(p):
+            return p.last_mark
         mk = self.mark_price(p.token, p.qty)
         if mk is None and p.last_mark is not None and not self.feed.prices.get(p.token):
             return p.last_mark
         return mk
+
+    def awaiting_first_price(self, p: Position) -> bool:
+        """True in the first moments after a market opens, until the day's first price for this contract
+        arrives. What is in memory then is the book the last session closed with, or a stray quote from the
+        time the market was shut, so the position stays on its closing price until the new session's first
+        price (owner's decision, 21 Nov 2026: P&L at the close is the P&L until the market really prices
+        again; a stray weekend quote squared off two crude lots in the test)."""
+        ins = self.feed.instruments.get(p.token)
+        if ins is None:
+            return False
+        try:
+            return self.session_opened(ins) is not None and not self.session_price(ins)
+        except Exception:
+            return False
 
     def at_close_price(self, p: Position) -> bool:
         """True while the contract's market is shut. From the close until it reopens a position is valued at

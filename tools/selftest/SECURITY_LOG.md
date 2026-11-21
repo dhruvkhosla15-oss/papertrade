@@ -1901,3 +1901,20 @@ Live: Stop-loss / Target button and the fuller Master activity record (held from
 page behind the login; the Order Book cards on a phone. NEED checks added by the officers: /admin without a login
 or with a user's login returns the small login page (no "api/admin", no provider names) and /static/admin.html
 is 404; on a 360 and 412 wide screen no status pill or Cancel button of the Order Book is off the screen.
+
+## Owner's decisions, 21 Nov 2026 ("Yes to all"; and: weekend changes may go live in the daytime while markets are shut)
+- CONFIRMED: a future that expires with nobody quoting on its exit side is settled no better than the price it
+  could be dealt at. Do not raise again.
+- APPLIED (was held_opening_valuation): a position stays on its closing price until the first price of the new
+  session (engine.awaiting_first_price; same guard in weekly.remember_marks).
+- APPLIED (was held_coins_whole_paise): coins typed by the Master, and a new user's first allocation, are booked in
+  whole paise. Both held patches are now on main: remove them from "Waiting for the owner".
+- Position card shows resting exit orders of the position ("Resting: Stop-loss … · Target …", [data-rest]).
+- Shadow Book: margin worked out the broker's way is for the SHADOW BOOK ONLY. Users' margin is NOT to change.
+  app/margin_watch.py keeps, per IST day, the highest margin by limefx's rule and by the broker's own margin
+  calculator (asked within 20 s of every trade and every 15 min while the price-feed login is live; calculator
+  calls only, never an order). Days before 21 Nov are rebuilt from the trades and marked rebuilt (rough).
+  Cards: Margin Now, Peak Margin, Peak Real Margin; the same three columns per user.
+NEED checks from the officers: opening valuation (position on its closing price until the session's first price);
+coins in whole paise (ledger line = balance step); the resting line on a position card; Shadow Book peak >= now and
+the peak survives a square-off; the margin watch never delays an order and never sends one.

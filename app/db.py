@@ -212,6 +212,7 @@ class Setting(Base):
 
 
 def init_db():
+    from . import margin_watch as _mw_tables      # its table must be known before create_all
     Base.metadata.create_all(engine)
     # lightweight migrations for columns added after first release
     from sqlalchemy import text, inspect

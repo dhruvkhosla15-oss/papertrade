@@ -470,6 +470,7 @@ async def startup():
     asyncio.create_task(weekly_loop())
     _wd.install(config.DATA_DIR)
     asyncio.create_task(watchdog_loop())
+    asyncio.create_task(margin_watch_loop())
 
 
 # ---- pages -----------------------------------------------------------------------
@@ -1981,6 +1982,22 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
         margin = sum((p.margin_blocked or 0.0) for p in db.query(Position).filter_by(is_closed=False).filter(Position.exchange.in_(SHADOW_EXCHANGES)).all()
                      if p.user_id in users and p.qty)
     margin_real = _shadow_real_margin(book) if live else None
+    from . import margin_watch as _mw
+    _stamp = lambda t: ((datetime.strptime(t, "%Y-%m-%dT%H:%M:%S") + IST).strftime("%d %b, %I:%M %p") if t else "")
+    _pk = _mw.peaks(db, from_, to)
+    def _peak(uid):
+        o = _pk.get(uid)
+        if not o:
+            return {"rule": 0.0, "rule_at": "", "rule_rebuilt": False, "real": None, "real_at": "", "missed": 0}
+        return {"rule": round(o["rule"] or 0.0, 2), "rule_at": _stamp(o["rule_at"]), "rule_rebuilt": o["rule_rebuilt"],
+                "real": o["real"], "real_at": _stamp(o["real_at"]), "missed": o["missed"]}
+    _now_by = {}
+    for p in db.query(Position).filter_by(is_closed=False).filter(Position.exchange.in_(SHADOW_EXCHANGES)).all():
+        if p.qty and p.user_id in users:
+            _now_by[p.user_id] = _now_by.get(p.user_id, 0.0) + (p.margin_blocked or 0.0)
+    for uid in set(_pk) | set(_now_by):
+        if uid and uid in users:
+            r = row(uid); r["margin_now"] = round(_now_by.get(uid, 0.0), 2); r["margin_peak"] = _peak(uid)
     realised = sum(r["realised"] for r in per.values()); unreal = sum(r["unrealised"] for r in per.values())
     for r in per.values():
         r["net"] = round(r["realised"] + r["unrealised"] - r["costs"], 2)
@@ -1990,7 +2007,8 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                         "realised": round(realised, 2), "unrealised": round(unreal, 2), "gross": round(realised + unreal, 2),
                         "slippage": round(sum(r["slippage"] for r in per.values()), 2), "basis": basis_n,
                         "costs": {k: round(v, 2) for k, v in costs.items()}, "net": round(realised + unreal - costs["total"], 2),
-                        "open_positions": len(positions), "margin_estimate": round(margin, 2), "margin_real": margin_real},
+                        "open_positions": len(positions), "margin_estimate": round(margin, 2), "margin_real": margin_real,
+                        "margin_peak": _peak(0)},
             "users": sorted(per.values(), key=lambda r: r["net"]), "positions": sorted(positions, key=lambda x: x["unrealised"]),
             "orders": orders[::-1][:300], "rates": SHADOW_RATES}
 
@@ -2177,6 +2195,37 @@ def healthz():
 @app.get("/api/admin/health")
 def admin_health(admin: User = Depends(current_admin)):
     return _health()
+
+
+def _margin_watch_pass(first: bool):
+    from . import margin_watch as _mw
+    db = SessionLocal()
+    try:
+        uids = {u.id for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()}
+        if get_setting(db, "margin_rebuilt_v1", "") != "1":
+            # the replay needs the contract list (lot sizes, margin rule); after a night or weekend restart the
+            # exchange list is only there once the day's price-feed login is done, so try again until it is
+            r = _mw.rebuild(db, engine, uids, SHADOW_EXCHANGES)
+            if not r["skipped"] or any(i.exchange in SHADOW_EXCHANGES for i in list(feed.instruments.values())[:200000]):
+                set_setting(db, "margin_rebuilt_v1", "1")
+                log.info("peak margin rebuilt from trades: %s", r)
+        _mw.sample(db, feed, uids, SHADOW_EXCHANGES)
+    finally:
+        db.close()
+
+
+async def margin_watch_loop():
+    """Peak margin for the Shadow Book: looks every 20 seconds (see margin_watch). Display only; a failure
+    here never touches an order. The work is done off the event loop: the broker's calculator can be slow."""
+    await asyncio.sleep(45)
+    first = True
+    while True:
+        try:
+            await asyncio.get_event_loop().run_in_executor(None, _margin_watch_pass, first)
+            first = False
+        except Exception as e:
+            log.warning("margin watch pass failed: %s", str(e)[:200])
+        await asyncio.sleep(20)
 
 
 async def watchdog_loop():
@@ -2503,7 +2552,7 @@ def admin_create_user(body: UserIn, admin: User = Depends(current_admin), db: Se
     db.add(u); db.flush()
     _forget_number(db, u.id)       # a brand-new account: nothing filed under its number can be its own
     if body.initial_coins:
-        engine._ledger(db, u, body.initial_coins, "ADMIN_CREDIT", "initial allocation")
+        engine._ledger(db, u, round(float(body.initial_coins), 2), "ADMIN_CREDIT", "initial allocation")
     db.commit()
     _note(f"Created user {uname} ({u.display_name}) with {body.initial_coins or 0:,.0f} coins")
     return _user_dict(u)
@@ -2519,6 +2568,7 @@ def admin_coins(uid: int, body: CoinsIn, admin: User = Depends(current_admin), d
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404)
+    body.amount = round(float(body.amount), 2)      # whole paise only (owner's decision, 21 Nov 2026): 250000.335 was booked as .33 in the ledger and .34 on the balance
     _b = u.balance or 0.0
     engine._ledger(db, u, body.amount, "ADMIN_CREDIT" if body.amount >= 0 else "ADMIN_DEBIT", body.note)
     db.commit()

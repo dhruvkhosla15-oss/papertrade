@@ -192,6 +192,8 @@ def remember_marks(engine, db, only: Optional[list] = None) -> int:
                 p.last_vf = float(_f); n += 1
         if p.last_mark is not None and engine.at_close_price(p):
             continue                      # market shut: the closing price stays as it is until it reopens
+        if p.last_mark is not None and engine.awaiting_first_price(p):
+            continue                      # just opened, no price of the new session yet: keep the closing price
         mk = _exit_quote(engine, p)
         if mk is None:
             if p.last_mark is not None and not _trade_after_mark(engine, p):

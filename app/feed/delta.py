@@ -55,6 +55,8 @@ class DeltaCrypto:
         self._gap: dict = {}             # perpetual -> longest wait between two of its messages since the start (outages left out)
         self.drops: list = []            # the last 30 drops: [when (unix), seconds the connection lasted, messages received, why]
         self._fails = 0                  # drops in a row that came soon after connecting (for the waiting time before the next try)
+        self._run_task = None
+        self._last_fresh = 0.0           # when the connection was last rebuilt from scratch
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -293,7 +295,7 @@ class DeltaCrypto:
             self.message = f"product list failed: {e}"
         # perpetuals are the underlying reference for every option's margin/maintenance: always stream them
         self.feed.pin([t for t, i in self.items.items() if i.instrument_type == "FUT"])
-        loop.create_task(self._run())
+        self._run_task = loop.create_task(self._run())
         loop.create_task(self._refresh_loop())
 
     async def _refresh_loop(self):
@@ -320,8 +322,39 @@ class DeltaCrypto:
         self.connected = False; self.message = "paused by master"
 
     def reconnect(self):
-        self.paused = False; self.message = "reconnecting"
+        """Master's Reconnect: rebuild the crypto connection from scratch, the same as a restart of the site
+        does for it (owner's request, 23 Nov 2026: pressing reconnect while the exchange kept cutting the
+        connection did nothing, only a restart of the whole site brought the prices back)."""
+        self.paused = False; self.message = "reconnecting from scratch"
+        if self._loop:
+            asyncio.run_coroutine_threadsafe(self._fresh(), self._loop)
         return True
+
+    async def _fresh(self):
+        """Stop the old connection and its retry loop, reload the contract list, start a new connection at once."""
+        self._last_fresh = time.time()
+        old = self._run_task
+        if old is not None and not old.done():
+            old.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(old), 5)
+            except BaseException:
+                pass
+        try:
+            if self._ws:
+                await asyncio.wait_for(self._ws.close(), 3)
+        except BaseException:
+            pass
+        self._ws = None; self.connected = False; self._fails = 0; self._last_msg = 0.0
+        try:
+            await self._loop.run_in_executor(None, self.refresh_products)
+        except Exception as e:
+            log.warning("delta: product list failed on a fresh start: %s", e)
+        self._run_task = self._loop.create_task(self._run())
+
+    def last_data_secs(self):
+        """Seconds since the exchange last sent anything (None if never)."""
+        return round(time.time() - self._last_msg, 1) if self._last_msg else None
 
     def quiet(self) -> bool:
         """True when the connection is up but the exchange has sent nothing for a while. The prices in
@@ -388,6 +421,12 @@ class DeltaCrypto:
             # (5, 10, 20, 40, 80, 120 seconds) instead of knocking every 5 seconds all night, which can get the
             # site's address limited by the exchange.
             self._fails = 0 if lasted > 300 and n_msgs > 50 else self._fails + 1
+            if self._fails >= 6 and time.time() - self._last_fresh > 900:
+                # six quick drops in a row: do what a restart of the site does, at most every 15 minutes
+                self.message = f"rebuilding the connection from scratch (last drop: {why[:120]})"
+                log.warning("delta: %d quick drops in a row, rebuilding the connection from scratch", self._fails)
+                asyncio.get_event_loop().create_task(self._fresh())
+                return
             wait = 5 if self._fails <= 1 else min(120, 5 * 2 ** (self._fails - 1))
             self.message = f"reconnecting (next try in {wait} s; last drop: {why[:120]})"
             await asyncio.sleep(wait)

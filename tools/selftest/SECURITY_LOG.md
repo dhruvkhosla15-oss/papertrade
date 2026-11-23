@@ -1927,3 +1927,8 @@ exchange was fine: it refused the website's server. Now: each drop is recorded w
 40, 80, 120 s instead of retrying every 5 s; the feed alarm sends one DOWN message per outage and "back and steady"
 only after 10 minutes up (PT_FEED_STEADY_SECS). Officers: if drops keep showing an HTTP refusal (403 / 429) from
 the exchange, a fallback that reads crypto prices over the exchange's REST address is the next step (owner to decide).
+- Owner's decision, 23 Nov 2026: Reconnect must always be within reach and must really connect again (as with the
+  Zerodha login button). "Reconnect crypto" is always shown and rebuilds the crypto connection from scratch (stops the
+  old connection and its retries, reloads the contract list, connects at once) and tells the Master within 20 s whether
+  prices are arriving. Six quick drops in a row do the same by themselves (at most every 15 min). "Reconnect forex" is
+  always shown once a token is saved and drops the old connection at once. Do not hide these buttons in any state.

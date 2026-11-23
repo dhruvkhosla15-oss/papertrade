@@ -3316,9 +3316,20 @@ def crypto_reconnect(admin: User = Depends(current_admin)):
     if not crypto:
         raise HTTPException(400, "Crypto feed is not enabled")
     crypto.reconnect()
-    _note("Crypto price feed reconnected")
+    _note("Crypto price feed reconnected from scratch")
     log.info("crypto feed reconnect by master %s", admin.username)
-    return crypto.status()
+    # wait (up to 20 s) to tell the Master plainly whether prices are really arriving again
+    t0 = time.time()
+    while time.time() - t0 < 20:
+        time.sleep(1)
+        d = crypto.last_data_secs()
+        if crypto.connected and d is not None and d < 3 and time.time() - t0 > 4:
+            break
+    st = crypto.status()
+    d = crypto.last_data_secs()
+    st["result"] = ("Connected: crypto prices are arriving again." if crypto.connected and d is not None and d < 5 else
+                    "Not connected yet. The site keeps trying by itself. " + (f"Last drop: {st['drops'][0]['why']}" if st.get("drops") else st.get("message", "")))
+    return st
 
 
 class ForexTokenIn(BaseModel):

@@ -777,7 +777,14 @@ class CTraderForex:
         self.connected = False; self.message = "paused by master"
 
     def reconnect(self):
+        """Master's Reconnect: drop whatever connection there is and connect again now (owner's request,
+        23 Nov 2026: the button must always connect again, not wait on an old connection)."""
         self.paused = False; self.message = "reconnecting"
+        if self._ws and self._loop:
+            try:
+                asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
+            except Exception:
+                pass
         return True
 
     def status(self):

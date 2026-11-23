@@ -1918,3 +1918,12 @@ is 404; on a 360 and 412 wide screen no status pill or Cancel button of the Orde
 NEED checks from the officers: opening valuation (position on its closing price until the session's first price);
 coins in whole paise (ledger line = balance step); the resting line on a position card; Shadow Book peak >= now and
 the peak survives a square-off; the margin watch never delays an order and never sends one.
+
+## 23 Nov 2026 (morning, owner's request) — crypto connection cut again and again all night
+From about 12:34 am the crypto exchange cut the site's connection within seconds of each reconnect, all night;
+no price arrived for 8 hours. A connection opened at the same time from the owner's laptop worked at once, so the
+exchange was fine: it refused the website's server. Now: each drop is recorded with its reason (crypto status
+"drops", also in the crypto card's message and in the Telegram alert); after quick drops the site waits 5, 10, 20,
+40, 80, 120 s instead of retrying every 5 s; the feed alarm sends one DOWN message per outage and "back and steady"
+only after 10 minutes up (PT_FEED_STEADY_SECS). Officers: if drops keep showing an HTTP refusal (403 / 429) from
+the exchange, a fallback that reads crypto prices over the exchange's REST address is the next step (owner to decide).

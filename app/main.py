@@ -1624,7 +1624,8 @@ async def feed_watch_loop():
     (under PT_FEED_ALERT_SECS, default 90 s) and the first minutes after a restart are ignored."""
     hold = int(os.getenv("PT_FEED_ALERT_SECS", "90"))
     await asyncio.sleep(int(os.getenv("PT_FEED_ALERT_GRACE", "180")))
-    down_since: dict = {}; alerted: dict = {}
+    down_since: dict = {}; alerted: dict = {}; up_since: dict = {}
+    steady = int(os.getenv("PT_FEED_STEADY_SECS", "600"))     # after an alert, "back" only once it has stayed up this long
     names = {"main": "NSE / BSE / MCX / Currency", "crypto": "Crypto", "forex": "Forex / Global"}
     ist = lambda ts: (datetime.utcfromtimestamp(ts) + timedelta(hours=5, minutes=30)).strftime("%I:%M %p").lstrip("0")
     while True:
@@ -1642,14 +1643,23 @@ async def feed_watch_loop():
                 # The hour before an opening counts as open, so the reminder to log in still comes in time.
                 shut = k in _FEED_MARKETS and not any(engine.market_open(ex) or _opens_soon(ex) for ex in _FEED_MARKETS[k])
                 if up or off_on_purpose or shut:
-                    if k in alerted and up:
-                        mins = max(1, int((now - down_since.get(k, now)) // 60))
-                        await asyncio.get_event_loop().run_in_executor(None, _probe._telegram, f"✅ limefx: {names[k]} prices are back (were down {mins} min).")
-                    down_since.pop(k, None); alerted.pop(k, None)
+                    # After an alert the feed has to stay up for a while before "back" is sent: a connection that
+                    # comes and goes every few minutes is one outage, not dozens of messages (23 Nov 2026: about 40
+                    # DOWN / back messages in one night for the crypto prices).
+                    if k in alerted and up and not off_on_purpose and not shut:
+                        up_since.setdefault(k, now)
+                        if now - up_since[k] < steady:
+                            continue
+                        mins = max(1, int((up_since[k] - down_since.get(k, now)) // 60))
+                        await asyncio.get_event_loop().run_in_executor(None, _probe._telegram, f"✅ limefx: {names[k]} prices are back and steady (down about {mins} min).")
+                    down_since.pop(k, None); alerted.pop(k, None); up_since.pop(k, None)
                     continue
+                up_since.pop(k, None)
                 down_since.setdefault(k, now)
                 if now - down_since[k] >= hold and (k not in alerted or now - alerted[k] >= 3600):
                     why = "It needs the daily login from the Master panel." if f.get("needs_login") else ""
+                    if k == "crypto" and (f.get("drops") or []):
+                        why = f"Last drop: {f['drops'][0]['why'][:140]}."
                     first = k not in alerted
                     alerted[k] = now
                     msg = (f"⚠️ limefx: {names[k]} prices are DOWN since {ist(down_since[k])} IST." if first

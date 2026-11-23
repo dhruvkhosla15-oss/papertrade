@@ -53,6 +53,8 @@ class DeltaCrypto:
         self._stale_book = set()         # perpetuals whose order book in memory is from before the last (re)connect
         self._seen: dict = {}            # perpetual -> when its last message arrived
         self._gap: dict = {}             # perpetual -> longest wait between two of its messages since the start (outages left out)
+        self.drops: list = []            # the last 30 drops: [when (unix), seconds the connection lasted, messages received, why]
+        self._fails = 0                  # drops in a row that came soon after connecting (for the waiting time before the next try)
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -343,7 +345,8 @@ class DeltaCrypto:
                 await asyncio.sleep(1)
                 continue
             try:
-                async with websockets.connect(WS, ping_interval=20, ping_timeout=20, max_size=8_000_000) as ws:
+                t_open = time.time(); n_msgs = 0; why = "closed by the exchange"
+                async with websockets.connect(WS, ping_interval=20, ping_timeout=20, max_size=8_000_000, open_timeout=20) as ws:
                     self._ws = ws
                     self._resync(); self._last_msg = time.time()
                     self.connected = True; self.message = "Delta Exchange India live"
@@ -351,6 +354,9 @@ class DeltaCrypto:
                     if self._subs:
                         await ws.send(json.dumps({"type": "subscribe", "payload": {"channels": self._channels(list(self._subs))}}))
                     async for raw in ws:
+                        n_msgs += 1
+                        if n_msgs > 50:
+                            self._fails = 0            # a connection that really delivers resets the waiting time
                         now = time.time()
                         if now - self._last_msg > QUIET_SECS:
                             self._resync()         # first message after a silence: same as a reconnect
@@ -359,13 +365,32 @@ class DeltaCrypto:
                             self._handle(json.loads(raw))
                         except Exception:
                             log.exception("delta: bad message")
+                try:
+                    why = f"closed by the exchange (code {ws.close_code}{', ' + ws.close_reason if ws.close_reason else ''})"
+                except Exception:
+                    pass
             except Exception as e:
+                why = f"{type(e).__name__}: {str(e)[:200]}"
                 if not self.paused:
                     log.warning("delta: websocket dropped: %s", e)
             self.connected = False; self._ws = None
-            if not self.paused:
-                self.message = "reconnecting"
-            await asyncio.sleep(1 if self.paused else 5)
+            if self.paused:
+                await asyncio.sleep(1)
+                continue
+            # Why it dropped, kept for the Master's crypto card and the Site health card (found 23 Nov 2026: the
+            # connection was cut again within seconds all night and nothing said why).
+            try:
+                lasted = round(time.time() - t_open, 1)
+            except Exception:
+                lasted, n_msgs = 0.0, 0
+            self.drops = (self.drops + [[time.time(), lasted, n_msgs, why]])[-30:]
+            # Retry at once after a connection that worked for a while; after quick drops wait longer each time
+            # (5, 10, 20, 40, 80, 120 seconds) instead of knocking every 5 seconds all night, which can get the
+            # site's address limited by the exchange.
+            self._fails = 0 if lasted > 300 and n_msgs > 50 else self._fails + 1
+            wait = 5 if self._fails <= 1 else min(120, 5 * 2 ** (self._fails - 1))
+            self.message = f"reconnecting (next try in {wait} s; last drop: {why[:120]})"
+            await asyncio.sleep(wait)
 
     def _handle(self, m):
         t = m.get("type")
@@ -484,5 +509,7 @@ class DeltaCrypto:
                  "close": float(x["close"]), "volume": float(x.get("volume") or 0), "oi": 0} for x in rows]
 
     def status(self):
+        ist = lambda ts: (datetime.utcfromtimestamp(ts) + timedelta(hours=5, minutes=30)).strftime("%d %b, %I:%M:%S %p")
         return {"connected": self.connected, "paused": self.paused, "message": self.message, "instruments": len(self.items),
-                "subscribed": len(self._subs), "usdinr": self.usdinr(), "fx_source": self.fx_source()}
+                "subscribed": len(self._subs), "usdinr": self.usdinr(), "fx_source": self.fx_source(),
+                "drops": [{"at": ist(d[0]), "lasted_s": d[1], "messages": d[2], "why": d[3]} for d in self.drops[-10:]][::-1]}

@@ -1235,6 +1235,76 @@ try:
 finally:
     _WD._err_file = _wd_file; _WD._errors.clear(); _WD._errors.extend(_wd_err)
 
+# ---- the Shadow Book's margin recorder never holds up an order and never sends one (Technology officer, 25 Nov 2026) ----
+# The recorder (app/margin_watch.py, owner's decision of 21 Nov) asks the broker's margin calculator after every
+# trade. The calculator can take seconds. Until 25 Nov 2026 the recorder kept the books locked for writing while it
+# asked, whenever it had just started a day's line for an account (the first position of the day, or midnight):
+# every order on the site then waited for the calculator. Here the calculator is a stand-in that, while it is
+# being asked, tries to write to the books the way an order does.
+from app import margin_watch as _MW                        # noqa: E402
+import sqlite3 as _sq3                                     # noqa: E402
+import inspect as _insp2                                   # noqa: E402
+import re as _re2                                          # noqa: E402
+
+
+class _Calc:
+    def __init__(self):
+        self.asked, self.other, self.locked = [], [], []
+
+    def basket_order_margins(self, basket, consider_positions=True, mode=None):
+        self.asked.append(list(basket))
+        _c = _sq3.connect(str(M._db_file()), timeout=0.3)
+        try:
+            _c.execute("BEGIN IMMEDIATE"); _c.execute("ROLLBACK"); self.locked.append(False)
+        except _sq3.OperationalError:
+            self.locked.append(True)
+        finally:
+            _c.close()
+        return {"final": {"total": 4321.5}, "initial": {"total": 5000.0}, "orders": []}
+
+    def __getattr__(self, name):                           # anything else the recorder might ask of the broker connection
+        self.other.append(name)
+        raise AttributeError(name)
+
+
+_mw_keep = (getattr(feed, "kite", None), getattr(feed, "access_token", None), dict(_MW._state))
+_mw_db = SessionLocal()
+try:
+    px(nifty=25000)
+    _mwu = mk_user("mwatch", 5_000_000)
+    db.query(_MW.MarginPeak).delete(); db.commit()         # nothing on record yet today: the first look starts the day's lines
+    _MW._state.update(trade_id=None, sig=None, real_at=0.0)
+    _calc = _Calc(); feed.kite = _calc; feed.access_token = "fake-login-of-today"
+    trade("mwatch", F_NIFTY, "BUY", 2)
+    _MW.sample(_mw_db, feed, {_mwu.id}, M.SHADOW_EXCHANGES)
+    ok("margin watch: the calculator is asked for everybody together and for the account", len(_calc.asked) == 2, str(len(_calc.asked)))
+    ok("margin watch: an order can be written while the calculator is being asked (first look of the day)", bool(_calc.locked) and not any(_calc.locked), str(_calc.locked))
+    trade("mwatch", F_NIFTY, "BUY", 1)                     # a trade later the same day: the peak rises
+    _n_ord = (db.query(Order).count(), db.query(Trade).count())
+    _MW.sample(_mw_db, feed, {_mwu.id}, M.SHADOW_EXCHANGES)
+    ok("margin watch: an order can be written while the calculator is being asked (after a later trade)", len(_calc.asked) == 4 and not any(_calc.locked), f"{len(_calc.asked)} {_calc.locked}")
+    ok("margin watch: it places, changes and cancels no order of its own", (db.query(Order).count(), db.query(Trade).count()) == _n_ord and not _calc.other, str(_calc.other))
+    ok("margin watch: the only thing it ever asks the broker connection is the margin calculator",
+       set(_re2.findall(r"kite\.(\w+)", _insp2.getsource(_MW))) == {"basket_order_margins"}
+       and not _re2.search(r"place_order|modify_order|cancel_order|exit_order|place_gtt|convert_position", _insp2.getsource(_MW)), str(set(_re2.findall(r"kite\.(\w+)", _insp2.getsource(_MW)))))
+    db.expire_all()
+    _now = sum(p.margin_blocked or 0.0 for p in db.query(Position).filter_by(user_id=_mwu.id, is_closed=False))
+    _pk = _MW.peaks(_mw_db)
+    ok("margin watch: the peak is at least the margin blocked now, for the account and for everybody", _now > 0 and near(_pk[_mwu.id]["rule"], _now) and _pk[0]["rule"] >= _now - 0.01
+       and _pk[0]["real"] == 4321.5 and _pk[_mwu.id]["real"] == 4321.5, f"now {_now} peaks {_pk}")
+    trade("mwatch", F_NIFTY, "SELL", 3)                    # everything closed
+    _MW.sample(_mw_db, feed, {_mwu.id}, M.SHADOW_EXCHANGES)
+    _pk2 = _MW.peaks(_mw_db)
+    ok("margin watch: the day's peak stays after the position is closed", near(_pk2[_mwu.id]["rule"], _now) and near(_pk2[0]["rule"], _pk[0]["rule"]) and _pk2[0]["real"] == 4321.5, str(_pk2))
+    # the calculator does not answer (broker down, login run out): nothing is raised into the site, the rule figure is still kept
+    _calc.basket_order_margins = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("calculator down"))
+    trade("mwatch", F_NIFTY, "BUY", 1); _r = _MW.sample(_mw_db, feed, {_mwu.id}, M.SHADOW_EXCHANGES); trade("mwatch", F_NIFTY, "SELL", 1)
+    ok("margin watch: a calculator that does not answer is only noted (trades not measured are counted)", _r["real"] is None and _MW.peaks(_mw_db)[0]["missed"] >= 1, str(_r))
+finally:
+    feed.kite, feed.access_token = _mw_keep[0], _mw_keep[1]
+    _MW._state.clear(); _MW._state.update(_mw_keep[2])
+    _mw_db.close()
+
 # ---- the daily backup that does not pass its check (alarm "backup bad"; Technology officer, 21 Nov 2026) ----
 # One round of the real backup job at a time, on this script's own database. The owner is told once per damaged
 # file, the damaged file is set aside and the next round writes a good one. Also when the damaged file was

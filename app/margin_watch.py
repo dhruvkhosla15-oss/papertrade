@@ -111,8 +111,17 @@ def sample(db, feed, user_ids, exchanges) -> dict:
     sig = tuple(sorted((p.user_id, p.token, p.qty) for p in pos))
     due = traded or sig != _state["sig"] or time.time() - _state["real_at"] >= REAL_EVERY
     out = {"rule": round(total, 2), "real": None}
+    # The books must be free while the broker's calculator is asked: it can take seconds, and a line started for
+    # a new day a moment ago would otherwise keep the database locked for writing all that time, so that every
+    # order on the site waited for the calculator (found 25 Nov 2026: with six accounts and a calculator taking
+    # 1.5 s a call, another account's order waited 8.7 s). So: write the rule figures and let go, ask, then write
+    # the answers.
+    all_basket = _basket(feed, pos) if due else []
+    baskets = {uid: _basket(feed, ps) for uid, ps in by.items()} if due else {}
+    db.commit()
     if due:
-        tot = _real(feed, _basket(feed, pos))
+        tot = _real(feed, all_basket)
+        per = {uid: _real(feed, b) for uid, b in baskets.items()} if tot is not None else {}
         if tot is None:
             if n_new:
                 r = _row(db, day, 0); r.real_missed = (r.real_missed or 0) + n_new
@@ -121,13 +130,12 @@ def sample(db, feed, user_ids, exchanges) -> dict:
             r = _row(db, day, 0)
             if r.real_peak is None or tot > r.real_peak:
                 r.real_peak = tot; r.real_at = at
-            for uid, ps in by.items():
-                v = _real(feed, _basket(feed, ps))
+            for uid, v in per.items():
                 if v is not None:
                     ru = _row(db, day, uid)
                     if ru.real_peak is None or v > ru.real_peak:
                         ru.real_peak = v; ru.real_at = at
-    db.commit()
+        db.commit()
     return out
 
 

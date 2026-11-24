@@ -1974,8 +1974,8 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
             # One closing price: while the contract's market is shut (or the feed has nothing after a restart)
             # the mirrored position is valued at the same closing price as the user's own position.
             up = held.get((uid, token))
-            if up is not None and up.last_mark is not None and engine.at_close_price(up):
-                mk = up.last_mark
+            if up is not None and up.last_mark is not None and (engine.at_close_price(up) or engine.awaiting_first_price(up)):
+                mk = up.last_mark              # also in the first moments of a session, until its first price (25 Nov 2026)
             else:
                 mk = engine.mark_price(token, pos["qty"])
                 if mk is None: mk = feed.ltp(token)

@@ -145,6 +145,19 @@ def close_price(engine, p: Position) -> Optional[float]:
     return float(mk)
 
 
+def running_price(engine, p: Position) -> Optional[float]:
+    """Price for the figure of the week IN PROGRESS (Weekly Settlement tab, the user's weekly figure, Excel).
+    The same as close_price, except in the first moments of a session, until the contract's first price:
+    there every other screen stands on the closing price (owner's decision of 21 Nov 2026), while this figure
+    was worked out from the old book or a stray quote still in memory (a long NIFTY position: +59,985 on the
+    user's screen and the Master's row, -300,015 on the Weekly Settlement tab, found 25 Nov 2026).
+    The cut-off itself (close_week) still uses close_price: on a Sunday night no market is in its opening
+    moments, and what is booked there is not changed by this."""
+    if p.last_mark is not None and math.isfinite(p.last_mark) and p.last_mark >= 0 and engine.awaiting_first_price(p):
+        return p.last_mark
+    return close_price(engine, p)
+
+
 CLOSING_WINDOW = 180        # seconds before a contract stops trading in which its closing price is kept fresh
 
 
@@ -358,7 +371,7 @@ def running_row(engine, db, user: User) -> dict:
         if not p.qty:
             continue
         ins = engine.feed.instruments.get(p.token)
-        px = close_price(engine, p)
+        px = running_price(engine, p)
         pf = engine.pvf(p)
         if px is None or pf is None:
             unpriced += 1; continue

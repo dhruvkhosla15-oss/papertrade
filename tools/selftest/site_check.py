@@ -153,6 +153,68 @@ def accounts_block(br, actx, uctx, ok, near):
        "Commission" in utxt and "₹0" in utxt and len(mtxt) > 40 and not zero, zero[:4] or (utxt[:120], mtxt[:120]))
 
 
+# ---------------- Accounts / Price officer's block (25 Nov 2026) ----------------
+def accounts_block_25nov(br, actx, ok, near):
+    """Owner's decisions of 21 Nov 2026 that had no check yet, and two faults of 25 Nov. Through the Master's and
+    one new user's own logins only. (1) Coins typed with a fraction of a paisa are booked in whole paise and the
+    ledger line equals the step in the balance. (2) Shadow Book: Peak Margin is never below Margin Now (also right
+    after a trade: fault of 25 Nov), the cards agree with the per-user columns, and the peak survives a square-off.
+    (3) A new account does not start with the Peak Margin of a deleted account that had its number (fault of 25 Nov)."""
+    A = actx.request
+    get = lambda path: A.get(f"{B}{path}").json()
+    cid = A.post(f"{B}/api/admin/users", data={"username": "sitepeak", "password": "Peak@12345", "display_name": "Site Peak", "initial_coins": 1000000.335}).json().get("id")
+    steps = []; bal = 0.0
+    for amt in (None, 250000.335, 33.333333, -1234.565, -0.004):
+        if amt is not None:
+            A.post(f"{B}/api/admin/users/{cid}/coins", data={"amount": amt, "note": "paise"})
+        d = get(f"/api/admin/users/{cid}/detail"); l = (d.get("ledger") or [{}])[0]; now = d["user"]["balance"]
+        row = next((u for u in get("/api/admin/users") if u["id"] == cid), {})
+        steps.append((amt, l.get("amount"), round(now - bal, 4), l.get("balance_after"), now, row.get("total_credited"), len(d.get("ledger") or [])))
+        bal = now
+    whole = lambda v: v is not None and abs(v * 100 - round(v * 100)) < 1e-6
+    ok("Coins typed with a fraction of a paisa (first allocation, added, removed) are booked in whole paise: each ledger line equals the step in the balance, and Allocated equals the coins",
+       bool(cid) and all(whole(a) and whole(n) and abs(a - st) < 1e-6 and abs(ba - n) < 1e-6 and abs((al or 0) - n) < 1e-6 and cnt == i + 1 for i, (_, a, st, ba, n, al, cnt) in enumerate(steps)), str(steps))
+    pctx = br.new_context(); P = pctx.request
+    P.post(f"{B}/api/login", data={"username": "sitepeak", "password": "Peak@12345"})
+    P.post(f"{B}/api/password", data={"old_password": "Peak@12345", "new_password": "Peak@67890"})
+    fut = get("/api/futures?exchange=NFO&name=NIFTY")[-1]
+    o = None
+    for _ in range(5):
+        o = P.post(f"{B}/api/orders", data={"token": fut["token"], "side": "BUY", "lots": 1})
+        if o.status == 200:
+            break
+        time.sleep(1)
+    mine = lambda sh: next((u for u in sh["users"] if u["username"] == "sitepeak"), {})
+    sh = get("/api/admin/shadow"); u0 = mine(sh); m0 = u0.get("margin_now") or 0.0
+    cards = lambda sh: (sh["summary"]["margin_estimate"], sh["summary"]["margin_peak"]["rule"], round(sum(u.get("margin_now") or 0.0 for u in sh["users"]), 2))
+    c_now, c_peak, c_sum = cards(sh)
+    ok("Shadow Book: right after a trade Peak Margin is not below Margin Now, for the user and on the cards, and the Margin Now card is the sum of the users' column",
+       o is not None and o.status == 200 and m0 > 0 and (u0.get("margin_peak") or {}).get("rule", 0) >= m0 - 0.011 and c_peak >= c_now - 0.011 and near(c_now, c_sum, 0.02),
+       f"order {o.status if o is not None else None}, user now {m0} peak {(u0.get('margin_peak') or {}).get('rule')}, cards now {c_now} peak {c_peak}, column sum {c_sum}")
+    seen = False
+    for _ in range(40):                       # the recorder looks every 20 seconds: wait until it has written this margin down
+        k = mine(get("/api/admin/shadow")).get("margin_peak") or {}
+        if not k.get("rule_live") and (k.get("rule") or 0) >= m0 - 0.011:
+            seen = True; break
+        time.sleep(1.5)
+    sq = A.post(f"{B}/api/admin/users/{cid}/squareoff").json()
+    sh = get("/api/admin/shadow"); u1 = mine(sh); c_now, c_peak, c_sum = cards(sh); k1 = u1.get("margin_peak") or {}
+    peaks = [(u.get("margin_peak") or {}).get("rule") or 0.0 for u in sh["users"]]
+    ok("Shadow Book: the Peak Margin survives a square-off (Margin Now back to zero, the peak and its time stay), and the Peak Margin card is not below the largest user peak",
+       seen and sq.get("closed") == 1 and near(u1.get("margin_now"), 0.0, 0.001) and near(k1.get("rule"), m0, 0.011) and bool(k1.get("rule_at")) and not k1.get("rule_live")
+       and c_peak >= c_now - 0.011 and near(c_now, c_sum, 0.02) and max(peaks) - 0.011 <= c_peak,      # (no upper limit: the card keeps the peak of accounts deleted since)
+       f"recorded {seen}, square-off {sq}, user now {u1.get('margin_now')} peak {k1} (was {m0}), cards now {c_now} peak {c_peak}, user peaks {peaks}")
+    # delete it and create the next account: the database hands the same number out again
+    A.delete(f"{B}/api/admin/users/{cid}")
+    nid = A.post(f"{B}/api/admin/users", data={"username": "sitepeak2", "password": "Peak@12345", "display_name": "Site Peak Two", "initial_coins": 1000}).json().get("id")
+    u2 = next((u for u in get("/api/admin/shadow")["users"] if u["username"] == "sitepeak2"), None)
+    ok("Shadow Book: a new account does not start with the Peak Margin of a deleted account that had its number",
+       bool(nid) and (u2 is None or not ((u2.get("margin_peak") or {}).get("rule") or (u2.get("margin_peak") or {}).get("real"))), f"number {cid} -> {nid}, row {u2}")
+    if nid:
+        A.delete(f"{B}/api/admin/users/{nid}")
+    pctx.close()
+
+
 def main():
     with sync_playwright() as pw:
         br = pw.chromium.launch()
@@ -824,6 +886,7 @@ def main():
         # ======== Master activity record — end of block ========
 
         accounts_block(br, actx, uctx, ok, near)      # Accounts officer's block, 21 Nov 2026 (above main)
+        accounts_block_25nov(br, actx, ok, near)      # Accounts / Price officer's block, 25 Nov 2026 (above main)
         # ======== UI / user experience officer, 21 Nov 2026: owner's changes of 19-20 Nov and the faults of tonight ========
         # (a) Stop-loss / Target button on every open position: the sheet opens on the exit side, for the whole position,
         #     on Stop-loss, with its hint; a stop and a target placed through it really rest.

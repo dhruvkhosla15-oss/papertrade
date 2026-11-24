@@ -1316,6 +1316,69 @@ finally:
     _MW._state.clear(); _MW._state.update(_mw_keep[2])
     _mw_db.close()
 
+# ---- the domain-renewal reminder (alarm "domain renewal"; Technology officer, 25 Nov 2026) ----
+# One round of the real watchdog at a time, with the clock and the expiry date set by this script.
+import datetime as _dtm                                    # noqa: E402
+_dm_keep = (M.datetime, _PB._telegram, os.environ.get("PT_DOMAIN_EXPIRY"), asyncio.sleep, M.get_setting_safe("domain_reminded"))
+_dm_told, _dm_now = [], [None]
+try:
+    class _DmClock(_dtm.datetime):
+        @classmethod
+        def utcnow(cls):
+            return _dm_now[0]
+
+    class _DmStop(Exception):
+        pass
+
+    def _dm_round(days_left, ist_hour):
+        _d = _dtm.date(2026, 11, 25)
+        os.environ["PT_DOMAIN_EXPIRY"] = (_d + timedelta(days=days_left)).isoformat() if isinstance(days_left, int) else days_left
+        _dm_now[0] = _dtm.datetime(_d.year, _d.month, _d.day, ist_hour, 5) - IST
+        _n, _before = [0], len(_dm_told)
+
+        async def _nap(_s):
+            _n[0] += 1
+            if _n[0] >= 2:
+                raise _DmStop()
+
+        async def _one():
+            asyncio.sleep = _nap
+            try:
+                await M.watchdog_loop()
+            except _DmStop:
+                pass
+            finally:
+                asyncio.sleep = _dm_keep[3]
+            await asyncio.sleep(0.05)
+        M.datetime = _DmClock
+        try:
+            run(_one())
+        finally:
+            M.datetime = _dm_keep[0]
+        return [_m for _m in _dm_told[_before:] if "domain name" in _m]
+
+    _PB._telegram = lambda _m: (_dm_told.append(_m), "")[1]
+    ok("domain: 8 days before it runs out nothing is sent", _dm_round(8, 11) == [])
+    ok("domain: 7 days before, nothing before 10 am", _dm_round(7, 9) == [])
+    _g = _dm_round(7, 10)
+    ok("domain: 7 days before, one reminder with the date and the days left", len(_g) == 1 and "02 Dec 2026" in _g[0] and "(7 days left)" in _g[0], str(_g)[:200])
+    ok("domain: the same day it is not sent twice", _dm_round(7, 15) == [])
+    ok("domain: on the last day it is sent again", len(_dm_round(0, 10)) == 1)
+    ok("domain: Site health shows the days left", (os.environ.__setitem__("PT_DOMAIN_EXPIRY", "2099-01-01"), M._health()["domain"])[1]["expires"] == "2099-01-01")
+    _g = _dm_round("next year", 11)
+    try:
+        _h = M._health()["domain"]
+    except Exception as _e:
+        _h = {"expires": repr(_e)}
+    ok("domain: a setting that is not a date falls back to the built-in date (Site health still opens, no reminder)", _g == [] and _h["expires"] == M.DOMAIN_EXPIRY, str(_h))
+finally:
+    M.datetime, _PB._telegram, asyncio.sleep = _dm_keep[0], _dm_keep[1], _dm_keep[3]
+    if _dm_keep[2] is None:
+        os.environ.pop("PT_DOMAIN_EXPIRY", None)
+    else:
+        os.environ["PT_DOMAIN_EXPIRY"] = _dm_keep[2]
+    M.set_setting_safe("domain_reminded", _dm_keep[4] or "")
+
 # ---- the daily backup that does not pass its check (alarm "backup bad"; Technology officer, 21 Nov 2026) ----
 # One round of the real backup job at a time, on this script's own database. The owner is told once per damaged
 # file, the damaged file is set aside and the next round writes a good one. Also when the damaged file was

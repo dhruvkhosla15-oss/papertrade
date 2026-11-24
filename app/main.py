@@ -2114,6 +2114,16 @@ def admin_clear_maintenance(admin: User = Depends(current_admin), db: Session = 
 DOMAIN_EXPIRY = "2027-11-09"          # limefx.in at GoDaddy (registry record read 16 Nov 2026). Update after each renewal.
 
 
+def _domain_expiry() -> date:
+    """The day the domain name runs out: the hosting setting PT_DOMAIN_EXPIRY when it holds a date, otherwise
+    the date above. A setting that is not a date (a typing slip, "next year") used to break the whole Site
+    health card and the daily check's health section, and wrote an error a minute (found 25 Nov 2026)."""
+    try:
+        return date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", "").strip() or DOMAIN_EXPIRY)
+    except ValueError:
+        return date.fromisoformat(DOMAIN_EXPIRY)
+
+
 def set_setting_safe(key: str, value: str):
     db = SessionLocal()
     try:
@@ -2180,8 +2190,8 @@ def _health() -> dict:
         "backup": {"latest": files[-1].name if files else None, "kept": len(files), "check": bk,
                    "offsite_on": _tg_ready(), "offsite_last": off.get("sent"), "offsite_opens": off.get("opens"), "offsite_error": off.get("error") or ""},
         "telegram": bool(os.getenv("PT_TG_BOT_TOKEN", "").strip() and os.getenv("PT_TG_CHAT_ID", "").strip()),
-        "domain": {"expires": os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY),
-                   "days_left": (date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY)) - (datetime.utcnow() + IST).date()).days},
+        "domain": {"expires": _domain_expiry().isoformat(),
+                   "days_left": (_domain_expiry() - (datetime.utcnow() + IST).date()).days},
     }
 
 
@@ -2265,7 +2275,7 @@ async def watchdog_loop():
                 _wd.clear("disk")
             # the domain name: if it lapses the site disappears. Reminders 30, 14, 7, 3, 2, 1 and 0 days before.
             try:
-                exp = date.fromisoformat(os.getenv("PT_DOMAIN_EXPIRY", DOMAIN_EXPIRY))
+                exp = _domain_expiry()
                 nowi = datetime.utcnow() + IST; left = (exp - nowi.date()).days
                 if left in (30, 14, 7, 3, 2, 1, 0) and nowi.hour >= 10 and get_setting_safe("domain_reminded") != f"{exp}:{left}":
                     set_setting_safe("domain_reminded", f"{exp}:{left}")

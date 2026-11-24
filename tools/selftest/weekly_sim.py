@@ -1310,6 +1310,49 @@ finally:
     M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram = _bk_keep[:5]
     M.set_setting_safe("backup_check", _bk_keep[5])
 
+# ==== Risk officer, 25 Nov 2026 ====================================================================================
+# ---- a stop-loss or target that was resting when the auto square-off took PART of its position ------------------
+# The stop still asked for the whole position. When its price was reached it was refused ("Insufficient coins":
+# selling 3 lots while holding 2 opens a short) and the lots still open had no stop; a target was filled in full
+# and left the account short by the lots the square-off had taken. The square-off now cuts such orders down to
+# the position that is left.
+W30 = W20 + timedelta(days=70)
+at(day(W30, 1, 11)); px(nifty=30000)
+_pq = lambda n: sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, token=F_NIFTY, is_closed=False))
+for _n in ("stopper", "targeter", "ownbig"):
+    mk_user(_n, 1_000_000)
+    trade(_n, F_NIFTY, "BUY", 3)
+_so = {"stopper": trade("stopper", F_NIFTY, "SELL", 3, order_type="SL", trigger_price=28500.0, validity="GTT"),
+       "targeter": trade("targeter", F_NIFTY, "SELL", 3, order_type="LIMIT", limit_price=30300.0, validity="GTT"),
+       "ownbig": trade("ownbig", F_NIFTY, "SELL", 3, order_type="SL", trigger_price=28500.0, validity="GTT")}
+trade("ownbig", F_NIFTY, "SELL", 1)                       # he reduces to 2 lots himself and leaves his stop at 3: his own choice
+coins("ownbig", -350_000, "coins taken out")
+px(nifty=29000)                                           # 3.3% lower: each account is short of margin by less than one lot
+engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+ok("square-off and a resting stop: only part of each position was squared off", _pq("stopper") == 150 and _pq("targeter") == 150 and _pq("ownbig") == 75,
+   f"{_pq('stopper')} {_pq('targeter')} {_pq('ownbig')}")
+_o = {n: db.get(Order, o.id) for n, o in _so.items()}
+ok("square-off and a resting stop: the stop-loss is cut down to the lots that are left and goes on resting",
+   _o["stopper"].status == "OPEN" and _o["stopper"].qty == 150 and _o["stopper"].lots == 2 and not _o["stopper"].margin_blocked, f"{_o['stopper'].status} qty {_o['stopper'].qty}")
+ok("square-off and a resting stop: so is a target", _o["targeter"].status == "OPEN" and _o["targeter"].qty == 150 and _o["targeter"].lots == 2, f"{_o['targeter'].status} qty {_o['targeter'].qty}")
+ok("square-off and a resting stop: an order the user himself had made bigger than his position is left as it is", _o["ownbig"].status == "OPEN" and _o["ownbig"].qty == 225, f"{_o['ownbig'].status} qty {_o['ownbig'].qty}")
+trade("ownbig", F_NIFTY, "SELL", 1)                       # out of the way (closing his last lot cancels his stop)
+px(nifty=28400)                                           # the stop's price is reached
+engine._consumed.clear(); run(engine._process_pending(F_NIFTY, 28400)); db.expire_all()
+_o = {n: db.get(Order, o.id) for n, o in _so.items()}
+ok("square-off and a resting stop: when its price is reached the stop closes what is left (it is not refused)",
+   _o["stopper"].status == "FILLED" and near(_o["stopper"].fill_price, 28399.95, 0.001) and _pq("stopper") == 0, f"{_o['stopper'].status} {_o['stopper'].reason} left {_pq('stopper')}")
+px(nifty=30400)                                           # ... and the market comes back to the other one's target
+engine._consumed.clear(); run(engine._process_pending(F_NIFTY, 30400)); db.expire_all()
+_o = {n: db.get(Order, o.id) for n, o in _so.items()}
+ok("square-off and a resting stop: the target closes what is left and the account is not left short",
+   _o["targeter"].status == "FILLED" and _pq("targeter") == 0 and engine.funds(db, users["targeter"])["used_margin"] == 0, f"{_o['targeter'].status} left {_pq('targeter')}")
+for _n in _so:
+    _ll = db.query(Ledger).filter_by(user_id=users[_n].id).order_by(Ledger.id.desc()).first()
+    ok(f"square-off and a resting stop: {_n}'s coins equal the last ledger line", near(users[_n].balance, _ll.balance_after, 0.011), f"{users[_n].balance} vs {_ll.balance_after}")
+
+# ==== end of the Risk officer's block, 25 Nov 2026 ==================================================================
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

@@ -261,6 +261,11 @@ class DeltaCrypto:
 
     def _unsubscribe(self, tokens):
         mine, other = self._split(tokens)
+        # A contract that has left the list since it was subscribed (an option the day after its expiry) is no
+        # longer "ours" by the test above, and used to stay in the wanted set for good (see _channels).
+        gone = [t for t in other if t in self._subs]
+        self._subs -= set(gone)
+        other = [t for t in other if t not in gone]
         if other:
             self._orig_unsub(other)
         if mine:
@@ -268,6 +273,12 @@ class DeltaCrypto:
             self._send_unsubs(mine)
 
     def _channels(self, tokens):
+        # Only contracts that are still in the list. An option somebody still had open on the screen when it
+        # dropped off the list (the night after its expiry) stayed in the wanted set, and the next connection
+        # failed on it before it could subscribe to anything ("websocket dropped: 5000000077", a bare contract
+        # number): every reconnect after that died the same way, the Master's Reconnect too, and only a restart
+        # of the site brought crypto prices back (found 25 Nov 2026; the pattern of the night of 23 Nov).
+        tokens = [t for t in tokens if t in self.items]
         perps = [self.items[t].symbol for t in tokens if self.items[t].instrument_type == "FUT"]
         syms = [self.items[t].symbol for t in tokens]
         ch = [{"name": "v2/ticker", "symbols": syms}]

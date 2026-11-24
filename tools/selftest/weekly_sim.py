@@ -1462,6 +1462,70 @@ if True:
         except BaseException:
             pass
         return _n1, _n2, _c6.connected
+    # A contract that leaves the crypto list while somebody still has it open (an option, the night after its expiry)
+    # stayed in the connection's wanted set for good, and every later connection failed on it before subscribing to
+    # anything: no crypto prices until the site was restarted, whatever Reconnect was pressed (found 25 Nov 2026).
+    async def _left_the_list():
+        import websockets as _wsm
+        _keep = _wsm.connect; _sent = []; _opened = [0]
+
+        class _WS:
+            close_code = 1000; close_reason = ""
+
+            def __init__(self):
+                self.q = asyncio.Queue()
+
+            async def send(self, m):
+                _sent.append(m)
+
+            async def close(self):
+                await self.q.put(None)
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                m = await self.q.get()
+                if m is None:
+                    raise StopAsyncIteration
+                return m
+
+        class _Conn:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                _opened[0] += 1; self.ws = _WS()
+                await self.ws.q.put('{"type": "l2_orderbook", "symbol": "BTCUSD", "buy": [{"limit_price": "74999.5", "size": 500}], "sell": [{"limit_price": "75000.5", "size": 500}]}')
+                return self.ws
+
+            async def __aexit__(self, *a):
+                return False
+        _f7 = PriceFeed(); _c7 = DeltaCrypto(_f7); _c7._loop = asyncio.get_event_loop(); _c7._save_inr = lambda: None
+        _B7, _O7 = _CB + 2, _CB + 77
+        _c7.items = {_B7: Instrument(_B7, "BTCUSD", "BTC", "CRYPTO", "CRYPTO-PERP", "FUT", "", 0, 1, 0.5, multiplier=0.001),
+                     _O7: Instrument(_O7, "C-BTC-75000-241126", "BTC", "CRYPTO", "CRYPTO-OPT", "CE", "2026-11-24", 75000, 1, 0.1, multiplier=0.001)}
+        _c7.symbols = {i.symbol: t for t, i in _c7.items.items()}; _c7._merge()
+        _f7.subscribe([_B7, _O7])                                         # the option is open on somebody's screen
+        del _c7.items[_O7]; _c7.symbols.pop("C-BTC-75000-241126"); _c7._merge()      # after midnight the list drops yesterday's option
+        _wsm.connect = _Conn
+        try:
+            _t = asyncio.get_event_loop().create_task(_c7._run())
+            await asyncio.sleep(0.3)
+            _one = (_opened[0], _c7.connected, (_f7.prices.get(_B7) or {}).get("bid"), [d[3] for d in _c7.drops], "BTCUSD" in "".join(_sent), "241126" in "".join(_sent))
+            _t.cancel()
+            try:
+                await _t
+            except BaseException:
+                pass
+        finally:
+            _wsm.connect = _keep
+        _f7.unsubscribe([_O7])                                             # the screen is closed at last
+        return _one, _O7 in _c7._subs, _B7 in _c7._subs
+    _one, _still, _perp = asyncio.get_event_loop().run_until_complete(_left_the_list())
+    ok("reconnect: a contract that left the crypto list while still open on a screen does not break the next connection (it connects, subscribes the rest, prices arrive)",
+       _one[0] == 1 and _one[1] is True and _one[2] == 74999.5 and not _one[3] and _one[4] and not _one[5], str(_one))
+    ok("reconnect: and it leaves the wanted set when the screen is closed", not _still and _perp, f"option still wanted {_still}, perpetual wanted {_perp}")
     _n1, _n2, _conn = asyncio.get_event_loop().run_until_complete(_two_rebuilds())
     ok("reconnect: rebuilding the crypto connection three times at once leaves one connection loop, not three", _n1 == 1, f"{_n1} loops")
     ok("reconnect: a later Reconnect still rebuilds it (one loop)", _n2 == 1 and _conn is False, f"{_n2} loops")

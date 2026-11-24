@@ -1955,3 +1955,7 @@ APARINDS and ACUTAAS Dec futures had no last trade, no close and an empty book (
 check now notes such contracts instead of failing; a zero price anywhere else still fails. Such a contract cannot be
 filled: an order needs a live book. (One run of the browser check failed once on the Stop-loss / Target comparison and
 passed on the next fresh run: officers, look at that check for a timing flake.)
+
+## 24 Nov 2026 (owner) — a Pulse row opens the future
+Tapping a Pulse row opens that name's nearest future (it opened the option chain). The order sheet has "Other
+months" and "Options ›"; with no options it says so, with Back / Futures page / Options page. Owner approved the preview.

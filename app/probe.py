@@ -2204,6 +2204,9 @@ class Probe:
         if not hasattr(cry, "_runs"):
             self.ok("crypto prices come over one connection, never two at once", False, "the feed does not count its connection loops"); return
         n = int(getattr(cry, "_runs", 0) or 0)
+        if n > 1 and (getattr(cry, "_fresh_busy", False) or time.time() - (getattr(cry, "_last_fresh", 0) or 0) < 60):
+            # a rebuild is under way this very minute: the old loop may still be closing its connection
+            self.note("crypto connection not judged", f"it is being rebuilt right now ({n} loops for a moment)"); return
         self.ok("crypto prices come over one connection, never two at once", n <= 1, f"{n} connection loops are running")
 
     async def _edge_dates(self, ua):

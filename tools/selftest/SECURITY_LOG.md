@@ -11,17 +11,52 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-No branch is waiting. Two fixes are HELD as patches since 21 Nov (described at the end of the 2026-11-21 entry):
-- (21 Nov) HELD: positions stay on the closing price until the first price of the new session (now, at 9:15:00,
-  they are valued at whatever is in memory; a stray weekend quote squared off 2 crude lots in the test). It changes
-  how positions are valued in those seconds.
-- (21 Nov) HELD: coins typed with a fraction of a paisa are booked a paisa apart in the ledger and on the balance;
-  the patch books whole paise only.
+Branch `security-fix/2026-11-25` is waiting (four separate commits, each with its checks; "put security-fix/2026-11-25
+live", or name the ones wanted):
+1. (25 Nov) The weekly figure in the first seconds of a session, and a cut-off that runs in those seconds, use the
+   closing price like every other screen (completes the decision of 21 Nov; `weekly.close_price`). Changes what a
+   late cut-off books.
+2. (25 Nov) A stop-loss that meets fewer buyers than it needs sells those lots and the rest keeps resting as a
+   stop (now the rest is dropped without a word and those lots have no stop). Changes how a stop is filled.
+3. (25 Nov) A hedged account (two contracts) is not judged for up to 30 s after an opening while one of its
+   contracts has no price of the new session yet (now lots can be squared off because one leg's first price comes
+   seconds before the other's). Changes when an account is judged. Is 30 s right?
+4. (25 Nov) A crypto option whose buyers (or sellers) have left keeps no old bid (offer): a side that is not in the
+   exchange's message is empty. Closes a wrong-price sale (proven with messages fed by hand: 10 lots sold at an old
+   bid of 395 with the option worth 250). HELD because it changes how a held option with no bid is valued and
+   because the real exchange's messages could not be seen offline: the daily check now prints, as a note, how many
+   option price messages came with one side missing or with no quotes at all. Read that note first.
+Not ready, sketch only (scratch `risk/held_crypto_price_before_book.patch`, described under Risk, 25 Nov): a crypto
+stop filled against the order book from the moment before a jump when the price message arrives before the book.
+(The two patches held on 21 Nov were applied on 21 Nov by the owner's "Yes to all": see "Owner's decisions, 21 Nov".)
 Decisions and wishes put to the owner (do not build without his word; do not repeat in the report once he has
 answered; what he decided is under "Owner's decisions" at the end and is not here):
-- (21 Nov) PLEASE CONFIRM (live since 21 Nov): a future that expires with nobody quoting on its exit side is settled
-  no better than the price it could be dealt at (before: an old last trade). The same cap is on the closing price
-  kept for every position.
+- (25 Nov) A position opened in the last minute before a market shuts gets its closing price from whatever quote is
+  in memory just after the close (a stray quote moved one week's result by 201,314 in the test and back the next
+  week). Keep the closing price at the moment of the fill?
+- (25 Nov) A stop whose price is reached when no buyer at all is visible is refused and deleted (seen for a
+  bystander while twenty accounts were squared off on a thin book). Should it wait and try again?
+- (25 Nov) The margin recorder asks the broker's calculator once for everybody plus once per account with a position
+  after every trade (30 accounts: 31 calls). Per account only every few minutes? A position opened and closed within
+  the 20 s between two looks never shows in Peak Margin: record at every fill? The Peak Margin card keeps the peak
+  of accounts deleted since: keep or drop?
+- (25 Nov) Night of 23 Nov: please have that night's server log looked at for lines "websocket dropped: 5000…" (a
+  bare contract number). If they are there, the cause was the fault fixed on 25 Nov (a contract that left the
+  crypto list while still open on a screen) and reading crypto prices another way is probably not needed.
+- (25 Nov) Activity record: the Reconnect crypto line says "reconnected from scratch" also when the answer was "Not
+  connected yet". Domain reminder: silent on days 6, 5, 4 and after the last day; the date in the site (9 Nov
+  2027) must be updated by hand after each renewal. Where the live server's output is kept and whether it is cut
+  at a size (a crashing request writes about 20,000 characters).
+- (25 Nov) User app: the "No options" box says "Only futures are listed … trade the future above" also for Forex,
+  Global and crypto perpetuals; "Options ›" is the full-colour button also on accounts with options switched off
+  (every new user) and on names that never have options; Market → Options → Crypto lists names without options;
+  P&L "1 Closed Trades", "Worst ₹0" when the only trade was a win; a coins entry that rounds to nothing (0.004)
+  writes a 0.00 line; the Master's Live Positions tooltip says "Market is shut" also in the opening moments.
+  Master page on a phone: the forex card's title is squeezed beside its two buttons; Shadow Book "By User" on a
+  tablet needs a sideways scroll for the three margin columns; Performance chart's "-6K" label under the value tag.
+- (25 Nov) New sentence users can read since 25 Nov: "Reduced to N lots — part of the position was squared off
+  (margin shortfall)" on a stop or target the square-off has cut down. Reworded: a limit price too far from the
+  market ("This price is too far from the market: the exchange only takes prices within 5% …").
 - (21 Nov) A contract whose feed only returns the day after its expiry, and an MCX future expiring during an outage,
   settle at the last price seen; use the exchange's published settlement price (needs a source)?
 - (21 Nov) The Shadow Book's open P&L steps by one spread per position when a market shuts (our exit side while
@@ -171,7 +206,31 @@ activity record. `security-fix/2026-11-16` is on main since 16 Nov 2026; `securi
   down at expiry: …" (2), "no underlying price: …" (3), "no contract list: …" (4), "crypto rate: …" (8), "daily …:
   Monday is measured from the weekly cut-off" and "finished week …" (37), "activity record: …" (3), "backup: …" (14).
 
+- First instant of a session (25 Nov 2026, widened), in every market: the test position is valued at its closing
+  price, not at the old book in memory (a recognisable closing price is put on it in memory only). `_session_open`.
+  Books, widened: a position waiting for the first price of a session sits on its closing price and says so.
+- Capacity (25 Nov 2026): a date at the edge of the calendar (0001-01-01, 9999-12-31) in the test account's own
+  report, Excel, lists and weekly figure is refused plainly, never a server error. `_edge_dates`.
+- Price socket (25 Nov 2026, read only): crypto prices come over one connection, never two (`_one_feed_loop`; not
+  judged in the minute of a rebuild). With it a note: crypto option price messages with one side of the quotes
+  missing / with no quotes (for the fix waiting on `security-fix/2026-11-25`).
+- `weekly_sim.py` (25 Nov 2026): "margin watch: …" (about 20: asks the calculator with nothing held, never an order,
+  peak >= now, peak survives a square-off, a deleted account's lines go, the recorder is a watched job), "site
+  health: every job started with the site is one the watchdog knows", "domain: …" (7), "opening valuation: …" (19),
+  "reconnect: …" (crypto drop and return, a contract that left the list, rebuilds at once), "crypto reconnect: …",
+  "square-off and a resting stop: …" (9), "expiry: the ledger line of a settled option …".
+
 ## Normal-working checks added to `site_check.py` (private copy, real browser)
+- 25 Nov 2026 (seventeen): `ui_block_25nov` (11): resting stop / target line on the position card; a Pulse row opens
+  the future; the order sheet's Back | Options | Other expiries; Options and Back from the chain; a name without
+  options; Market tab opens on Futures; Shadow Book margin cards and columns; Reconnect buttons always shown; Pulse
+  list arriving late; a message does not swallow a tap; an empty option chain says so. `accounts_block_25nov` (4):
+  coins in whole paise; Shadow Book peak not below now right after a trade; the peak survives a square-off; a new
+  account does not start with a deleted account's peak. `tech_block` (2): Reconnect crypto says within 20 s that
+  prices arrive; a second Reconnect during a slow rebuild leaves ONE connection. The Stop-loss / Target comparison
+  now waits for what it compares (it failed once on 24 Nov on fixed waits). NOTE for check writers: both pages
+  refuse text run as script, so `page.wait_for_function` needs a function ("() => …"), never a bare expression.
+  The browser check has 318 checks and takes about 7 minutes (limit in run.sh 600 s: little room left).
 - 21 Nov 2026 (58 new, in four blocks): UI / user experience block (21): Stop-loss / Target button and sheet, a stop
   and a target rest, position figures beside their labels at 360, "+-0.00", Watchlist line at 360, Order Book cards
   at 360 / 412 and Cancel on a card, Order Book table at 768 / 1440, too-many-lots wording, the Master login page
@@ -206,57 +265,57 @@ Each night: the 5 fresh ideas, plus the 10 rows that have waited longest. Add a 
 
 | # | Market | Order type | Account state | Market state | Last attacked |
 |---|---|---|---|---|---|
-| 1 | NSE future | market / exit | normal | open | 20 Nov |
-| 2 | NSE future | limit (marketable, far, double exit) | normal | open | 19 Nov |
-| 3 | NSE future | stop-loss | normal | open | 21 Nov |
-| 4 | NSE option (thin) | market, book depth | normal | open | 21 Nov (in part) |
-| 5 | NSE option | stop-loss opening a short | normal | open | 19 Nov |
-| 6 | NSE option | limit, remainder | normal | open | 21 Nov (in part) |
-| 7 | NSE any | any | normal | shut / first instant of session | 21 Nov |
+| 1 | NSE future | market / exit | normal | open | 25 Nov |
+| 2 | NSE future | limit (marketable, far, double exit) | normal | open | 25 Nov |
+| 3 | NSE future | stop-loss | normal | open | 25 Nov |
+| 4 | NSE option (thin) | market, book depth | normal | open | 25 Nov (depth race; no thin strike listed) |
+| 5 | NSE option | stop-loss opening a short | normal | open | 25 Nov |
+| 6 | NSE option | limit, remainder | normal | open | 25 Nov |
+| 7 | NSE any | any | normal | shut / first instant of session | 25 Nov |
 | 8 | NSE any | exit / new | normal | feed down / just back | 21 Nov |
-| 9 | NSE any | any | normal | expiry minute | 21 Nov |
-| 10 | NSE future | market | normal | weekly cut-off in the same instant | 19 Nov |
-| 11 | NSE option | resting limit | at the 200-contract limit | open | 19 Nov |
-| 12 | BSE future | market / exit / limit | normal | open | 20 Nov |
-| 13 | BSE future | stop-loss + entry resting | frozen | open | 19 Nov |
-| 14 | BSE option (thin) | market / limit | normal | open | 21 Nov (in part) |
+| 9 | NSE any | any | normal | expiry minute | 25 Nov |
+| 10 | NSE future | market | normal | weekly cut-off in the same instant | 25 Nov |
+| 11 | NSE option | resting limit | at the 200-contract limit | open | 25 Nov |
+| 12 | BSE future | market / exit / limit | normal | open | 25 Nov |
+| 13 | BSE future | stop-loss + entry resting | frozen | open | 25 Nov |
+| 14 | BSE option (thin) | market / limit | normal | open | 25 Nov (depth race; no thin strike listed) |
 | 15 | BSE any | any | segment switched off | open | 20 Nov |
-| 16 | BSE any | any | normal | shut / first instant / feed down | 21 Nov |
-| 17 | MCX future | market / exit / limit | normal | open | 20 Nov |
+| 16 | BSE any | any | normal | shut / first instant / feed down | 25 Nov |
+| 17 | MCX future | market / exit / limit | normal | open | 25 Nov |
 | 18 | MCX future | intraday, stop-loss, flip | normal | open | 19 Nov |
-| 19 | MCX option (thin) | market / limit / stop-loss | normal | open | 18 Nov |
-| 20 | MCX future | any | normal | expiry (closing price) | 21 Nov |
+| 19 | MCX option (thin) | market / limit / stop-loss | normal | open | 25 Nov (in-process: the copy lists no MCX option) |
+| 20 | MCX future | any | normal | expiry (closing price) | 25 Nov |
 | 21 | MCX any | intraday | normal | square-off time / session end | 20 Nov |
-| 22 | MCX any | any | margin shortfall | open | daily check |
-| 23 | Currency future | market / exit / limit | normal | open | 20 Nov |
-| 24 | Currency future | market | normal | weekly cut-off in the same instant | 19 Nov |
-| 25 | Currency option (thin) | limit, remainder | normal | open | 21 Nov (in part) |
+| 22 | MCX any | any | margin shortfall | open | 25 Nov |
+| 23 | Currency future | market / exit / limit | normal | open | 25 Nov |
+| 24 | Currency future | market | normal | weekly cut-off in the same instant | 25 Nov |
+| 25 | Currency option (thin) | limit, remainder | normal | open | 25 Nov |
 | 26 | Currency any | any | normal | last day after 12:30 | 20 Nov |
 | 27 | Currency any | any | segment switched off | open | 20 Nov |
-| 28 | Crypto perpetual | market / exit / limit | normal | open | 20 Nov |
+| 28 | Crypto perpetual | market / exit / limit | normal | open | 25 Nov |
 | 29 | Crypto perpetual | thousands of resting limits | normal | open | 19 Nov |
-| 30 | Crypto perpetual | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
+| 30 | Crypto perpetual | resting stop + limit | normal | feed silent, then a gap | 25 Nov |
 | 31 | Crypto perpetual | leverage 1x then highest | normal | open | 20 Nov |
-| 32 | Crypto option | market / limit | normal | expiry time, delisting | 20 Nov |
+| 32 | Crypto option | market / limit | normal | expiry time, delisting | 25 Nov |
 | 33 | Crypto any | market | normal | weekly cut-off in the same instant | 21 Nov |
-| 34 | Crypto any | any | carried position after a cut-off | open | 21 Nov |
-| 35 | Forex | market / exit / limit | normal | open | 20 Nov |
-| 36 | Forex | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
+| 34 | Crypto any | any | carried position after a cut-off | open | 25 Nov |
+| 35 | Forex | market / exit / limit | normal | open | 25 Nov |
+| 36 | Forex | resting stop + limit | normal | feed silent, then a gap | 25 Nov |
 | 37 | Forex | leverage mix | normal | open | 21 Nov |
-| 38 | Forex | any | normal | weekend / Monday opening | 21 Nov |
+| 38 | Forex | any | normal | weekend / Monday opening | 25 Nov |
 | 39 | Forex | any | conversion rate missing | open | 20 Nov |
-| 40 | Global | market / exit / limit | normal | open | 20 Nov |
-| 41 | Global | resting stop + limit | normal | feed silent, then a gap | 19 Nov |
-| 42 | Global | resting orders | normal | daily break / holiday of one contract | 21 Nov |
+| 40 | Global | market / exit / limit | normal | open | 25 Nov |
+| 41 | Global | resting stop + limit | normal | feed silent, then a gap | 25 Nov |
+| 42 | Global | resting orders | normal | daily break / holiday of one contract | 25 Nov |
 | 43 | Global | stop-loss + position | account deleted | open | 19 Nov |
 | 44 | Global | any | first login, password not yet changed | open | 19 Nov |
-| 45 | any | any | short of margin in the weekly grace time | Monday before noon | 21 Nov |
+| 45 | any | any | short of margin in the weekly grace time | Monday before noon | 25 Nov |
 | 46 | any | bought option | carried over a cut-off at a profit | open | 21 Nov |
 | 47 | any | exit bigger than the position | segment switched off | open | 20 Nov |
 | 48 | any | any | options-only-until-flat account | open | 20 Nov |
 | 49 | any | order above the exchange position limit, several resting | normal | open | 20 Nov |
 | 50 | any | intraday and overnight mixed at the fill | normal | open | 19 Nov |
-| 51 | any | automatic square-off | normal | first seconds of a session / feed silent | 21 Nov |
+| 51 | any | automatic square-off | normal | first seconds of a session / feed silent | 25 Nov |
 | 52 | any | two logins of one account at once | normal | open | 21 Nov |
 | 53 | Crypto / Forex | any | normal | contract list missing after a restart | 21 Nov (Price) |
 | 54 | Crypto / Forex / Global | market | normal | book messages stalled, price messages flowing | 20 Nov |
@@ -267,40 +326,65 @@ Each night: the 5 fresh ideas, plus the 10 rows that have waited longest. Add a 
 | 59 | Master page | any address / spelling | visitor, user, dead Master logins | any | 21 Nov |
 | 60 | any | stop + target + Exit at the same instant (Stop-loss / Target sheet) | normal | open | 21 Nov |
 | 61 | MCX / NSE future (thin) | market, held to expiry | normal | one side of the book empty at expiry | 21 Nov |
-| 62 | any | stop / target that only closes | Available Balance below zero (also weekly grace) | open | 21 Nov |
+| 62 | any | stop / target that only closes | Available Balance below zero (also weekly grace) | open | 25 Nov |
 | 63 | any (user) | own Excel / report several at once | normal, thousands of trades | open | 21 Nov |
 | 64 | any (user) | wrong current password in the change-password box | logged in | any | 21 Nov |
 | 65 | Crypto | market | normal | Sunday 23:59:57 to the cut-off run (fills held) | 21 Nov |
 | 66 | any | automatic square-off / margin call / intraday square-off | normal | feed down, silent, just back | 21 Nov |
 | 67 | bought option (NSE / BSE / MCX / Currency) + Crypto | automatic square-off | normal | restart, contract list not loaded | 21 Nov |
 | 68 | any expiring | settlement | normal | feed down at the expiry moment / underlying without a price | 21 Nov |
+| 69 | any | position held over a close | normal | first seconds of a session: closing price until the first price (value, Available, square-off, weekly figure) | 25 Nov |
+| 70 | NSE / BSE / MCX | any trade | first trade of the day | margin recorder asking the calculator | 25 Nov |
+| 71 | Crypto | Master's Reconnect twice / during the automatic rebuild | - | connection dropping | 25 Nov |
+| 72 | any (visitor, user) | Pulse row opening the future, Other expiries, Options | visitor / normal | any | 25 Nov |
+| 73 | any | position opened in the last minute before a close | normal | shut market, stray quote, weekly cut-off | 25 Nov |
+| 74 | any (user) | report / Excel / lists with edge dates and other accounts' numbers | normal | any | 25 Nov |
+| 75 | Master page | account deleted, its number given to the next (Shadow Book peak margin) | deleted | any | 25 Nov |
+| 76 | Crypto option | market | normal | one side of the book empty; right after a reconnect | 25 Nov |
+| 77 | Crypto any | any | normal | contract left the list while still subscribed, then a reconnect | 25 Nov |
+| 78 | any | resting stop / target for the whole position | auto square-off takes part of it | open | 25 Nov |
+| 79 | any | stop-loss bigger than the visible book | normal | thin book | 25 Nov |
+| 80 | any | hedged account (two contracts) | normal | first seconds of a session, one leg priced | 25 Nov |
+| 81 | Crypto perpetual | resting stop | normal | price message before book message | 25 Nov |
 
-Next in line (oldest): 19 (18 Nov; needs an MCX option on the private copy, which lists none for the names tried),
-4, 6, 14, 25 (only in part on 21 Nov: orders must be split below the exchange's size limit), then 2, 5, 10, 11, 13,
-18, 24, 29, 30, 36, 41, 43, 44, 50 (19 Nov). Rows 15, 27, 47, 48 need a copy started with the trading-access
-switches enforced (`PT_ACCESS_ALL=0`).
+Next in line (oldest): 18, 29, 43, 44, 50 (19 Nov), then the rows of 20 Nov (15, 21, 26, 27, 31, 39, 47, 48, 49, 54 to
+58). Rows 15, 27, 47, 48 need a copy started with the trading-access switches enforced (`PT_ACCESS_ALL=0`).
 
 ## Nightly rotations (so the next night knows where to go on)
-- Technology alarm: job stopped (19 Nov), disk low (20 Nov), backup bad (21 Nov) → next: domain renewal → job stopped → disk low.
-- Price feed state (P6): disconnected, reconnecting, silent (16 Nov), contract list not loaded (19 Nov), slow (20 Nov), disconnected (21 Nov) → next: reconnecting.
-- UX pop-ups (U3): Master's message, access switch, install banner (19 Nov); weekly settlement, shortfall, liquidation (20 Nov); the Monday 9:15 reminder, the Master's maintenance notice (21 Nov) → next: from the start (Master's message, access switch, install banner).
+- Technology alarm: job stopped (19 Nov), disk low (20 Nov), backup bad (21 Nov), domain renewal (25 Nov) → next: job stopped → disk low → backup bad.
+- Price feed state (P6): disconnected, reconnecting, silent (16 Nov), contract list not loaded (19 Nov), slow (20 Nov), disconnected (21 Nov), reconnecting (25 Nov) → next: silent.
+- UX pop-ups (U3): Master's message, access switch, install banner (19 Nov); weekly settlement, shortfall, liquidation (20 Nov); the Monday 9:15 reminder, the Master's maintenance notice (21 Nov); Master's message, access switch, install banner (25 Nov) → next: weekly settlement, shortfall, liquidation.
 - Load figures (100 users, 60 s, fresh copy): 19 Nov: screens 31 ms, orders 57–69 ms median (yesterday's code the
   same night: 30–51 / 43–84).
   20 Nov: screens 13 ms, orders 24 ms median (95% under 194 / 164 ms), 55 requests a second, no server error.
   21 Nov: screens 15 ms, orders 24 ms median (95% under 308 / 300 ms), 57 requests a second, no server error.
+  25 Nov: screens 28 ms, orders 50 ms median (95% under 463 / 381 ms), 55 requests a second, no server error. This
+  machine (2 processors) is slower: the code of 21 Nov measured on it the same night gave 25 / 60 ms, 53 a second.
+  Compare with 28 / 50 next night only if the machine is the same (run the old code beside it when in doubt).
 - UI screens studied closely: 20 Nov: Master Shadow Book, Performance and dashboard filters on a phone; user Market
   tab, option chain, ticket in every market, Order Book, P&L, Account, Pulse.
   21 Nov: Master Users + user panel, Weekly Settlement, Settings (trading access, Site health, activity record);
   user Watchlist, Positions (carried), Ledger, pop-ups, install banner, Order Book cards, Stop-loss / Target sheet
-  → next: Master Shadow Book, Performance, dashboard filters; user Market, option chain, tickets, P&L, Account, Pulse.
+  25 Nov: Master Shadow Book, Performance, dashboard filters; user Market, option chain, tickets in every market,
+  P&L, Account, Pulse; 1440 / 412 / 360 / 820, dark and light
+  → next: Master Users + user panel, Weekly Settlement, Settings (trading access, Site health, activity record);
+  user Watchlist, Positions (carried), Ledger, pop-ups, install banner, Order Book cards, Stop-loss / Target sheet.
 - Security deep area: 20 Nov capacity without login and the price socket; 21 Nov the Master page behind the login,
   expiry with a broken book, capacity of one logged-in account → next: currency conversion for Crypto / Forex /
   Global and the weekly cut-off of a shut market; export / report inputs.
-- Accounts commission settings used: 21 Nov: 0.029 / 0.21 / 13 / 0.047 / 0.0091 / 43 / 0.11, then 0.055 / 0.09 / 6 /
+- Security deep area 25 Nov: currency conversion, weekly cut-off of a shut market, export / report inputs, the code
+  since 21 Nov → next: trading-access switches on a copy with PT_ACCESS_ALL=0 (rows 15, 27, 47, 48) and the order
+  races around expiry and intraday square-off.
+- Accounts commission settings used: 25 Nov: 0.037 / 0.17 / 11 / 0.063 / 0.0058 / 29 / 0.09 (method: one database
+  through five server starts with PT_FAKE_NOW and PT_ENFORCE_MARKET_HOURS=true: a weekend, and the clock frozen at
+  Monday 9:15:00 for the opening). 21 Nov: 0.029 / 0.21 / 13 / 0.047 / 0.0091 / 43 / 0.11, then 0.055 / 0.09 / 6 /
   0.071 / 0.0044 / 61 / 0.06. Take others next night. (21 Nov method: the copy on its own clock, a real week and a
   real Sunday cut-off; the wrapper lived in the scratch folder: worth keeping in tools/selftest.)
-- Running several private copies at once: `unshare -n -p -f --mount-proc` gives each its own localhost and process
-  list (bring `lo` up first); always with its own PT_SELFTEST_DIR.
+- Running several private copies at once: `PT_SELFTEST_DIR=/tmp/lfx-x bash tools/selftest/isolated.sh <command>`
+  (since 25 Nov; own localhost and process list, no internet inside). The full run.sh now takes about 11 minutes:
+  longer than one command may run here, so start it detached (setsid nohup) and read its output file.
+- No nightly audit ran on 22, 23 and 24 Nov (no entry, no commit): the Sunday restore drill was run on 25 Nov
+  instead; the 300-user load test was not run that week.
 
 ## What confuses a new user (started 19 Nov 2026; work down it)
 1. No Stop-loss or Target button on a position (the way is Add → SELL → Stop-loss), and the position card does not
@@ -324,6 +408,15 @@ switches enforced (`PT_ACCESS_ALL=0`).
 18. (21 Nov) Pressing Exit and then at once the stop or target already filled in on the sheet opens a new short with
     full margin (the Exit closed the long first). Nothing is gained; it may surprise.
 19. (21 Nov) A Global order at the weekend is refused as "The Forex market is closed … 3:30 am".
+20. (25 Nov) A stop-loss that meets a thin book shows FILLED for fewer lots with no word, and the rest has no stop.
+21. (25 Nov) The "No options" box says "Only futures are listed … trade the future above" also for Forex, Global
+    and crypto perpetuals.
+22. (25 Nov) On a futures-only account (every new user) the full-colour "Options ›" button leads to a chain where
+    every price ends in "Not activated".
+23. (25 Nov) Market → Options → Crypto lists names that have no options (explained on the chain since 25 Nov).
+24. (25 Nov) P&L line "1 Closed Trades · 100% Winners · Best ₹68 · Worst ₹0".
+Answered 25 Nov: items 1 and 17 (the card shows the resting stop and target); item 2 in part (four messages, and
+they no longer block the buttons under them).
 Answered: item 1 first half (button, 20 Nov) and item 10 (Order Book cards on a phone, 20 Nov); "a stop-loss for
 one's own position refused with 'need ₹0.00' while short of margin" was fixed on 21 Nov.
 All of these are layout or feature changes: under "Waiting for the owner".
@@ -1598,6 +1691,21 @@ PART 2, the hunt
   25 round trips, cross-account access.
 
 ## Ideas tried that led nowhere
+- Gaining from the closing price kept until a session's first price (25 Nov 2026; stray quotes in every direction,
+  six markets, 40 risk runs): orders on that contract are refused, the square-off waits, Available is the
+  closing-price figure as before; judged on the real price once it is there.
+- Currency conversion in Crypto / Forex / Global by round trips, leverage and cross currencies (25 Nov 2026): the
+  factor is the pair prices themselves; five restarts lose no rate.
+- Reading another account through report / Excel / list addresses with its number or name (25 Nov 2026): own data only.
+- Junk names into the Pulse / futures address (25 Nov 2026): empty list, nothing echoed.
+- A stop-loss turning the account short after a partial square-off (25 Nov 2026): refused for margin (the target did
+  it: fixed). A crowd of twenty on a deep book: nothing for anybody else.
+- A fill at a closing, weekend, holiday or pre-opening price in 13 kinds of contract; a limit filled better than
+  the book; a pre-drop price across 88 orders during a real crypto reconnect (25 Nov 2026): none.
+- Reconnect pressed 2 or 3 times at the same instant with a FAST contract list (25 Nov 2026): one connection; the
+  fault needs the list to take seconds (or the rebuilds to overlap).
+- "Back leaves the Market tab" / "the sheet closes right after a Pulse row" (25 Nov 2026): only when tapped within
+  0.2 s of the sheet opening; no person taps that fast.
 - Fetching the Master page file another way (21 Nov 2026): 31 spellings, HEAD, range, conditional, eight kinds of
   login that are not a live Master's: nothing.
 - Stop + target + Exit at the same instant, all seven markets (21 Nov 2026): flat, or an ordinary short with full margin.
@@ -1670,6 +1778,17 @@ PART 2, the hunt
 - Hunting for a gap in the new flat-fee / options-rate costs (round trips, estimate vs charge): none.
 
 ## Open ideas for a later night (noted, not yet tested or not provable on the private copy)
+- (25 Nov) Crypto: price message before book message (a stop filled against the book from before a jump): measure on
+  the live feed how often and how far the book's top is on the wrong side of the price message's own quote (a note
+  in the daily check) before any rule; the same test for the forex ladder.
+- (25 Nov) Calendar spreads and option hedges in the opening seconds; the stop on an emptied book; the risk
+  harness (hours enforced for all six opening markets) is worth keeping in tools/selftest.
+- (25 Nov) One account trading without pause keeps the margin recorder asking the broker's calculator all day (the
+  broker's limit on calls is not known; charts use the same key).
+- (25 Nov) Every request that crashes writes about 20,000 characters to the server's output; the four known "500
+  for a number too large" addresses can still be repeated by a logged-in user.
+- (25 Nov) Accounts: read the Master dashboard off the real browser in the weekend and opening states; a real
+  Sunday cut-off on the copy's own clock.
 - (21 Nov 2026) Release remarks to work off: apply the "other side of the book" cap in `_settle_expired` to the
   last-trade fallback only; a Site health line "expired, waiting for a price"; prune `.bad` backups; unique
   temporary name per backup download; freeze the shut-market card at the close itself.

@@ -454,9 +454,9 @@ def ui_block_25nov(br, actx, uctx, ok, near):
         const rows = [...document.querySelectorAll('#shUsers tbody tr')].filter(r => r.children.length >= 11).map(r => [r.children[0].innerText.replace(/\\s+/g, ' '), n(r.children[8].textContent), n(r.children[9].textContent), r.children[10].textContent.trim()]);
         const key = k => Object.keys(cards).find(x => x.startsWith(k)); const t = document.querySelector('#shUsers');
         return {head: head.slice(8), rows, now: n(cards[key('Margin Now')]), nowLabel: key('Margin Now'), peak: n(cards[key('Peak Margin')]), real: cards['Peak Real Margin'], bad: (document.querySelector('#nav-shadow').innerText.match(/undefined|NaN|null/g) || []), fits: t.scrollWidth <= t.parentElement.clientWidth + 1}; }""")
-    ok("Master Shadow Book: Margin Now, Peak Margin and Peak Real Margin show as cards and as three columns per user; the users add up to the cards, no peak is below what is blocked now, and the table fits at 1440",
+    ok("Master Shadow Book: Margin Now, Peak Margin and Peak Real Margin show as cards and as three columns per user; Margin Now of the users adds up to its card, no user's peak is above the Peak card, no peak is below what is blocked now, and the table fits at 1440",
        sb["head"] == ["Margin Now", "Peak Margin", "Peak Real Margin"] and len(sb["rows"]) >= 1 and sb["now"] is not None and sb["peak"] is not None and bool(sb["real"]) and not sb["bad"] and sb["fits"]
-       and near(sum(r[1] for r in sb["rows"]), sb["now"], 1.0 + len(sb["rows"])) and near(sum(r[2] for r in sb["rows"]), sb["peak"], 1.0 + len(sb["rows"])) and all(r[2] >= r[1] - 1 for r in sb["rows"]) and sb["peak"] >= sb["now"] - 1 and sb["peak"] > 0, sb)
+       and near(sum(r[1] for r in sb["rows"]), sb["now"], 1.0 + len(sb["rows"])) and max(r[2] for r in sb["rows"]) <= sb["peak"] + 1 and all(r[2] >= r[1] - 1 for r in sb["rows"]) and sb["peak"] >= sb["now"] - 1 and sb["peak"] > 0, sb)
 
     # (9) Master: Reconnect is always within reach (owner's decision of 23 Nov): shown while connected, and Reconnect crypto says whether prices arrive
     until("!!document.querySelector('#cryptoTitle').textContent && !!document.querySelector('#forexTitle').textContent")

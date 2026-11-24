@@ -653,8 +653,8 @@ async function boot(){themeSelect($('#pKind'),true);themeSelect($('#selExp'));
   try{const home=await fetch('/api/public/home').then(r=>r.json());renderTicker(home.ticker);}catch(e){renderTicker(state.und.filter(u=>u.spot_token&&u.kind!=='stock'));}sub(state.tickerTokens);
   buildMarket();
   setHome('pulse');   /* every visit opens on Pulse */
-  $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');$('#undList').classList.remove('hidden');};
-  $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');$('#undListF').classList.remove('hidden');};
+  $('#backUnd').onclick=()=>{$('#chainPanel').classList.add('hidden');/* opened straight from Pulse/a future: no list behind it, so Back lands on the options segments page */if($('#undList .backCat'))$('#undList').classList.remove('hidden');else $('#catList').classList.remove('hidden');};
+  $('#backUndF').onclick=()=>{$('#futPanel').classList.add('hidden');if($('#undListF .backCat'))$('#undListF').classList.remove('hidden');else $('#catListF').classList.remove('hidden');};
   state.tickerTokens=[...new Set([...(state.tickerTokens||[]),...state.und.map(u=>u.spot_token).filter(Boolean)])];
   sub(state.und.map(u=>u.spot_token).filter(Boolean));
   connectWS();
@@ -993,7 +993,7 @@ function renderWatch(){$('#wEmpty').classList.toggle('hidden',state.watch.length
     ${state.guest?'':`<button class="ghost small" data-wdel="${w.token}" style="padding:8px 12px;flex:0 0 auto">✕</button>`}</div>`).join('');
   initDrag();
   $$('#wlist .wl-item').forEach(el=>el.onclick=e=>{if(e.target.dataset.wdel||e.target.classList.contains('drag')||state._dragged)return;if(state.guest){showLogin();return;}const w=state.watch.find(x=>x.token==el.dataset.tok);
-    if(w.segment==='INDICES'){showTab('market');$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
+    if(w.segment==='INDICES'){showTab('market');$('#segOpt').click();const key=(w.exchange==='BSE'?'BFO':'NFO')+'|'+w.name;$('#selUnd').value=key;$('#undList').innerHTML='';$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();return;}
     openSheet(w);});
   $$('[data-wdel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await api('/watchlist/'+b.dataset.wdel,{method:'DELETE'});loadWatch();});}
 async function addWatch(tok){try{await api('/watchlist',{method:'POST',body:{token:tok}});toast('Added to watchlist');if(state.tab==='watch')loadWatch();}catch(e){toast(e.message,1)}}
@@ -1105,7 +1105,7 @@ function sheetLinks(ins){const L=$('#oLinks'),N=$('#oNoOpt');N.classList.add('hi
     $('#nFut').onclick=()=>{closeSheet();showTab('market');$('#segFut').click();};
     $('#nOpt').onclick=()=>{closeSheet();showTab('market');$('#segOpt').click();};};}
 function closeSheet(){$('#sheet').classList.add('hidden');}
-function openChain(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
+function openChain(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').innerHTML='';$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
 $$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});
 $('#pKind').onchange=()=>{pulseK=$('#pKind').value;loadPulse();};
 function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));if(state.tab==='watch')$$('nav.tabs button[data-tab="watch"]').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');
@@ -1216,7 +1216,7 @@ boot();
     if(state.tab==='market'){
       for(const [list,panel,back] of [['undList','chainPanel','backUnd'],['undListF','futPanel','backUndF']]){
         const bc=()=>{const b=document.querySelector('#'+list+' .backCat');if(b)b.click();};
-        if(vis(panel)){L.push(bc);L.push(()=>$('#'+back).click());}
+        if(vis(panel)){if(document.querySelector('#'+list+' .backCat'))L.push(bc);L.push(()=>$('#'+back).click());}
         else if(vis(list)&&document.querySelector('#'+list+' .backCat'))L.push(bc);
       }
     }

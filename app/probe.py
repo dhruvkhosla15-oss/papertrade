@@ -1718,7 +1718,7 @@ class Probe:
 
     def _price_sanity(self):
         self.area = "Prices"
-        bad, crossed, far, n = [], [], [], 0
+        bad, crossed, far, n, never = [], [], [], 0, []
         for tok, t in list(self.feed.prices.items()):
             ins = self.feed.instruments.get(tok)
             if not ins or not isinstance(t, dict) or t.get("ltp") is None:
@@ -1732,6 +1732,10 @@ class Probe:
             # bug, and the thin-contract buy-out test already proves it cannot be used to make money.
             neg = any((not isinstance(v, (int, float))) or (not math.isfinite(v)) or v < 0 for v in vals)
             zero_bad = ins.segment != "INDICES" and ins.instrument_type not in ("CE", "PE") and any(v == 0 for v in vals)
+            if zero_bad and not neg and not t.get("ltp") and not t.get("bid") and not t.get("ask") and not t.get("close"):
+                # a contract nobody has traded yet (no last trade, no close, empty book: e.g. a stock newly added to
+                # F&O, 24 Nov 2026 APARINDS / ACUTAAS Dec futures on a holiday) has no price to be wrong; noted only
+                never.append(ins.symbol); continue
             if neg or zero_bad:
                 bad.append(ins.symbol); continue
             b, a = t.get("bid"), t.get("ask")
@@ -1740,6 +1744,8 @@ class Probe:
             if b and a and ins.instrument_type == "FUT" and not (b * 0.9 <= t["ltp"] <= a * 1.1):
                 far.append(f"{ins.symbol} last {t['ltp']} vs {b}/{a}")
         self.ok(f"no zero, negative or broken price among {n} live contracts", not bad, ", ".join(bad[:8]))
+        if never:
+            self.note(f"{len(never)} contract{'s' if len(never) != 1 else ''} not traded by anyone yet (no price at all, nothing to check): " + ", ".join(never[:8]))
         self.ok("no contract shows a bid above its ask", not crossed, "; ".join(crossed[:6]))
         self.ok("no future's last price is more than 10% away from its bid/ask", not far, "; ".join(far[:6]))
         # Slow feed (20 Nov 2026): crypto perpetuals and forex / Global get the book orders are filled against in

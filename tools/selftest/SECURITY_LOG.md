@@ -1949,3 +1949,9 @@ Zerodha 403 / "error parsing request" lines no longer count towards the "server 
   reactor.callFromThread). Reproduced with the real library against a local server: opened from another thread
   after a stop, 0 connections; handed to the loop, it connects (tools/selftest/kite_reactor_check.py, prints
   KITE-REACTOR OK). Officers: run that check every night.
+
+## 24 Nov 2026 (holiday) — daily check flagged two never-traded futures
+APARINDS and ACUTAAS Dec futures had no last trade, no close and an empty book (not traded by anyone yet). The price
+check now notes such contracts instead of failing; a zero price anywhere else still fails. Such a contract cannot be
+filled: an order needs a live book. (One run of the browser check failed once on the Stop-loss / Target comparison and
+passed on the next fresh run: officers, look at that check for a timing flake.)

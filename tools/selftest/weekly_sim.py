@@ -1709,12 +1709,21 @@ if True:
     _tk5(73500)
     _r1 = _o5(_B5, "SELL", 10)
     ok("reconnect: a last-price message alone does not make the old order book fresh", isinstance(_r1, str) and _f5.prices[_B5]["bid"] == 74999.5, str(_r1))
-    # (the checks for an option whose buyers have left are on the branch security-fix/2026-11-25 with their fix: it waits for the owner)
+    _ot5(250, None, 260)                                                    # the option: buyers gone, an offer at 260
+    _r2 = _o5(_O5, "SELL", 10); _t5 = _f5.prices[_O5]
+    ok("reconnect: an option with no buyers after the reconnect is not sold at the bid from before the drop",
+       isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bids"] == [] and _t5["bid"] is None and _t5["ask"] == 260.0, f"{_r2} | {_t5.get('bids')} {_t5.get('asks')}")
+    ok("reconnect: a buy of that option meets the offer of now", _o5(_O5, "BUY", 1) == 260.0)
+    _ot5(250, None, None, quotes=False); _t5 = _f5.prices[_O5]
+    _r2 = _o5(_O5, "SELL", 1)
+    ok("reconnect: an option message with no quotes at all leaves nothing to fill against", isinstance(_r2, str) and _t5["bids"] == [] and _t5["asks"] == [] and _t5["ask"] is None, f"{_r2} | {_t5.get('asks')}")
     _bk5(73500)
     ok("reconnect: with the new order book the perpetual is sold at the new bid", _o5(_B5, "SELL", 10) == 73499.5)
     _ot5(250, 245, 255)
-    ok("reconnect: with both sides quoted again the option is sold at the new bid", _o5(_O5, "SELL", 10) == 245.0)
-    _ot5(400, 395, 405); _o5(_O5, "BUY", 5)
+    ok("reconnect: with both sides quoted again the option is sold at the new bid", _o5(_O5, "SELL", 11) == 245.0)
+    _ot5(400, 395, 405); _o5(_O5, "BUY", 5); _ot5(300, None, 310)             # no reconnect at all: the buyers simply leave
+    _r2 = _o5(_O5, "SELL", 5); _t5 = _f5.prices[_O5]
+    ok("crypto option: when the buyers leave, the bid of the last message is not kept under the new time", isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bid"] is None and _t5["ask"] == 310.0, f"{_r2} | {_t5.get('bid')}")
     _ot5(300, 295, 305)
     ok("crypto option: with a bid again the sale goes through at it", _o5(_O5, "SELL", 5) == 295.0)
     _last["orders"] = max([_last["orders"]] + [x.id for x in db.query(Order).filter_by(user_id=_u5.id).all()])

@@ -2272,7 +2272,9 @@ async def watchdog_loop():
                                "It is registered at GoDaddy. Log in there and renew it, or make sure auto-renew is on. If it lapses, the site cannot be reached.")
             except Exception:
                 log.exception("domain reminder failed")
-            errs = _wd.errors_since(600)
+            # Zerodha refusing a login has its own plain message (or none, when it is yesterday's login running
+            # out at about 7 am), so those lines do not count towards the "server logged N errors" alarm
+            errs = [e for e in _wd.errors_since(600) if not (e[1].startswith("kiteconnect") and ("403" in e[2] or "error parsing request" in e[2]))]
             if len(errs) >= 5 and _wd.due("errors", 3600):
                 last = errs[-1]
                 await tell(f"⚠️ limefx: the server logged {len(errs)} errors in the last 10 minutes (latest: {last[2][:160]}). The site may still be working; send this to Claude.")

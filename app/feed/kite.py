@@ -243,6 +243,21 @@ class KiteFeed(PriceFeed):
             return True
         if "403" not in str(reason):
             return False
+        if self.token_date and self.token_date != ist_today():
+            # Yesterday's login running out at about 7 am is expected every day, not a fault: stop retrying
+            # at once, wait quietly for today's login, send no alarm (owner, 24 Nov 2026: alarms at 7:06 am
+            # although he logs in after 7:30 as asked).
+            try:
+                (ws or self.ticker).stop_retry()
+            except Exception:
+                pass
+            try:
+                if self.ticker:
+                    self.ticker.close()
+            except Exception:
+                pass
+            self._set_status(False, "Today's Zerodha login is needed first (yesterday's login has run out)")
+            return True
         self._refusals += 1
         if self._refusals < 3:
             return False

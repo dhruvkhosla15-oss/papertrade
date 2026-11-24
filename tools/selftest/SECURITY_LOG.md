@@ -1939,3 +1939,9 @@ since 19 Nov the site stops retrying a refused login; with nothing left to do, t
 loop (Twisted reactor) sits idle, and a new connection asked for from another thread is never picked up until
 something wakes the loop. A restart (this note's release) starts the loop fresh. Proper fix to follow: start and
 close the Zerodha connection through reactor.callFromThread.
+## 24 Nov 2026 (owner) — no alarm at 7:06 am for yesterday's Zerodha login running out
+Zerodha clears every login at about 7 am. The site still held Monday's login, was refused at 7:06 and sent
+"Zerodha refused the login" plus "the server logged 6 errors", although the owner logs in after 7:30 as asked.
+Now: a refusal of a login from an earlier (Indian) day stops the retries at once, says "Today's Zerodha login is
+needed first" and sends nothing. A refusal of TODAY's login still sends the one message with the login link.
+Zerodha 403 / "error parsing request" lines no longer count towards the "server logged N errors" alarm.

@@ -1306,6 +1306,11 @@ try:
     ok("margin watch: forgetting an account number removes its lines and leaves the figure for everybody together",
        _mw_db.query(_MW.MarginPeak).filter_by(user_id=999_999).count() == 0 and _mw_db.query(_MW.MarginPeak).filter_by(day="2026-11-20", user_id=0).count() == 1)
     _mw_db.query(_MW.MarginPeak).filter_by(day="2026-11-20").delete(); _mw_db.commit()
+    # like every background job, the recorder reports to the watchdog, so that the owner is told if it stops
+    ok("margin watch: the recorder is a job the watchdog knows and it reports every round",
+       "marginwatch" in _WD.JOBS and '_wd.beat("marginwatch")' in _insp2.getsource(M.margin_watch_loop))
+    _starts = _re2.findall(r"create_task\(([\w.]+)\(", _insp2.getsource(M.startup))
+    ok("site health: every job started with the site is one the watchdog knows", len(_starts) >= 10 and len(_WD.JOBS) == len(_starts) - 1, f"{len(_starts)} started, {len(_WD.JOBS)} known")
 finally:
     feed.kite, feed.access_token = _mw_keep[0], _mw_keep[1]
     _MW._state.clear(); _MW._state.update(_mw_keep[2])

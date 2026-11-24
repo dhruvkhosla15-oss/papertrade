@@ -2230,6 +2230,7 @@ async def margin_watch_loop():
     await asyncio.sleep(45)
     first = True
     while True:
+        _wd.beat("marginwatch")
         try:
             await asyncio.get_event_loop().run_in_executor(None, _margin_watch_pass, first)
             first = False

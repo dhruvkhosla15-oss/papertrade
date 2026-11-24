@@ -31,6 +31,7 @@ JOBS = {
     "daystart":    ("Day-start record", 600),
     "backup":      ("Daily backup", 3 * 3600),
     "dailycheck":  ("Daily safety check clock", 900),
+    "marginwatch": ("Shadow Book peak-margin record", 900),
 }
 _beats: dict = {}
 ERRORS_MAX = 20000

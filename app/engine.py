@@ -1084,7 +1084,21 @@ class Engine:
                             try:
                                 fill_at, _n, _f = self.book_fill(db, ins, o.side, o.qty)
                                 if _f < o.qty:
+                                    # Fewer lots are on offer than the stop asks for. The rest used to be dropped
+                                    # without a word: a stop for 7 crude lots that met 2 visible lots sold 2 and
+                                    # the other 5 lots had no stop any more (found 25 Nov 2026). The rest keeps
+                                    # resting as a stop of its own, with its share of the reservation, and is
+                                    # looked at again on the next price (as the rest of a limit order is).
+                                    rest = o.qty - _f
+                                    db.add(Order(user_id=o.user_id, token=o.token, symbol=o.symbol, exchange=o.exchange,
+                                                 side=o.side, order_type="SL", lots=rest // ins.lot_size, qty=rest,
+                                                 trigger_price=o.trigger_price, status="OPEN", leverage=o.leverage,
+                                                 validity=o.validity or "DAY", product=o.product or "NRML",
+                                                 margin_blocked=round((o.margin_blocked or 0) * rest / o.qty, 2),
+                                                 reason=f"remainder of order #{o.id}"))
+                                    o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)
                                     o.qty = _f; o.lots = _f // ins.lot_size
+                                    note = f"partial: {_f // ins.lot_size} lots filled, {rest // ins.lot_size} still open"
                             except EngineError as err:
                                 o.status = "REJECTED"; o.reason = f"Stop-loss triggered but {err}"; o.margin_blocked = 0.0
                                 db.commit()

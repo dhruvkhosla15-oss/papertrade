@@ -126,7 +126,9 @@ def close_price(engine, p: Position) -> Optional[float]:
     reason a long is never valued above the best offer in the book, nor a short below the best bid.
     The last price seen is also what is used if the feed has nothing (site restarted over the weekend
     with the exchange shut)."""
-    if p.last_mark is not None and engine.at_close_price(p):
+    if p.last_mark is not None and (engine.at_close_price(p) or engine.awaiting_first_price(p)):
+        # (also in the first moments of a session, until its first price: the screens stay on the closing price
+        # then, and the week's figure showed a stray quote from the time the market was shut; 25 Nov 2026)
         return p.last_mark if math.isfinite(p.last_mark) and p.last_mark >= 0 else None     # the same closing price the screens show
     mk = _exit_quote(engine, p)
     if mk is None:

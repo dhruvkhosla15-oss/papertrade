@@ -1747,13 +1747,18 @@ class Engine:
         if ltp is None and mk is not None:
             ltp = mk                                  # last price seen, shown while the exchange is shut
         vf = self.pvf(p) or 0.0                        # 0 = contract not listed and no factor remembered: not valued
+        # "at_close" tells the screens that the figure stands on the closing price and must not be re-priced from
+        # the quotes in the browser: while the market is shut, and (25 Nov 2026) also in the first moments of a
+        # session, until its first price. There the server already kept the closing price (owner's decision of
+        # 21 Nov) but the flag was off, so the position card and the Unrealised figure above it were re-priced
+        # from the old book or a stray weekend quote while Available Balance stood on the closing price.
         unreal = round((mk - p.avg_price) * p.qty * vf, 2) if (mk is not None and p.qty and vf) else 0.0
         lev = None
         if p.exchange in ("CRYPTO", "FOREX") and p.margin_blocked and mk and vf:
             lev = round(abs(p.qty) * mk * vf / p.margin_blocked)      # effective leverage of the position
         return {"id": p.id, "token": p.token, "symbol": p.symbol, "exchange": p.exchange, "lot_size": p.lot_size, "value_factor": vf, "leverage": lev,
                 "qty": p.qty, "lots": p.qty // p.lot_size if p.lot_size else 0, "avg_price": round(p.avg_price, 5),
-                "ltp": ltp, "mark": mk, "at_close": bool(p.last_mark is not None and self.at_close_price(p)), "unrealised": unreal, "realised": round(p.realised_pnl, 2),
+                "ltp": ltp, "mark": mk, "at_close": bool(p.last_mark is not None and (self.at_close_price(p) or self.awaiting_first_price(p))), "unrealised": unreal, "realised": round(p.realised_pnl, 2),
                 "margin": round(p.margin_blocked, 2), "expiry": p.expiry, "is_closed": p.is_closed,
                 "product": p.product or "NRML", **self.carry_fields(p, unreal, vf)}
 

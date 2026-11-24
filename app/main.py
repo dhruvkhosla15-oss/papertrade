@@ -1773,7 +1773,7 @@ def admin_weekly(week_end: Optional[str] = None, admin: User = Depends(current_a
     """Weekly settlement table for all users. No week_end = the week in progress (provisional)."""
     try:
         return _weekly.report(engine, db, week_end)
-    except ValueError:
+    except (ValueError, OverflowError):
         raise HTTPException(400, "week_end must look like 2026-11-15")
 
 
@@ -1799,7 +1799,7 @@ def my_weekly(week_end: Optional[str] = None, user: User = Depends(current_user)
     """The user's own weekly settlement: the running week, or a finished one."""
     try:
         rep = _weekly.report(engine, db, week_end, user_ids=[user.id], include_admin=True)
-    except ValueError:
+    except (ValueError, OverflowError):
         raise HTTPException(400, "week_end must look like 2026-11-15")
     rep["weeks"] = [w for (w,) in db.query(_weekly.WeekSettlement.week_end).filter_by(user_id=user.id)
                     .order_by(_weekly.WeekSettlement.week_end.desc()).all()]
@@ -2547,6 +2547,11 @@ def _forget_number(db, uid: int):
     before 18 Nov 2026). Never called for an account that exists."""
     from .db import DaySnap, Setting
     db.query(DaySnap).filter_by(user_id=uid).delete()
+    # ...and the Shadow Book's peak-margin record of that number (the newcomer was shown with the deleted
+    # account's Peak Margin and Peak Real Margin, found 24 Nov 2026). The row "everybody together" stays.
+    from .margin_watch import MarginPeak as _MP
+    if uid:
+        db.query(_MP).filter_by(user_id=uid).delete()
     for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_", "logout_"):
         db.query(Setting).filter_by(key=f"{k}{uid}").delete()
     from . import auth as _auth
@@ -2801,8 +2806,11 @@ def _range(from_: Optional[str], to: Optional[str]):
         t = date.fromisoformat(to) if to else today
     except ValueError:        # a date typed by hand in the address used to crash the report ("500")
         raise HTTPException(400, "Dates must look like 2026-11-30")
-    start = datetime.combine(f, datetime.min.time()) - IST
-    end = datetime.combine(t + timedelta(days=1), datetime.min.time()) - IST
+    try:
+        start = datetime.combine(f, datetime.min.time()) - IST
+        end = datetime.combine(t + timedelta(days=1), datetime.min.time()) - IST
+    except OverflowError:     # the first or the last day the calendar knows (0001-01-01, 9999-12-31) crashed six addresses ("500")
+        raise HTTPException(400, "Dates must look like 2026-11-30")
     return start, end, f, t
 
 

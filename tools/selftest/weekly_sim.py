@@ -1351,6 +1351,17 @@ for _n in _so:
     _ll = db.query(Ledger).filter_by(user_id=users[_n].id).order_by(Ledger.id.desc()).first()
     ok(f"square-off and a resting stop: {_n}'s coins equal the last ledger line", near(users[_n].balance, _ll.balance_after, 0.011), f"{users[_n].balance} vs {_ll.balance_after}")
 
+# ---- the ledger line of an option that expires in the money is written as a readable number ---------------------
+O_ITM = 43
+_iday = day(W30, 2, 12)
+feed.instruments[O_ITM] = Instrument(O_ITM, "NIFTY28MAY26100CE", "NIFTY", "NFO", "NFO-OPT", "CE", _iday.date().isoformat(), 26100, 75, 0.05)
+at(_iday); px(nifty=26142.35); feed.set(O_ITM, 45.0)
+mk_user("itm", 1_000_000)
+trade("itm", O_ITM, "BUY", 1)
+at(_iday.replace(hour=15, minute=41)); feed.set(I_NIFTY, 26142.35); run(engine._settle_expired()); db.expire_all()
+_il = db.query(Ledger).filter_by(user_id=users["itm"].id, kind="EXPIRY_SETTLEMENT").first()
+ok("expiry: the ledger line of a settled option gives its value as a plain number (42.35, not 42.349999999998545)",
+   _il is not None and _il.note.endswith("settled @ 42.35") and near(_il.amount, (26142.35 - 26100 - 45.05) * 75, 0.011), str(_il.note if _il else None))
 # ==== end of the Risk officer's block, 25 Nov 2026 ==================================================================
 
 if __name__ == "__main__":

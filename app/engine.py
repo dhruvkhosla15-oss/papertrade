@@ -1741,10 +1741,13 @@ class Engine:
                         db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
                                      side="SELL" if p.qty > 0 else "BUY", qty=abs(p.qty), price=ltp,
                                      realised_pnl=round(realised, 2)))
-                        self._ledger(db, user, realised, "EXPIRY_SETTLEMENT", f"{p.symbol} settled @ {ltp}")
+                        # (the text only: an option's value, index minus strike, is not a round number inside the
+                        # computer, and the ledger read "settled @ 2430.0000000000036"; found 25 Nov 2026)
+                        said = round(ltp, 4)
+                        self._ledger(db, user, realised, "EXPIRY_SETTLEMENT", f"{p.symbol} settled @ {said}")
                         p.qty = 0; p.margin_blocked = 0.0; p.is_closed = True
                         db.commit()
-                        self._emit(user.id, {"type": "refresh", "message": f"{p.symbol} expired and settled at {ltp}"})
+                        self._emit(user.id, {"type": "refresh", "message": f"{p.symbol} expired and settled at {said}"})
                 # cancel open orders on expired contracts
                 for o in db.query(Order).filter_by(status="OPEN").all():
                     ins = self.feed.instruments.get(o.token)

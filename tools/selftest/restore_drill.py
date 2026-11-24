@@ -70,7 +70,11 @@ def main():
     find = lambda c, q, pick: next(x for x in c.get("/api/search", params={"q": q}).json() if pick(x))
     c0 = users["drilla"][1]
     fut = find(c0, "NIFTY", lambda x: x.get("instrument_type") == "FUT" and x.get("name") == "NIFTY")
-    opt = find(c0, "NIFTY", lambda x: x.get("instrument_type") == "CE" and x.get("name") == "NIFTY")
+    # the option comes from the option chain: which options the search lists first depends on the weekday (on
+    # 25 Nov 2026 it listed no NIFTY call at all and the drill stopped here before testing anything)
+    exps = c0.get("/api/expiries", params={"exchange": "NFO", "name": "NIFTY"}).json()
+    ces = [x for x in (c0.get("/api/chain", params={"exchange": "NFO", "name": "NIFTY", "expiry": exps[0]}).json().get("instruments") or []) if x.get("instrument_type") == "CE"]
+    opt = ces[len(ces) // 2]
     mcx = find(c0, "GOLD", lambda x: x.get("instrument_type") == "FUT" and x.get("exchange") == "MCX")
     btc = find(c0, "BTC", lambda x: x.get("exchange") == "CRYPTO")
     plan = {"drilla": [(fut, "BUY", 2), (mcx, "SELL", 1), (fut, "SELL", 1)], "drillb": [(opt, "SELL", 1), (btc, "BUY", 2)], "drillc": [(mcx, "BUY", 1)]}

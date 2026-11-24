@@ -100,6 +100,13 @@ def sample(db, feed, user_ids, exchanges) -> dict:
         m = sum((p.margin_blocked or 0.0) for p in ps); total += m
         _raise_rule(db, day, uid, m, at)
     _raise_rule(db, day, 0, total, at)
+    # Nothing may be held in the database while the broker's calculator is asked. A row written above (the first
+    # look of a day at an account, so after its first trade of the day and at midnight) used to stay unfinished
+    # until the end of this function, through one calculator call for everybody and one per user: with four users
+    # and a calculator that took a second, an order placed meanwhile waited 4.5 seconds for its turn to be written
+    # (found 25 Nov 2026; with the calculator not answering at all, orders would have failed). Written now; the
+    # broker's figures are fetched with nothing pending and written in one go at the end.
+    db.commit()
     # has anything been traded since the last look?
     last = db.query(Trade.id).filter(Trade.exchange.in_(exchanges)).order_by(Trade.id.desc()).first()
     last = last[0] if last else 0
@@ -113,6 +120,7 @@ def sample(db, feed, user_ids, exchanges) -> dict:
     out = {"rule": round(total, 2), "real": None}
     if due:
         tot = _real(feed, _basket(feed, pos))
+        per = {uid: _real(feed, _basket(feed, ps)) for uid, ps in by.items()} if tot is not None else {}
         if tot is None:
             if n_new:
                 r = _row(db, day, 0); r.real_missed = (r.real_missed or 0) + n_new
@@ -121,8 +129,7 @@ def sample(db, feed, user_ids, exchanges) -> dict:
             r = _row(db, day, 0)
             if r.real_peak is None or tot > r.real_peak:
                 r.real_peak = tot; r.real_at = at
-            for uid, ps in by.items():
-                v = _real(feed, _basket(feed, ps))
+            for uid, v in per.items():
                 if v is not None:
                     ru = _row(db, day, uid)
                     if ru.real_peak is None or v > ru.real_peak:

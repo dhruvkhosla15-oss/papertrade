@@ -1364,6 +1364,55 @@ finally:
     M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram = _bk_keep[:5]
     M.set_setting_safe("backup_check", _bk_keep[5])
 
+# ---- the Shadow Book's peak-margin recorder (owner's decision of 21 Nov 2026; checks added 25 Nov) ---------------
+# It only looks and asks the broker's calculator a question: it must never send an order and never keep an order
+# waiting. Found 25 Nov: after the first look of a day at an account, its unfinished line was held in the database
+# through every calculator call of that look, so an order placed meanwhile waited for all of them (4.5 s with four
+# users and a calculator answering in a second). Also here: the peak stays when the margin is gone again.
+if True:
+    import threading as _th
+    from app import margin_watch as _MW
+    at(day(W16 + timedelta(days=21), 2, 11)); px(nifty=30000)
+    mk_user("peak1", 2_000_000); mk_user("peak2", 2_000_000)
+    trade("peak1", F_NIFTY, "BUY", 2); trade("peak2", F_NIFTY, "SELL", 1); db.commit()
+    _pu = {users["peak1"].id, users["peak2"].id}; _asked = []; _other = []
+
+    class _Kite:                                              # the broker connection: only the calculator may be used
+        def basket_order_margins(self, basket, consider_positions=False):
+            _asked.append(len(basket)); time.sleep(0.5)
+            return {"final": {"total": 1000.0 * len(basket)}}
+
+        def __getattr__(self, name):
+            _other.append(name)
+            raise AttributeError(name)
+
+    class _PF:
+        instruments = feed.instruments; kite = _Kite(); access_token = "x"; refused = False
+    _mwdb = SessionLocal(); _waits = []
+    _MW._state.update(trade_id=None, sig=None, real_at=0.0)
+
+    def _writer():
+        time.sleep(0.25)                                      # an order arrives while the calculator is being asked
+        _s = SessionLocal(); _t0 = time.time()
+        _s.add(D.Setting(key="mw_probe_write", value="1")); _s.commit(); _s.close()
+        _waits.append(time.time() - _t0)
+    _w = _th.Thread(target=_writer); _w.start(); _t0 = time.time()
+    _o1 = _MW.sample(_mwdb, _PF, _pu, ("NFO", "BFO", "MCX")); _took = time.time() - _t0; _w.join()
+    _m1 = sum(p.margin_blocked for p in db.query(Position).filter(Position.user_id.in_(_pu), Position.is_closed == False))   # noqa: E712
+    _pk = _MW.peaks(_mwdb)
+    ok("margin watch: the recorder asks the broker's calculator only (once for everybody, once per user), nothing else on that connection", _asked == [2, 1, 1] and not _other, f"asked {_asked}, other {_other}")
+    ok("margin watch: an order is not kept waiting while the calculator answers", _took >= 1.4 and _waits and _waits[0] < 0.7, f"look took {_took:.2f} s, a write during it waited {_waits[0] if _waits else None:.2f} s")
+    ok("margin watch: the peak by limefx's rule is the margin blocked, in total and per user",
+       near(_o1["rule"], _m1, 0.01) and near(_pk[0]["rule"], _m1, 0.01) and near(_pk[users["peak1"].id]["rule"] + _pk[users["peak2"].id]["rule"], _m1, 0.02), f"{_o1} {_m1}")
+    ok("margin watch: the calculator's figure is kept as Peak Real Margin", _pk[0]["real"] == 2000.0 and _pk[users["peak1"].id]["real"] == 1000.0, str(_pk[0]))
+    trade("peak1", F_NIFTY, "SELL", 2); trade("peak2", F_NIFTY, "BUY", 1); db.commit()      # everything squared off
+    _PF.kite.basket_order_margins = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("calculator down"))
+    _o2 = _MW.sample(_mwdb, _PF, _pu, ("NFO", "BFO", "MCX")); _pk2 = _MW.peaks(_mwdb)
+    ok("margin watch: after the square-off Margin Now is zero and the peak stays", _o2["rule"] == 0.0 and near(_pk2[0]["rule"], _m1, 0.01) and near(_pk2[users["peak1"].id]["rule"], _pk[users["peak1"].id]["rule"], 0.01)
+       and _pk2[0]["real"] == 2000.0, f"{_o2} {_pk2[0]}")
+    _mwdb.close()
+    _s = SessionLocal(); _s.query(D.Setting).filter_by(key="mw_probe_write").delete(); _s.query(_MW.MarginPeak).filter(_MW.MarginPeak.user_id.in_(list(_pu) + [0])).delete(synchronize_session=False); _s.commit(); _s.close()
+
 # ---- the crypto connection drops and comes back; a crypto option with nobody on one side (25 Nov 2026) ----------
 # (Price officer; state of the night: reconnecting, after the crypto reconnect was rebuilt on 23 Nov.) The real
 # crypto feed class is fed by hand. During the drop and after it nothing may fill at a price from before the drop.

@@ -57,6 +57,8 @@ class DeltaCrypto:
         self._fails = 0                  # drops in a row that came soon after connecting (for the waiting time before the next try)
         self._run_task = None
         self._last_fresh = 0.0           # when the connection was last rebuilt from scratch
+        self._fresh_busy = False         # a rebuild from scratch is under way
+        self._runs = 0                   # connection loops alive right now: one, never more (the daily check reads it)
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -331,26 +333,38 @@ class DeltaCrypto:
         return True
 
     async def _fresh(self):
-        """Stop the old connection and its retry loop, reload the contract list, start a new connection at once."""
-        self._last_fresh = time.time()
-        old = self._run_task
-        if old is not None and not old.done():
-            old.cancel()
+        """Stop the old connection and its retry loop, reload the contract list, start a new connection at once.
+        One at a time: two of these at the same moment (Reconnect pressed twice, or pressed while the automatic
+        rebuild after six quick drops was reloading the contract list) each started a connection loop of its
+        own. The site then held two connections to the exchange for good, every price was handled twice,
+        "Disconnect" closed only one of them (prices went on arriving on a paused feed) and every later
+        Reconnect left the extra one running (found 24 Nov 2026). The second call now leaves the work to the
+        first, which does everything it would do."""
+        if self._fresh_busy:
+            return
+        self._fresh_busy = True
+        try:
+            self._last_fresh = time.time()
+            old = self._run_task
+            if old is not None and not old.done():
+                old.cancel()
+                try:
+                    await asyncio.wait_for(asyncio.shield(old), 5)
+                except BaseException:
+                    pass
             try:
-                await asyncio.wait_for(asyncio.shield(old), 5)
+                if self._ws:
+                    await asyncio.wait_for(self._ws.close(), 3)
             except BaseException:
                 pass
-        try:
-            if self._ws:
-                await asyncio.wait_for(self._ws.close(), 3)
-        except BaseException:
-            pass
-        self._ws = None; self.connected = False; self._fails = 0; self._last_msg = 0.0
-        try:
-            await self._loop.run_in_executor(None, self.refresh_products)
-        except Exception as e:
-            log.warning("delta: product list failed on a fresh start: %s", e)
-        self._run_task = self._loop.create_task(self._run())
+            self._ws = None; self.connected = False; self._fails = 0; self._last_msg = 0.0
+            try:
+                await self._loop.run_in_executor(None, self.refresh_products)
+            except Exception as e:
+                log.warning("delta: product list failed on a fresh start: %s", e)
+            self._run_task = self._loop.create_task(self._run())
+        finally:
+            self._fresh_busy = False
 
     def last_data_secs(self):
         """Seconds since the exchange last sent anything (None if never)."""
@@ -372,6 +386,13 @@ class DeltaCrypto:
         self._stale_book = {t for t in subs if t in self.items and self.items[t].instrument_type == "FUT"}
 
     async def _run(self):
+        self._runs += 1
+        try:
+            await self._run_loop()
+        finally:
+            self._runs -= 1
+
+    async def _run_loop(self):
         import websockets
         while True:
             if self.paused:

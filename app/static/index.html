@@ -177,7 +177,7 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
 .pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
 .pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0;min-width:36px;min-height:36px;margin-right:-8px}
-.bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
+.bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk.bkL{width:auto;height:38px;border-radius:19px;border:1.5px solid var(--acc,#84cc16);color:var(--acc,#84cc16);font-size:14px;font-weight:800;gap:4px;padding:0 14px 0 10px}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
 .maintbar{display:flex;align-items:center;gap:9px;padding:8px 12px;font-size:12.5px;line-height:1.35;background:rgba(245,158,11,.14);border-bottom:1px solid rgba(245,158,11,.5);color:#fcd34d}.maintbar b{color:#fde68a}.maintbar.now{background:rgba(239,68,68,.16);border-bottom-color:rgba(239,68,68,.5);color:#fca5a5}.maintbar.now b{color:#fecaca}.maintbar.hidden{display:none}
@@ -451,7 +451,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 <div id="sheet" class="sheet hidden">
   <div class="box">
     <div class="row" style="justify-content:space-between">
-      <button class="bk" data-back title="Back" aria-label="Back">‹</button><div style="flex:1;min-width:0"><div class="sym" id="oSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
+      <button class="bk bkL" data-back title="Back" aria-label="Back"><span style="font-size:20px;margin-top:-2px">‹</span>Back</button><div style="flex:1;min-width:0"><div class="sym" id="oSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div><button class="ghost small" id="oWatch" style="padding:3px 8px;margin-top:4px">+ Watchlist</button></div>
     </div>
     <div id="oLinks" class="hidden" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
@@ -510,7 +510,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 <div id="chartModal" class="sheet hidden" style="align-items:stretch">
   <div class="box chartbox" style="max-width:100%;border-radius:0;display:flex;flex-direction:column;padding:12px 14px">
     <div class="row" style="justify-content:space-between;align-items:center">
-      <button class="bk" data-back title="Back" aria-label="Back">‹</button><div style="flex:1;min-width:0"><div class="sym" id="cSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="cMeta"></div></div>
+      <button class="bk bkL" data-back title="Back" aria-label="Back"><span style="font-size:20px;margin-top:-2px">‹</span>Back</button><div style="flex:1;min-width:0"><div class="sym" id="cSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="cMeta"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="cLtp">—</div><div class="small num" id="cChg"></div></div>
       <button class="ghost" id="cClose" style="flex:0 0 auto;padding:8px 12px">✕</button>
     </div>

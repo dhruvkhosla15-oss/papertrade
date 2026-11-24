@@ -11,7 +11,8 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-Branch `security-fix/2026-11-25` is waiting (six separate commits, each with its checks; "put security-fix/2026-11-25
+Branch `security-fix/2026-11-25` is waiting (six separate commits; 4 and 5 carry their checks, 1 to 3 pass the simulation but still need a check
+of their own written when they are applied; "put security-fix/2026-11-25
 live", or name the ones wanted):
 1. (25 Nov) The weekly figure in the first seconds of a session, and a cut-off that runs in those seconds, use the
    closing price like every other screen (completes the decision of 21 Nov; `weekly.close_price`). Changes what a

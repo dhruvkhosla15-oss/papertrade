@@ -1,12 +1,12 @@
-limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; corrected and live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers all since 21 Nov.)
+limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; fixed, live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers all since 21 Nov.)
 
 Technology: found. While the recorder asked the broker's margin calculator, every order waited (9 seconds in a test). It no longer holds anything up and is now a watched job. Reconnect crypto pressed twice could leave two connections that Disconnect did not close; now always one. Clean start, 9 jobs running, domain alarm fires, a forced restart lost none of 2,919 orders, restore drill and old-database test passed. 100 users: screens 28 ms, orders 50 ms. Double the last figures, but the old code is as slow on tonight's test machine: it is the machine, not the site.
 
-Security: found. A deleted account's Peak Margin showed on the next account created; an impossible date crashed a report. Both corrected. Your rule "closing price until the first price" gives a user nothing. All 7 markets attacked, 38 sweep rows, no-login sweep clean, same 3 old software reports, no secrets.
+Security: found. A deleted account's Peak Margin showed on the next account created; an impossible date crashed a report. Both fixed. Your rule "closing price until the first price" gives a user nothing. All 7 markets attacked, 38 sweep rows, no-login sweep clean, same 3 old software reports, no secrets.
 
 Accounts: found. 9 accounts, 6,500 comparisons, 40 commissions by hand, coins in whole paise: all agree. Just after an opening the position card, running week and Shadow Book did not yet follow the closing-price rule; Peak Margin could show below Margin Now. Corrected.
 
-Price: found. All 7 markets: fills only at the live price, nothing while shut or before the first price. A contract leaving the crypto list could kill crypto prices until a restart; corrected. Possibly the cause of the night of 23 Nov; that night's server log would show it.
+Price: found. All 7 markets: fills only at the live price, nothing while shut or before the first price. A contract leaving the crypto list could kill crypto prices until a restart; corrected. Possibly the cause on 23 Nov; that night's server log would show.
 
 UI: found. Your changes of 21 to 24 Nov all work on phone and computer and now have checks. Corrected: Pulse showing the previous market's list; messages swallowing taps on Back / Options / Other expiries; an empty option chain now says "No options are listed for X right now".
 

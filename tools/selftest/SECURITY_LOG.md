@@ -638,8 +638,11 @@ ran on 22, 23 or 24 Nov, so everything since cfeac56 counted as "recent".
   account's peak each in their own way: one version kept (Technology's), every officer's checks kept; two test
   blocks used the same account name and the same day's line; the browser check "Master Shadow Book: …" assumed the
   Peak card equals the sum of the users' peaks (it is the peak of everybody together and keeps deleted accounts):
-  corrected in the check. Gates: full run on the merged code 325 / 0 and 318 / 0; final runs on exactly what was
-  pushed: see the commit of this entry.
+  corrected in the check. Gates: full run on the merged code 325 / 0 and 318 / 0, no server error; on exactly what was
+  pushed, twice in a row: safety check 292 / 0 and browser check 318 / 0, no server error (between 3:30 and 4:30 am
+  IST the simulated Global contracts are in their daily break by the real clock, so the plain run has 292 checks);
+  the safety check again with Global open (`FAKE_OPEN=1`): 325 / 0; weekly simulation 6824 / 0. The branch
+  `security-fix/2026-11-25`: weekly simulation 6837 / 0; its safety and browser checks were not run.
 - Not tested: the 300-user load test; the recorder against the real calculator; real exchange messages; MCX options
   over the API (the copy lists none); light theme by eye at every size; real phones.
 

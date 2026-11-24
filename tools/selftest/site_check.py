@@ -78,30 +78,56 @@ def accounts_block(br, actx, uctx, ok, near):
     ctx = br.new_context(viewport={"width": 412, "height": 900}, service_workers="block"); ctx.add_cookies(uctx.cookies())
     page = ctx.new_page(); sent = []
     page.on("request", lambda q: sent.append(q.post_data_json) if q.method == "POST" and q.url.endswith("/api/orders") else None)
-    page.goto(f"{B}/"); page.wait_for_timeout(5000)
-    page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('positions')"); page.wait_for_timeout(2500)
+    # (25 Nov 2026: this check failed once on timing. It used to wait a fixed time after each tap; on a slow run the
+    # sheet opened after the script had already chosen SELL / Stop-loss or typed the trigger, and opening resets both.
+    # Every step now waits for the thing it reads: the sheet open on that contract, the order answered by the server,
+    # the stop resting. A step that never happens still fails the check.)
+    def until(js, arg=None, ms=12000):
+        js = js if js.lstrip().startswith(("(", "async")) else "() => (" + js + ")"     # always a function: the pages do not allow a text to be run as script
+        try:
+            page.wait_for_function(js, arg=arg, timeout=ms); return True
+        except Exception:
+            return False
+    page.goto(f"{B}/"); until("typeof state === 'object' && !!state.me && typeof showTab === 'function'")
+    page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove()); showTab('positions')")
+    until("state.positions.some(x => x.qty && ['NFO', 'BFO'].includes(x.exchange) && document.querySelector(`[data-slt=\"${x.id}\"]`))")
     p = page.evaluate("""() => { const p = state.positions.find(x => x.qty && ['NFO', 'BFO'].includes(x.exchange) && document.querySelector(`[data-slt="${x.id}"]`));
         return p ? {id: p.id, token: p.token, qty: p.qty, lots: Math.abs(p.lots), ltp: (state.prices[p.token] || {}).ltp || p.ltp || p.avg_price} : null; }""")
     got = {}; opened = None
     if p:
         side = "SELL" if p["qty"] > 0 else "BUY"
         trig = round(round(p["ltp"] * (0.9 if side == "SELL" else 1.1) / 0.05) * 0.05, 2)
+        on_sheet = "(t) => !document.querySelector('#sheet').classList.contains('hidden') && !!state.sel && String(state.sel.token) === String(t)"
         for path in ("sheet", "ticket"):
+            page.evaluate("() => { document.querySelector('#sheet').classList.add('hidden'); state.sel = null; }")   # so that "open on this contract" can only mean the tap that follows
             if path == "sheet":
-                page.evaluate("(id) => document.querySelector(`[data-slt=\"${id}\"]`).click()", p["id"]); page.wait_for_timeout(1800)
+                page.evaluate("(id) => document.querySelector(`[data-slt=\"${id}\"]`).click()", p["id"])
+                until("(t) => (" + on_sheet + ")(t) && state.otype === 'SL' && !document.querySelector('#sltHint').classList.contains('hidden')", p["token"])
                 opened = page.evaluate("({open: !document.querySelector('#sheet').classList.contains('hidden'), side: state.side, type: state.otype, lots: +document.querySelector('#oLots').value, hint: !document.querySelector('#sltHint').classList.contains('hidden')})")
             else:
-                page.evaluate("(t) => document.querySelector(`[data-add=\"${t}\"]`).click()", p["token"]); page.wait_for_timeout(1800)
-                page.evaluate("(sd) => { document.querySelector(sd === 'SELL' ? '#sideSell' : '#sideBuy').click(); document.querySelector('[data-ot=\"SL\"]').click(); }", side); page.wait_for_timeout(400)
-            page.fill("#oLots", str(p["lots"])); page.fill("#oTrig", str(trig)); page.wait_for_timeout(600)
+                page.evaluate("(t) => document.querySelector(`[data-add=\"${t}\"]`).click()", p["token"])
+                until(on_sheet, p["token"])
+                page.evaluate("(sd) => { document.querySelector(sd === 'SELL' ? '#sideSell' : '#sideBuy').click(); document.querySelector('[data-ot=\"SL\"]').click(); }", side)
+                until("(sd) => state.side === sd && state.otype === 'SL'", side, 4000)
             used0 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]; n0 = len(sent)
-            page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(2500)
+            if page.evaluate("!document.querySelector('#sheet').classList.contains('hidden') && !!state.sel"):
+                page.fill("#oLots", str(p["lots"])); page.fill("#oTrig", str(trig))
+                try:
+                    with page.expect_response(lambda r: r.url.endswith("/api/orders") and r.request.method == "POST", timeout=15000):
+                        page.evaluate("document.querySelector('#oSubmit').click()")
+                except Exception:
+                    pass
+            mine = []
+            for _ in range(20):          # the stop rests (the answer above has come; this only allows for the list to follow)
+                mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
+                if mine or len(sent) == n0:
+                    break
+                page.wait_for_timeout(250)
             used1 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]
-            mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
             got[path] = {"body": sent[n0] if len(sent) > n0 else None, "reserved": round(used1 - used0, 2), "resting": len(mine)}
             for o in mine:
                 ctx.request.delete(f"{B}/api/orders/{o['id']}")
-            page.wait_for_timeout(800); page.evaluate("typeof refreshAll === 'function' && refreshAll()"); page.wait_for_timeout(1200)
+            until("(t) => new Promise(r => refreshAll().then(() => r(!state.orders.some(o => o.status === 'OPEN' && String(o.token) === String(t) && o.order_type === 'SL'))))", p["token"], 6000)
     ok("User: the Stop-loss / Target button opens the order sheet on the exit side for the whole position, and its order is the same order, with the same reservation, as from the ordinary ticket",
        bool(p) and bool(opened) and opened["open"] and opened["side"] == side and opened["type"] == "SL" and opened["lots"] == p["lots"] and opened["hint"]
        and bool(got.get("sheet", {}).get("body")) and got["sheet"]["body"] == got.get("ticket", {}).get("body") and got["sheet"]["resting"] == 1 and got["ticket"]["resting"] == 1
@@ -151,6 +177,190 @@ def accounts_block(br, actx, uctx, ok, near):
     zero = re.findall(r"[^|\n]{0,24}[-−]₹0(?![0-9.,])", utxt + " || " + mtxt)
     ok("A commission or a loss of less than 50 paise is written ₹0, never '-₹0' (user's P&L tab and weekly list, Master's user row and Weekly Settlement split)",
        "Commission" in utxt and "₹0" in utxt and len(mtxt) > 40 and not zero, zero[:4] or (utxt[:120], mtxt[:120]))
+
+
+# ---------------- UI / user experience officer's block (25 Nov 2026) ----------------
+def ui_block_25nov(br, actx, uctx, ok, near):
+    """What the owner asked for between 21 and 24 Nov 2026, used the way a user does (real taps, phone screen): the
+    resting stop-loss / target on a position card; a Pulse row opens that name's nearest future; the order sheet's row
+    Back | Options | Other expiries; Back from the option chain; the Market tab opens on Futures. And on the Master
+    page: the Shadow Book's margin cards and columns, Reconnect always within reach. No step waits a fixed time for
+    something that an element or a figure can show."""
+    A = actx.request; U = uctx.request
+    U.post(f"{B}/api/alerts/ack")
+    ctx = br.new_context(viewport={"width": 412, "height": 800}, service_workers="block"); ctx.add_cookies(uctx.cookies())
+    page = ctx.new_page(); page.goto(f"{B}/")
+    V = "const v = id => { const e = document.getElementById(id); return !!e && !e.classList.contains('hidden') && e.getClientRects().length > 0; }; "
+
+    def until(js, arg=None, ms=10000):
+        js = js if js.lstrip().startswith(("(", "async")) else "() => (" + js + ")"     # always a function: the pages do not allow a text to be run as script
+        try:
+            page.wait_for_function(js, arg=arg, timeout=ms); return True
+        except Exception:
+            return False
+
+    def tap(sel):                      # a real tap: the element must be there, visible and not covered
+        try:
+            page.click(sel, timeout=6000); return True
+        except Exception:
+            return False
+
+    def where():
+        return page.evaluate("() => { " + V + """return {tab: state.tab, sheet: v('sheet'), sel: state.sel && state.sel.symbol, type: state.sel && state.sel.instrument_type, tok: state.sel && state.sel.token, pulse: v('pulseView'),
+            chain: v('chainPanel'), und: (document.querySelector('#undName') || {}).textContent, rows: document.querySelectorAll('#chainTbl tbody tr[data-strike]').length, catList: v('catList'), undList: v('undList'), catListF: v('catListF'),
+            futView: v('futView'), optView: v('optView'), segFut: document.querySelector('#segFut').classList.contains('active'), segOpt: document.querySelector('#segOpt').classList.contains('active'), noopt: v('oNoOpt'),
+            links: [...document.querySelectorAll('#oLinks > button')].map(b => { const r = b.getBoundingClientRect(); return {t: b.textContent.trim(), l: r.left, r: r.right, top: r.top, w: r.width, h: r.height, cut: b.scrollWidth > b.clientWidth + 1}; }),
+            arrow: (() => { const b = document.querySelector('#sheet .box > .row .bk'); return !!b && b.getClientRects().length > 0; })(), W: window.innerWidth}; }""")
+
+    def pulse(kind):                   # Pulse, one market: wait until the rows on the screen are that market's
+        page.evaluate("(k) => { document.querySelector('#sheet').classList.add('hidden'); document.querySelector('nav.tabs button[data-home=\"pulse\"]').click(); const s = document.querySelector('#pKind'); s.value = k; s.dispatchEvent(new Event('change')); }", kind)
+        exs = ["NFO", "BFO"] if kind == "index" else ["FOREX"]
+        until("!(history.state && history.state.lfx > 0)", None, 3000)      # the app's own step back (leaving a tab) has been taken; a row tapped before it would be closed by it
+        until("(exs) => { const r = [...document.querySelectorAll('#pulseView .prow[data-name]')].filter(x => x.offsetParent); return r.length > 0 && r.every(x => exs.includes(x.dataset.ex)); }", exs)
+        return page.evaluate("() => { const r = [...document.querySelectorAll('#pulseView .prow[data-name]')].find(x => x.offsetParent); return r ? [r.dataset.ex, r.dataset.name] : null; }")
+
+    def open_row(nm):                  # tap the first Pulse row and wait for that name's sheet
+        tap("#pulseView .prow[data-name]")
+        return until("(n) => !document.querySelector('#sheet').classList.contains('hidden') && !!state.sel && state.sel.name === n", nm[1] if nm else "")
+
+    until("typeof state === 'object' && !!state.me && typeof showTab === 'function'")
+    page.evaluate("document.querySelectorAll('.mpop').forEach(x => x.remove())")
+
+    # (1) Position card: the resting exit orders of the position ("Resting: Stop-loss … · Target …"), owner's decision of 21 Nov
+    held = [x for x in U.get(f"{B}/api/positions").json() if x.get("qty")]
+    hp = held[0] if held else None; rest = None; gone = False; placed = []
+    if hp:
+        side = "SELL" if hp["qty"] > 0 else "BUY"; ref = hp.get("ltp") or hp["avg_price"]
+        grid = (lambda x: float(round(x))) if hp["exchange"] == "MCX" else (lambda x: round(round(x / 0.05) * 0.05, 2))
+        trig, lim = (grid(ref * 0.97), grid(ref * 1.03)) if side == "SELL" else (grid(ref * 1.03), grid(ref * 0.97))
+        for body in ({"order_type": "SL", "trigger_price": trig}, {"order_type": "LIMIT", "limit_price": lim}):
+            r = U.post(f"{B}/api/orders", data={"token": hp["token"], "side": side, "lots": abs(hp["lots"]), **body})
+            placed.append((r.json().get("order") or {}).get("id") if r.status == 200 else None)
+        page.evaluate("showTab('positions')")
+        until("(id) => { const e = document.querySelector(`[data-rest=\"${id}\"]`); return !!e && /Stop-loss/.test(e.innerText) && /Target/.test(e.innerText); }", hp["id"])   # both orders on the line (the app may redraw between the two)
+        rest = page.evaluate("""(id) => { const e = document.querySelector(`[data-rest="${id}"]`); if (!e) return null; const b = e.getBoundingClientRect();
+            return {text: e.innerText.replace(/\\s+/g, ' ').trim(), inCard: !!e.closest('#posList > div') && e.closest('#posList > div').querySelector(`[data-slt="${id}"]`) !== null, right: b.right, W: window.innerWidth, all: document.querySelectorAll('[data-rest]').length}; }""", hp["id"])
+        for oid in placed:
+            if oid:
+                U.delete(f"{B}/api/orders/{oid}")
+        gone = until("() => new Promise(r => refreshAll().then(() => r(!document.querySelector('[data-rest]'))))", None, 8000)
+    f = lambda label: (lambda m: float(m.group(1).replace(",", "")) if m else None)(re.search(label + r"\s+([\d,]+(?:\.\d+)?)", (rest or {}).get("text") or ""))
+    ok("User Positions: the card of a position shows its resting stop-loss and target with their prices, only on that card, and the line goes when they are cancelled",
+       bool(hp) and all(placed) and bool(rest) and rest["text"].startswith("Resting:") and near(f("Stop-loss"), trig, 0.011) and near(f("Target"), lim, 0.011) and f"{abs(hp['qty'])} qty" in rest["text"]
+       and rest["inCard"] and rest["all"] == 1 and rest["right"] <= rest["W"] + 1 and gone, f"position {hp and hp.get('symbol')}, orders {placed}, line {rest}, gone after cancelling {gone}")
+
+    # (2) Pulse: a tapped row opens that name's nearest future on the order sheet (it used to open the option chain)
+    nm = pulse("index"); opened = open_row(nm); w = where()
+    futs = U.get(f"{B}/api/futures?exchange={nm[0]}&name={nm[1]}").json() if nm else []
+    ok("User Pulse: tapping a row opens that name's nearest future on the order sheet, not the option chain",
+       bool(nm) and opened and w["sheet"] and w["type"] == "FUT" and len(futs) >= 2 and w["tok"] == futs[0]["token"] and not w["chain"], f"row {nm}, nearest future {futs[0]['symbol'] if futs else None}, opened {w['sel']} sheet {w['sheet']} chain {w['chain']}")
+
+    # (3) Order sheet of a future: Back | Options | Other expiries, one row of three equal buttons (owner, 24 Nov), each doing what it says
+    def row3(w):
+        L = w["links"]
+        return (len(L) == 3 and [x["t"].replace("‹", "").strip() for x in L] == ["Back", "Options ›", "Other expiries"] and max(x["top"] for x in L) - min(x["top"] for x in L) <= 1
+                and max(x["w"] for x in L) - min(x["w"] for x in L) <= 3 and all(x["h"] >= 40 and x["l"] >= 0 and x["r"] <= w["W"] + 1 and not x["cut"] for x in L) and L[0]["r"] <= L[1]["l"] and L[1]["r"] <= L[2]["l"] and not w["arrow"])
+    r412 = row3(w); page.set_viewport_size({"width": 360, "height": 800}); w360 = where(); r360 = row3(w360); page.set_viewport_size({"width": 412, "height": 800})
+    tap("#oMonths"); until("document.querySelectorAll('#oLinks [data-fm]').length > 0")
+    months = page.evaluate("[...document.querySelectorAll('#oLinks [data-fm]')].map(b => [+b.dataset.fm, b.textContent.trim(), b.getBoundingClientRect().right <= window.innerWidth + 1])")
+    last = futs[-1] if futs else {}
+    tap(f"#oLinks [data-fm='{last.get('token')}']"); other = until("(t) => !!state.sel && state.sel.token === t && document.querySelectorAll('#oLinks > button').length === 3", last.get("token")); w2 = where()
+    tap("#oMonths"); until("!!document.querySelector('#oMBack')"); tap("#oMBack"); until("document.querySelectorAll('#oLinks > button').length === 3 && !document.querySelector('#oMBack')"); w3 = where()
+    tap("#oLinks [data-back]"); until("document.querySelector('#sheet').classList.contains('hidden')"); w4 = where()
+    ok("User order sheet of a future: Back | Options | Other expiries are three equal buttons in one row (412 and 360 wide); Other expiries lists every month and opens the one tapped; Back closes the sheet onto the screen it came from",
+       r412 and r360 and [m[0] for m in months] == [x["token"] for x in futs] and all(m[2] and m[1] for m in months) and other and w2["sel"] == last.get("symbol") and row3(w3) and w3["tok"] == last.get("token")
+       and not w4["sheet"] and w4["pulse"] and w4["tab"] == "watch", f"row at 412 {r412} {w['links']}, at 360 {r360} {w360['links']}; months {months} of {len(futs)}; other month opened {w2['sel']}; after Back: sheet {w4['sheet']}, Pulse {w4['pulse']}")
+
+    # (4) Options from that sheet opens the name's option chain; Back from a chain opened this way lands on the options segments page
+    #     (fault of 25 Nov: a message lying over a button swallowed the tap. The messages after an Exit or a cancelled order cover
+    #     this row of buttons for some seconds, and Options / Back did nothing. Three messages are put over Options here.)
+    o4 = open_row(nm); until("!document.querySelector('.toast')", None, 6000)
+    cov = page.evaluate("""() => { const b = document.querySelector('#oOpts').getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2; let over = false;
+        for (let i = 0; i < 6 && !over; i++) { toast('Order placed · message ' + (i + 1)); over = [...document.querySelectorAll('.toast')].some(t => { const r = t.getBoundingClientRect(); return r.left <= x && x <= r.right && r.top <= y && y <= r.bottom; }); }
+        const top = document.elementFromPoint(x, y); return {x, y, over, hits: !!top && !!top.closest('#oOpts')}; }""")
+    page.mouse.click(cov["x"], cov["y"]); o4 = [o4, where()["sel"]]
+    until("(n) => { " + V + "return v('chainPanel') && !v('sheet') && document.querySelector('#undName').textContent === n && document.querySelectorAll('#chainTbl tbody tr[data-strike]').length > 0; }", nm[1] if nm else ""); wc = where()
+    ok("User: a message shown over a button does not swallow the tap meant for the button (Options on the order sheet, under a message)",
+       cov["over"] and cov["hits"] and wc["chain"] and not wc["sheet"], f"message over the button {cov['over']}, the tap reaches the button {cov['hits']}, option chain opened {wc['chain']}")
+    tap("#backUnd"); until("() => { " + V + "return v('catList') && !v('chainPanel'); }", None, 4000); wb = where()
+    ok("User order sheet: Options opens that name's option chain, and Back from that chain lands on the options segments page",
+       bool(nm) and wc["chain"] and not wc["sheet"] and wc["und"] == nm[1] and wc["rows"] >= 5 and wc["tab"] == "market" and wb["catList"] and not wb["chain"] and not wb["undList"] and wb["segOpt"] and wb["optView"],
+       f"row opened / its sheet {o4}; after Options: chain {wc['chain']} of {wc['und']} with {wc['rows']} strikes, sheet {wc['sheet']}; after Back: segments page {wb['catList']}, chain {wb['chain']}, list {wb['undList']}")
+
+    # (2b) fault of 25 Nov: the list of a market chosen a moment ago arrived late and replaced the list of the market chosen now
+    #      (the box said "Indices", the rows were all markets, until the next refresh 20 s later). The slow answer is made here.
+    pulse("index")
+    late = page.evaluate("""() => new Promise(done => { const rf = window.fetch; let slow = null;
+        window.fetch = (u, o) => String(u).includes('/api/public/pulse') && String(u).includes('kind=mcx') ? (slow = new Promise(r => setTimeout(r, 700)).then(() => rf(u, o))) : rf(u, o);
+        const pick = k => { const s = document.querySelector('#pKind'); s.value = k; s.dispatchEvent(new Event('change')); };
+        setTimeout(() => done({rows: -1, other: ['no answer'], box: ''}), 8000); pick('mcx'); pick('index'); if (!slow) return done({rows: -1, other: ['the mcx list was not asked for'], box: ''});
+        slow.catch(() => 0).then(() => setTimeout(() => { window.fetch = rf; const r = [...document.querySelectorAll('#pulseView .prow[data-name]')].filter(x => x.offsetParent);
+            done({rows: r.length, other: [...new Set(r.filter(x => !['NFO', 'BFO'].includes(x.dataset.ex)).map(x => x.dataset.name))].slice(0, 4), box: document.querySelector('#pKind').value}); }, 250)); })""")
+    ok("User Pulse: a list that arrives late for a market chosen before does not replace the list of the market chosen now", late["box"] == "index" and late["rows"] >= 1 and not late["other"], late)
+
+    # (5) A name without options: Options says so, with Back / Futures page / Options page; a single contract has no other expiry
+    ng = pulse("global") or pulse("forex"); steps = {}
+    if ng and open_row(ng):
+        tap("#oMonths"); steps["one"] = until("[...document.querySelectorAll('.toast')].some(t => /Only one contract/.test(t.textContent))", None, 4000)
+        tap("#oOpts"); until("() => { " + V + "return v('oNoOpt'); }", None, 4000); w = where()
+        box = page.evaluate("() => { const n = document.querySelector('#oNoOpt'); const b = n.getBoundingClientRect(); return {text: n.innerText, btns: [...n.querySelectorAll('button')].map(x => x.textContent.trim()), fits: b.right <= window.innerWidth + 1 && [...n.querySelectorAll('button')].every(x => x.getBoundingClientRect().right <= b.right + 1)}; }")
+        steps["says"] = w["noopt"] and w["sheet"] and "No options trade on" in box["text"] and len(box["btns"]) == 3 and box["fits"]
+        tap("#nBack"); until("document.querySelector('#oNoOpt').classList.contains('hidden')", None, 3000); w = where(); steps["back"] = not w["noopt"] and w["sheet"] and w["sel"] is not None
+        tap("#oOpts"); tap("#nFut"); until("state.tab === 'market' && document.querySelector('#sheet').classList.contains('hidden')", None, 4000); w = where()
+        steps["futures"] = not w["sheet"] and w["tab"] == "market" and w["segFut"] and w["futView"] and w["catListF"] and not w["optView"]
+        pulse("global" if ng[0] == "FOREX" and page.evaluate("state.und.some(u => u.kind === 'global')") else "forex"); open_row(ng)
+        tap("#oOpts"); tap("#nOpt"); until("state.tab === 'market' && document.querySelector('#sheet').classList.contains('hidden')", None, 4000); w = where()
+        steps["options"] = not w["sheet"] and w["tab"] == "market" and w["segOpt"] and w["optView"] and w["catList"] and not w["chain"]
+    ok("User order sheet of a name without options: Options says so, and Back / Futures page / Options page each lead where they say; a single contract says it has no other expiry",
+       bool(ng) and len(steps) == 5 and all(steps.values()), f"{ng}: {steps}")
+
+    # (6) The Market tab always opens on Futures, whatever was open the last time (here: the Options page, then an option chain)
+    seen = []
+    for prep in ("document.querySelector('#segOpt').click()", "openChain('NFO', 'NIFTY')"):
+        page.evaluate("document.querySelector('#sheet').classList.add('hidden'); showTab('market'); " + prep)
+        until("document.querySelector('#segOpt').classList.contains('active')", None, 4000)
+        tap("nav.tabs button[data-tab='positions']"); until("state.tab === 'positions'", None, 4000)
+        tap("nav.tabs button[data-tab='market']"); until("state.tab === 'market' && document.querySelector('#segFut').classList.contains('active')", None, 4000); w = where()
+        seen.append(w["tab"] == "market" and w["segFut"] and not w["segOpt"] and w["futView"] and w["catListF"] and not w["optView"] and not w["chain"])
+    ok("User: the Market tab always opens on Futures, also after the Options page or an option chain was open", seen == [True, True], seen)
+
+    # (7) An option chain with nothing listed says so (fault of 25 Nov: a bare table head and an empty expiry box, no word)
+    page.evaluate("""(async () => { const real = window.api; window.api = async (u, ...r) => { if (u.startsWith('/expiries')) return []; if (u.startsWith('/chain')) return {instruments: [], spot_token: null}; return real(u, ...r); };
+        openChain('NFO', 'NIFTY'); await new Promise(r => setTimeout(r, 50)); window.__realApi2 = real; })()""")
+    until("/No options are listed/.test(document.querySelector('#chainTbl tbody').innerText)", None, 5000)
+    em = page.evaluate("() => { const t = document.querySelector('#chainTbl'); const c = t.querySelector('tbody td'); return {text: t.querySelector('tbody').innerText.trim(), fits: !c || c.getBoundingClientRect().right <= window.innerWidth + 1, wide: document.documentElement.scrollWidth <= window.innerWidth + 2}; }")
+    page.evaluate("() => { if (window.__realApi2) window.api = window.__realApi2; }")
+    ok("User option chain: a name with no option listed right now says so instead of showing an empty table", "No options are listed for NIFTY" in em["text"] and em["fits"] and em["wide"], em)
+    ctx.close()
+
+    # (8) Master Shadow Book: Margin Now, Peak Margin and Peak Real Margin as cards and as three columns per user (owner's decision of 21 Nov)
+    ctx = br.new_context(viewport={"width": 1440, "height": 900}, service_workers="block"); ctx.add_cookies(actx.cookies())
+    page = ctx.new_page(); page.goto(f"{B}/admin")
+    until("!!document.querySelector('[data-nav=\"shadow\"]') && typeof loadShadow === 'function'")
+    page.evaluate("document.querySelector('[data-nav=\"shadow\"]').click(); const b = document.querySelector('#shPresets [data-sp=\"all\"]'); if (b) b.click();")
+    until("document.querySelectorAll('#shStats .stat').length >= 10 && document.querySelectorAll('#shUsers tbody tr td').length >= 11")
+    sb = page.evaluate("""() => { const n = t => { const m = String(t).replace(/[,₹\\s*]/g, '').match(/-?\\d+(\\.\\d+)?/); return m ? +m[0] : null; };
+        const cards = Object.fromEntries([...document.querySelectorAll('#shStats .stat')].map(s => [s.querySelector('span').textContent.trim(), s.querySelector('b').textContent.trim()]));
+        const head = [...document.querySelectorAll('#shUsers thead th')].map(x => x.textContent.trim());
+        const rows = [...document.querySelectorAll('#shUsers tbody tr')].filter(r => r.children.length >= 11).map(r => [r.children[0].innerText.replace(/\\s+/g, ' '), n(r.children[8].textContent), n(r.children[9].textContent), r.children[10].textContent.trim()]);
+        const key = k => Object.keys(cards).find(x => x.startsWith(k)); const t = document.querySelector('#shUsers');
+        return {head: head.slice(8), rows, now: n(cards[key('Margin Now')]), nowLabel: key('Margin Now'), peak: n(cards[key('Peak Margin')]), real: cards['Peak Real Margin'], bad: (document.querySelector('#nav-shadow').innerText.match(/undefined|NaN|null/g) || []), fits: t.scrollWidth <= t.parentElement.clientWidth + 1}; }""")
+    ok("Master Shadow Book: Margin Now, Peak Margin and Peak Real Margin show as cards and as three columns per user; the users add up to the cards, no peak is below what is blocked now, and the table fits at 1440",
+       sb["head"] == ["Margin Now", "Peak Margin", "Peak Real Margin"] and len(sb["rows"]) >= 1 and sb["now"] is not None and sb["peak"] is not None and bool(sb["real"]) and not sb["bad"] and sb["fits"]
+       and near(sum(r[1] for r in sb["rows"]), sb["now"], 1.0 + len(sb["rows"])) and near(sum(r[2] for r in sb["rows"]), sb["peak"], 1.0 + len(sb["rows"])) and all(r[2] >= r[1] - 1 for r in sb["rows"]) and sb["peak"] >= sb["now"] - 1 and sb["peak"] > 0, sb)
+
+    # (9) Master: Reconnect is always within reach (owner's decision of 23 Nov): shown while connected, and Reconnect crypto says whether prices arrive
+    until("!!document.querySelector('#cryptoTitle').textContent && !!document.querySelector('#forexTitle').textContent")
+    fd = page.evaluate("() => ({c: getComputedStyle(document.querySelector('#cryptoReconnect')).display !== 'none' && document.querySelector('#cryptoReconnect').getClientRects().length > 0, f: getComputedStyle(document.querySelector('#forexReconnect')).display !== 'none' && document.querySelector('#forexReconnect').getClientRects().length > 0, ct: document.querySelector('#cryptoTitle').textContent, ft: document.querySelector('#forexTitle').textContent})")
+    t0 = time.time(); tap("#cryptoReconnect"); busy = page.evaluate("[document.querySelector('#cryptoReconnect').disabled, document.querySelector('#cryptoReconnect').textContent]")
+    told = until("[...document.querySelectorAll('.toast')].some(t => /^Connected: crypto prices are arriving again|^Not connected yet/.test(t.textContent))", None, 27000); took = time.time() - t0
+    said = page.evaluate("[...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')")
+    back = until("/connected/.test(document.querySelector('#cryptoTitle').textContent) && !/not connected/.test(document.querySelector('#cryptoTitle').textContent) && !document.querySelector('#cryptoReconnect').disabled && getComputedStyle(document.querySelector('#cryptoReconnect')).display !== 'none'", None, 45000) if told else False
+    if told and not back:              # the copy's crypto prices did not come back by themselves: one more press, as the Master would
+        tap("#cryptoReconnect"); back = until("/connected/.test(document.querySelector('#cryptoTitle').textContent) && !/not connected/.test(document.querySelector('#cryptoTitle').textContent) && !document.querySelector('#cryptoReconnect').disabled", None, 45000)
+    ok("Master: Reconnect crypto and Reconnect forex are shown while the feeds are connected, and Reconnect crypto says within 25 seconds whether prices arrive",
+       fd["c"] and fd["f"] and "connected" in fd["ct"] and "connected" in fd["ft"] and busy[0] is True and "Reconnecting" in busy[1] and told and took < 25.5 and back, f"shown {fd}; while waiting {busy}; told after {took:.1f} s: {said!r}; connected again {back}")
+    ctx.close()
 
 
 def main():
@@ -946,6 +1156,7 @@ def main():
         ok("Master user panel: the Status of every order is on the screen (a long reason wraps)", dto[2] >= 5 and dto[3] == 0 and dto[0] <= dto[1] + 1, dto)
         ok("Master user panel: a forex price keeps its decimals, and nothing reads '-0.00'", fxp == [True, True, True, False, "0.00"], fxp)
         # ======== end of the UI / user experience block of 21 Nov 2026 ========
+        ui_block_25nov(br, actx, uctx, ok, near)   # UI / user experience officer's block, 25 Nov 2026 (above main)
 
         # technical health
         import httpx

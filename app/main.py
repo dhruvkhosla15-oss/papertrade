@@ -1995,19 +1995,25 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
     from . import margin_watch as _mw
     _stamp = lambda t: ((datetime.strptime(t, "%Y-%m-%dT%H:%M:%S") + IST).strftime("%d %b, %I:%M %p") if t else "")
     _pk = _mw.peaks(db, from_, to)
-    def _peak(uid):
+    def _peak(uid, now_=0.0):
         o = _pk.get(uid)
-        if not o:
-            return {"rule": 0.0, "rule_at": "", "rule_rebuilt": False, "real": None, "real_at": "", "missed": 0}
-        return {"rule": round(o["rule"] or 0.0, 2), "rule_at": _stamp(o["rule_at"]), "rule_rebuilt": o["rule_rebuilt"],
-                "real": o["real"], "real_at": _stamp(o["real_at"]), "missed": o["missed"]}
+        k = ({"rule": 0.0, "rule_at": "", "rule_rebuilt": False, "real": None, "real_at": "", "missed": 0} if not o else
+             {"rule": round(o["rule"] or 0.0, 2), "rule_at": _stamp(o["rule_at"]), "rule_rebuilt": o["rule_rebuilt"],
+              "real": o["real"], "real_at": _stamp(o["real_at"]), "missed": o["missed"]})
+        if live and now_ and now_ > k["rule"] + 0.005:
+            # The recorder looks every 20 seconds. Until its next look the margin blocked right now can be above
+            # the highest it has written down: right after a user added three NIFTY lots the Shadow Book showed
+            # Margin Now 1,461,628 beside Peak Margin 801,099 (found 25 Nov 2026). The peak shown is never below
+            # the margin of this moment. Display only: nothing is stored here.
+            k.update(rule=round(now_, 2), rule_at=_stamp(datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")), rule_rebuilt=False, rule_live=True)
+        return k
     _now_by = {}
     for p in db.query(Position).filter_by(is_closed=False).filter(Position.exchange.in_(SHADOW_EXCHANGES)).all():
         if p.qty and p.user_id in users:
             _now_by[p.user_id] = _now_by.get(p.user_id, 0.0) + (p.margin_blocked or 0.0)
     for uid in set(_pk) | set(_now_by):
         if uid and uid in users:
-            r = row(uid); r["margin_now"] = round(_now_by.get(uid, 0.0), 2); r["margin_peak"] = _peak(uid)
+            r = row(uid); r["margin_now"] = round(_now_by.get(uid, 0.0), 2); r["margin_peak"] = _peak(uid, _now_by.get(uid, 0.0))
     realised = sum(r["realised"] for r in per.values()); unreal = sum(r["unrealised"] for r in per.values())
     for r in per.values():
         r["net"] = round(r["realised"] + r["unrealised"] - r["costs"], 2)
@@ -2018,7 +2024,7 @@ def admin_shadow(from_: Optional[str] = Query(None, alias="from"), to: Optional[
                         "slippage": round(sum(r["slippage"] for r in per.values()), 2), "basis": basis_n,
                         "costs": {k: round(v, 2) for k, v in costs.items()}, "net": round(realised + unreal - costs["total"], 2),
                         "open_positions": len(positions), "margin_estimate": round(margin, 2), "margin_real": margin_real,
-                        "margin_peak": _peak(0)},
+                        "margin_peak": _peak(0, margin)},
             "users": sorted(per.values(), key=lambda r: r["net"]), "positions": sorted(positions, key=lambda x: x["unrealised"]),
             "orders": orders[::-1][:300], "rates": SHADOW_RATES}
 
@@ -2547,6 +2553,10 @@ def _forget_number(db, uid: int):
     before 18 Nov 2026). Never called for an account that exists."""
     from .db import DaySnap, Setting
     db.query(DaySnap).filter_by(user_id=uid).delete()
+    # the Shadow Book's peak margin of this number (25 Nov 2026: it stayed behind, and the next account that was
+    # given the number showed the deleted account's Peak Margin before it had made a single trade)
+    from .margin_watch import MarginPeak
+    db.query(MarginPeak).filter_by(user_id=uid).delete()
     for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_", "logout_"):
         db.query(Setting).filter_by(key=f"{k}{uid}").delete()
     from . import auth as _auth

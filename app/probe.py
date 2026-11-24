@@ -1887,8 +1887,10 @@ class Probe:
                         # opened before the 50x cap of 19 Nov 2026: it keeps its margin, and its risk, until it is closed
                         over50.append((abs(p.qty) * d["mark"] * d["value_factor"], f"{p.symbol} {d['leverage']}x (account {p.user_id})"))
                     per_user[p.user_id] = per_user.get(p.user_id, 0.0) + (d["unrealised"] or 0.0)
-                    shut = self.engine.at_close_price(p)
-                    if shut and p.last_mark is not None and d["mark"] != p.last_mark:
+                    # (25 Nov 2026, widened) also in the first moments of a session, until the contract's first price
+                    # (owner's decision of 21 Nov), and the screens must be told to keep that figure ("at_close")
+                    shut = self.engine.at_close_price(p) or self.engine.awaiting_first_price(p)
+                    if shut and p.last_mark is not None and (d["mark"] != p.last_mark or not d.get("at_close")):
                         moved.append(p.symbol)                      # shut market: must sit on the closing price
                     if d["mark"] is None:
                         zero.append(p.symbol)                       # would be shown at 0 P&L

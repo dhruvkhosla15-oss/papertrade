@@ -454,6 +454,8 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
       <button class="bk" data-back title="Back" aria-label="Back">‹</button><div style="flex:1;min-width:0"><div class="sym" id="oSym" style="overflow-wrap:anywhere"></div><div class="small mut" id="oMeta"></div><div class="small" id="oLot" style="margin-top:2px"></div></div>
       <div style="text-align:right;flex:0 0 auto"><div class="big num" id="oLtp">—</div><div class="small num" id="oChg"></div><button class="ghost small" id="oWatch" style="padding:3px 8px;margin-top:4px">+ Watchlist</button></div>
     </div>
+    <div id="oLinks" class="hidden" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+    <div id="oNoOpt" class="hidden" style="margin-top:10px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg)"></div>
     <div id="oCcy" class="hidden" style="margin-top:8px;display:flex;justify-content:flex-end"></div>
     <div class="row small" style="margin-top:8px"><div><span class="mut">Bid </span><b class="num up" id="oBid">—</b> <span class="mut" id="oBidQ"></span></div><div style="text-align:center" class="mut">Market depth</div><div style="text-align:right"><span class="mut">Ask </span><b class="num dn" id="oAsk">—</b> <span class="mut" id="oAskQ"></span></div></div>
     <div id="oIlliq" class="small dn hidden" style="margin-top:6px"></div>
@@ -879,7 +881,7 @@ function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLt
 function openSheet(ins,side,lots){{const h=$('#sltHint');if(h)h.classList.add('hidden');}state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');{const h=state.positions.find(x=>x.token===ins.token&&x.qty);const h24=ins.exchange==='CRYPTO'||ins.exchange==='FOREX';$('#prodWrap').classList.toggle('hidden',h24);setProd(h24?'NRML':(h?h.product||'NRML':'NRML'));setVal('DAY');}
   $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 5:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?(GNAME[ins.symbol]?GNAME[ins.symbol]+' · Global · P&L converted to ₹':'Forex spot · 24×5 · P&L converted to ₹'):`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
-  $('#oWatch').onclick=()=>addWatch(ins.token);
+  $('#oWatch').onclick=()=>addWatch(ins.token);sheetLinks(ins);
   $('#oLots').value=lots||1;$('#oQty').value=(lots||1)*ins.lot_size;$('#oLimit').value=$('#oTrig').value='';
   openSheetPrices(ins);$('#oChg').textContent='';renderLeverage(ins);
   const stok=((state.und||[]).find(u=>u.name===ins.name&&u.spot_token)||{}).spot_token;
@@ -1076,7 +1078,30 @@ async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${p
   const src=live?'prices live':'last completed session ('+sd+') · updates once the market opens';
   $('#pNote').textContent=(pulseP==='today'?'Change vs previous close':'Change vs close '+(pulseP==='week'?'5':'21')+' trading days ago')+' · '+src;
   $$('#pulseView [data-name]').forEach(el=>el.onclick=()=>openScrip(el.dataset.ex,el.dataset.name));}
-function openScrip(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
+// A row tapped on Pulse opens that name's FUTURE (nearest month) straight away (owner's request, 24 Nov 2026: it used to
+// open the option chain). From the contract, "Options" leads to that name's option chain, or says plainly there is none.
+async function openScrip(ex,name){if(state.guest){showLogin();return;}
+  let futs=[];try{futs=await api(`/futures?exchange=${encodeURIComponent(ex)}&name=${encodeURIComponent(name)}`);}catch(e){}
+  if(!futs.length){openChain(ex,name);return;}
+  const f=futs[0];sub([f.token]);openSheet(f);}
+const escH=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function hasOptions(ex,name){const u=(state.und||[]).find(x=>x.exchange===ex&&x.name===name);return !!(u&&u.has_options);}
+function sheetLinks(ins){const L=$('#oLinks'),N=$('#oNoOpt');N.classList.add('hidden');
+  if(!L)return;const ok=ins&&ins.name&&!['CE','PE'].includes(ins.instrument_type);L.classList.toggle('hidden',!ok);if(!ok){L.innerHTML='';return;}
+  L.innerHTML=`<span class="small mut" style="margin-right:2px">${escH(GNAME[ins.name]||ins.name)}:</span><button class="ghost small" id="oMonths" style="padding:5px 10px">Other months</button><button class="ghost small" id="oOpts" style="padding:5px 10px">Options ›</button>`;
+  $('#oMonths').onclick=async()=>{let futs=[];try{futs=await api(`/futures?exchange=${encodeURIComponent(ins.exchange)}&name=${encodeURIComponent(ins.name)}`);}catch(e){}
+    if(futs.length<2){toast('Only one contract is listed for '+(GNAME[ins.name]||ins.name));return;}
+    L.innerHTML=`<span class="small mut" style="margin-right:2px">Month:</span>`+futs.map(f=>`<button class="${f.token===ins.token?'':'ghost '}small" data-fm="${f.token}" style="padding:5px 10px">${f.expiry?escH(f.expiry):escH(dsym(f.exchange,f.symbol))}</button>`).join('');
+    $$('#oLinks [data-fm]').forEach(b=>b.onclick=()=>{const f=futs.find(x=>String(x.token)===b.dataset.fm);if(f){sub([f.token]);openSheet(f);}});};
+  $('#oOpts').onclick=()=>{if(hasOptions(ins.exchange,ins.name)){closeSheet();openChain(ins.exchange,ins.name);return;}
+    const nm=escH(GNAME[ins.name]||ins.name);
+    N.innerHTML=`<b>No options trade on ${nm}</b><div class="small mut" style="margin:4px 0 10px">Only futures are listed for it. You can trade the future above, or look at other contracts.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="ghost small" id="nBack" style="padding:6px 12px">‹ Back to ${nm}</button><button class="ghost small" id="nFut" style="padding:6px 12px">Futures page</button><button class="ghost small" id="nOpt" style="padding:6px 12px">Options page</button></div>`;
+    N.classList.remove('hidden');
+    $('#nBack').onclick=()=>N.classList.add('hidden');
+    $('#nFut').onclick=()=>{closeSheet();showTab('market');$('#segFut').click();};
+    $('#nOpt').onclick=()=>{closeSheet();showTab('market');$('#segOpt').click();};};}
+function closeSheet(){$('#sheet').classList.add('hidden');}
+function openChain(ex,name){if(state.guest){showLogin();return;}showTab('market');$('#segOpt').click();$('#selUnd').value=ex+'|'+name;$('#undList').classList.add('hidden');$('#catList').classList.add('hidden');$('#chainPanel').classList.remove('hidden');state._scrolled=false;loadUnderlying();}
 $$('#pPeriod button').forEach(b=>b.onclick=()=>{pulseP=b.dataset.p;$$('#pPeriod button').forEach(x=>x.classList.toggle('active',x===b));loadPulse();});
 $('#pKind').onchange=()=>{pulseK=$('#pKind').value;loadPulse();};
 function setHome(v){try{localStorage.setItem('lfx_home',v)}catch(e){}$$('#homeSeg button').forEach(x=>x.classList.toggle('active',x.dataset.home===v));if(state.tab==='watch')$$('nav.tabs button[data-tab="watch"]').forEach(x=>x.classList.toggle('active',x.dataset.home===v));$('#pulseView').classList.toggle('hidden',v!=='pulse');$('#watchView').classList.toggle('hidden',v!=='watch');

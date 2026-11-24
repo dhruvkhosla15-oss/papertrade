@@ -57,6 +57,7 @@ class DeltaCrypto:
         self._fails = 0                  # drops in a row that came soon after connecting (for the waiting time before the next try)
         self._run_task = None
         self._last_fresh = 0.0           # when the connection was last rebuilt from scratch
+        self._fresh_busy = False         # a rebuild from scratch is going on
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -331,26 +332,39 @@ class DeltaCrypto:
         return True
 
     async def _fresh(self):
-        """Stop the old connection and its retry loop, reload the contract list, start a new connection at once."""
-        self._last_fresh = time.time()
+        """Stop the old connection and its retry loop, reload the contract list, start a new connection at once.
+        One rebuild at a time: a second one asked for while the first is still loading the contract list (Reconnect
+        pressed again, a second Master, or the automatic rebuild at the same moment) used to start a second
+        connection that nothing stopped any more, not even the Master's Disconnect (found 25 Nov 2026)."""
+        if self._fresh_busy:
+            return
+        self._fresh_busy = True
+        try:
+            self._last_fresh = time.time()
+            await self._stop_run()
+            try:
+                if self._ws:
+                    await asyncio.wait_for(self._ws.close(), 3)
+            except BaseException:
+                pass
+            self._ws = None; self.connected = False; self._fails = 0; self._last_msg = 0.0
+            try:
+                await self._loop.run_in_executor(None, self.refresh_products)
+            except Exception as e:
+                log.warning("delta: product list failed on a fresh start: %s", e)
+            await self._stop_run()          # nothing else may be connecting when the new connection starts
+            self._run_task = self._loop.create_task(self._run())
+        finally:
+            self._fresh_busy = False
+
+    async def _stop_run(self):
         old = self._run_task
-        if old is not None and not old.done():
+        if old is not None and not old.done() and old is not asyncio.current_task():
             old.cancel()
             try:
                 await asyncio.wait_for(asyncio.shield(old), 5)
             except BaseException:
                 pass
-        try:
-            if self._ws:
-                await asyncio.wait_for(self._ws.close(), 3)
-        except BaseException:
-            pass
-        self._ws = None; self.connected = False; self._fails = 0; self._last_msg = 0.0
-        try:
-            await self._loop.run_in_executor(None, self.refresh_products)
-        except Exception as e:
-            log.warning("delta: product list failed on a fresh start: %s", e)
-        self._run_task = self._loop.create_task(self._run())
 
     def last_data_secs(self):
         """Seconds since the exchange last sent anything (None if never)."""

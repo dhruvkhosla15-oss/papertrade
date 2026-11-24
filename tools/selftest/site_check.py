@@ -52,6 +52,55 @@ def sheet_rows(wb, name):
     return rows[h], rows[h + 1:]
 
 
+# ---------------- Technology officer's block (25 Nov 2026) ----------------
+def tech_block(br, actx, ok):
+    """The Master's "Reconnect crypto" (owner's decision of 23 Nov 2026): always within reach, rebuilds the
+    connection from scratch and says whether prices arrive. And the fault found on 25 Nov 2026: pressed again
+    while the first rebuild was still loading a slow contract list, it left a second price connection that
+    nothing stopped any more, not even "Disconnect crypto"."""
+    import threading
+    import httpx
+    A = actx.request
+    FAKE = "http://localhost:8765"                        # the simulated crypto exchange of the private copy
+    conns = lambda: httpx.get(f"{FAKE}/debug/conns", timeout=10).json()["open"]
+    crypto = lambda: A.get(f"{B}/api/feed/status").json().get("crypto") or {}
+    shown = "(() => { const b = document.querySelector('#cryptoReconnect'); const r = b.getBoundingClientRect(); return !b.closest('.hidden') && getComputedStyle(b).display !== 'none' && r.width > 20 && r.height > 10; })()"
+    ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
+    page = ctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(4000)
+    try:
+        page.evaluate("document.querySelector('[data-nav=\"settings\"]').click()"); page.wait_for_timeout(2500)
+        up = page.evaluate(shown)
+        A.post(f"{B}/api/admin/feed/crypto/disconnect"); page.evaluate("loadSettings()"); page.wait_for_timeout(2000)
+        off = page.evaluate(shown) and crypto().get("paused") is True
+        page.evaluate("window._said = []; new MutationObserver(m => m.forEach(x => x.addedNodes.forEach(n => { if (n.classList && n.classList.contains('toast')) window._said.push(n.textContent); }))).observe(document.body, {childList: true})")
+        t0 = time.time(); page.click("#cryptoReconnect")
+        said = ""
+        while time.time() - t0 < 26 and not said:
+            page.wait_for_timeout(500); said = " | ".join(page.evaluate("window._said"))
+        took = time.time() - t0; page.wait_for_timeout(1500); c = crypto()
+        ok("Master Settings: Reconnect crypto is there while connected and while disconnected; pressed, it says within 20 s that prices are arriving, and they are",
+           up and off and "Connected: crypto prices are arriving again" in said and took < 23 and c.get("connected") is True and not c.get("paused") and page.evaluate(shown) and conns() == 1,
+           f"shown {up}/{off}, {took:.0f} s, said {said!r}, connected {c.get('connected')}, connections {conns()}")
+        # the contract list takes a few seconds (a slow exchange); Reconnect is pressed again while the first is still rebuilding
+        httpx.get(f"{FAKE}/debug/slow_products", params={"secs": 2.0}, timeout=10)
+        try:
+            ck = {x["name"]: x["value"] for x in actx.cookies()}
+            press = lambda: httpx.post(f"{B}/api/admin/feed/crypto/reconnect", cookies=ck, timeout=60)
+            t1 = threading.Thread(target=press); t1.start(); time.sleep(2.5); r2 = press(); t1.join()
+        finally:
+            httpx.get(f"{FAKE}/debug/slow_products", params={"secs": 0}, timeout=10)
+        time.sleep(6); n2 = conns()
+        A.post(f"{B}/api/admin/feed/crypto/disconnect"); time.sleep(3); n0 = conns()
+        r3 = A.post(f"{B}/api/admin/feed/crypto/reconnect").json(); time.sleep(2)
+        ok("Crypto: Reconnect pressed again during a slow rebuild leaves ONE price connection, Disconnect leaves none, and Reconnect brings one back",
+           n2 == 1 and n0 == 0 and conns() == 1 and r3.get("connected") is True, f"after the two presses {n2}, after Disconnect {n0}, after Reconnect {conns()}; second press {r2.status_code}")
+    finally:
+        httpx.get(f"{FAKE}/debug/slow_products", params={"secs": 0}, timeout=10)
+        if crypto().get("paused"):
+            A.post(f"{B}/api/admin/feed/crypto/reconnect")
+        ctx.close()
+
+
 # ---------------- Accounts officer's block (21 Nov 2026) ----------------
 def accounts_block(br, actx, uctx, ok, near):
     """Figures and records of the owner's requests of 19 Nov 2026: the Master activity record's lines for coins
@@ -946,6 +995,8 @@ def main():
         ok("Master user panel: the Status of every order is on the screen (a long reason wraps)", dto[2] >= 5 and dto[3] == 0 and dto[0] <= dto[1] + 1, dto)
         ok("Master user panel: a forex price keeps its decimals, and nothing reads '-0.00'", fxp == [True, True, True, False, "0.00"], fxp)
         # ======== end of the UI / user experience block of 21 Nov 2026 ========
+
+        tech_block(br, actx, ok)                          # Technology officer's block, 25 Nov 2026 (above main)
 
         # technical health
         import httpx

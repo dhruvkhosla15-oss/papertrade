@@ -32,8 +32,16 @@ for d in (0, 1, 2):
                                  "settlement_time": st.strftime("%Y-%m-%dT%H:%M:%SZ"), "initial_margin": "4", "maintenance_margin": "2", "position_size_limit": 10000, "price_band": "25", "trading_status": "operational", "state": "live"})
 BYSYM = {p["symbol"]: p for p in products}
 
+SLOW = [0.0]
+@app.get("/debug/slow_products")
+def slow_products(secs: float):
+    """The contract list takes this long to answer from now on (a slow exchange); 0 = at once."""
+    SLOW[0] = secs; return {"ok": True}
+
 @app.get("/v2/products")
 def prods(contract_types: str = "", states: str = "live", page_size: int = 100, after: str = None):
+    if SLOW[0]:
+        time.sleep(SLOW[0])
     ct = set(contract_types.split(",")) if contract_types else None
     res = [p for p in products if not ct or p["contract_type"] in ct]
     return {"success": True, "result": res, "meta": {"after": None, "total_count": len(res)}}
@@ -77,9 +85,16 @@ def opt_px(sym):
     pfx, und, strike, _ = sym.split("-"); s = PX[und + "USD"]; k = float(strike)
     intr = max(0.0, (s - k) if pfx == "C" else (k - s)); return round(intr + s * 0.01, 1)
 
+CONNS = [0, 0]
+@app.get("/debug/conns")
+def conns():
+    """How many price connections are open right now, and how many were opened since the start."""
+    return {"open": CONNS[0], "total": CONNS[1]}
+
 @app.websocket("/")
 async def ws(sock: WebSocket):
     await sock.accept(); subs = {"ticker": set(), "l2": set()}
+    CONNS[0] += 1; CONNS[1] += 1
     async def reader():
         async for raw in sock.iter_text():
             m = json.loads(raw)
@@ -113,5 +128,7 @@ async def ws(sock: WebSocket):
             await asyncio.sleep(1.0)
     except Exception:
         pass
+    finally:
+        CONNS[0] -= 1
 
 uvicorn.run(app, port=8765, log_level="warning")

@@ -1,0 +1,23 @@
+diff --git a/app/feed/delta.py b/app/feed/delta.py
+index eeb250f..0222377 100644
+--- a/app/feed/delta.py
++++ b/app/feed/delta.py
+@@ -525,6 +525,18 @@ class DeltaCrypto:
+                     d["asks"] = [(ba, as_, 0)] if as_ else []
+                     d["bid"] = bb if bs else None; d["ask"] = ba if as_ else None
+                     d["tbq"] = bs; d["tsq"] = as_
++                else:
++                    # The book is recent, but it is from before the move this message reports: its buyers stand
++                    # above this message's best offer (or its sellers below this message's best bid). A stop-loss
++                    # triggered by this price was filled against that book: 5,000 BTC lots sold at 74,999.5 while
++                    # the message that triggered it said best bid 73,874.5 (563,062 coins better than the market,
++                    # found 25 Nov 2026). On the side where the two disagree, the less favourable of the two
++                    # stands until the next book message: nobody is filled better than either says.
++                    ob, oa = d.get("bid"), d.get("ask")
++                    if ob is not None and ob > ba:
++                        d["bids"] = [(bb, bs, 0)] if bs else []; d["bid"] = bb if bs else None; d["tbq"] = bs
++                    if oa is not None and oa < bb:
++                        d["asks"] = [(ba, as_, 0)] if as_ else []; d["ask"] = ba if as_ else None; d["tsq"] = as_
+             elif self.items.get(tok) is not None and self.items[tok].instrument_type == "FUT" and d.get("bids") is not None \
+                     and time.time() - (d.get("_book_ts") or 0) > QUIET_SECS:
+                 # the book is old and this message does not say where the market is: nothing to fill against

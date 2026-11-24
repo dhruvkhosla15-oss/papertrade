@@ -18,6 +18,26 @@ from ..config import CURRENCY_PAIRS, ALLOWED_UNDERLYINGS, ALLOW_STOCK_FNO
 from .base import INDEX_NAMES
 
 
+def _in_reactor(fn, *args):
+    """Run fn on the price library's background loop when that loop is running; before the loop has ever
+    started, run it here (KiteTicker.connect then starts the loop in its own thread)."""
+    try:
+        from twisted.internet import reactor
+        if reactor.running:
+            reactor.callFromThread(_guard, fn, *args)
+            return None
+    except Exception:
+        pass
+    return _guard(fn, *args)
+
+
+def _guard(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as e:
+        log.warning("zerodha ticker call %s failed: %s", getattr(fn, "__name__", fn), e)
+
+
 def ist_today() -> str:
     """Today's date in India. The server's own clock is on UTC, where the day changes at 5:30 am IST."""
     return (datetime.utcnow() + timedelta(hours=5, minutes=30)).date().isoformat()
@@ -171,10 +191,7 @@ class KiteFeed(PriceFeed):
             self.connected = False
             return
         if self.ticker:
-            try:
-                self.ticker.close()
-            except Exception:
-                pass
+            _in_reactor(self.ticker.close)
         self.ticker = KiteTicker(self.api_key, self.access_token, reconnect=True, reconnect_max_tries=300)
         self.ticker.on_ticks = self._on_ticks
         self.ticker.on_connect = self._on_connect
@@ -182,17 +199,18 @@ class KiteFeed(PriceFeed):
         self.ticker.on_error = self._on_error
         self.ticker.on_reconnect = lambda ws, n: log.info("ticker reconnect %s", n)
         self.ticker.on_noreconnect = lambda ws: self._set_status(False, "ticker gave up reconnecting")
-        self.ticker.connect(threaded=True)
+        # The price library runs on one background loop (Twisted's reactor) for the life of the site. Once it
+        # is running, a new connection must be handed to that loop, not opened from this thread: when the loop
+        # had nothing left to do (after a refused login stopped its retries) a connection opened from here was
+        # never picked up, and the 24 Nov morning login sat at "connecting" until the site was restarted.
+        _in_reactor(self.ticker.connect, True)
         self.status_msg = "connecting to Kite ticker..."
 
     def disconnect(self):
         """Master-initiated: close the ticker and stop streaming until reconnect()/connect()."""
         self.paused = True
         if self.ticker:
-            try:
-                self.ticker.close()
-            except Exception:
-                pass
+            _in_reactor(self.ticker.close)
             self.ticker = None
         self._set_status(False, "Live feed paused by master")
 
@@ -247,30 +265,16 @@ class KiteFeed(PriceFeed):
             # Yesterday's login running out at about 7 am is expected every day, not a fault: stop retrying
             # at once, wait quietly for today's login, send no alarm (owner, 24 Nov 2026: alarms at 7:06 am
             # although he logs in after 7:30 as asked).
-            try:
-                (ws or self.ticker).stop_retry()
-            except Exception:
-                pass
-            try:
-                if self.ticker:
-                    self.ticker.close()
-            except Exception:
-                pass
+            if self.ticker:
+                _in_reactor(self.ticker.close)
             self._set_status(False, "Today's Zerodha login is needed first (yesterday's login has run out)")
             return True
         self._refusals += 1
         if self._refusals < 3:
             return False
         self.refused = True
-        try:
-            (ws or self.ticker).stop_retry()
-        except Exception:
-            pass
-        try:
-            if self.ticker:
-                self.ticker.close()
-        except Exception:
-            pass
+        if self.ticker:
+            _in_reactor(self.ticker.close)
         self._set_status(False, self.REFUSED_MSG)
         log.warning("zerodha refused the login three times: waiting for a fresh login")
         def tell():

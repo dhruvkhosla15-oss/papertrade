@@ -1945,3 +1945,7 @@ Zerodha clears every login at about 7 am. The site still held Monday's login, wa
 Now: a refusal of a login from an earlier (Indian) day stops the retries at once, says "Today's Zerodha login is
 needed first" and sends nothing. A refusal of TODAY's login still sends the one message with the login link.
 Zerodha 403 / "error parsing request" lines no longer count towards the "server logged N errors" alarm.
+- Proper fix (same day): every Zerodha connect and close goes through the library's own loop (kite._in_reactor,
+  reactor.callFromThread). Reproduced with the real library against a local server: opened from another thread
+  after a stop, 0 connections; handed to the loop, it connects (tools/selftest/kite_reactor_check.py, prints
+  KITE-REACTOR OK). Officers: run that check every night.

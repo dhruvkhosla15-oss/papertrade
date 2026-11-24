@@ -95,9 +95,14 @@ def accounts_block(br, actx, uctx, ok, near):
                 page.evaluate("(sd) => { document.querySelector(sd === 'SELL' ? '#sideSell' : '#sideBuy').click(); document.querySelector('[data-ot=\"SL\"]').click(); }", side); page.wait_for_timeout(400)
             page.fill("#oLots", str(p["lots"])); page.fill("#oTrig", str(trig)); page.wait_for_timeout(600)
             used0 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]; n0 = len(sent)
-            page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(2500)
+            page.evaluate("document.querySelector('#oSubmit').click()"); mine = []
+            for _ in range(24):          # (25 Nov 2026) wait for the order itself, up to 12 s: on a busy machine a fixed 2.5 s was once too short (run of 24 Nov)
+                page.wait_for_timeout(500)
+                mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
+                if mine:
+                    break
+            page.wait_for_timeout(600)
             used1 = ctx.request.get(f"{B}/api/me").json()["funds"]["used_margin"]
-            mine = [o for o in ctx.request.get(f"{B}/api/orders").json() if o["status"] == "OPEN" and o["token"] == p["token"] and o["order_type"] == "SL"]
             got[path] = {"body": sent[n0] if len(sent) > n0 else None, "reserved": round(used1 - used0, 2), "resting": len(mine)}
             for o in mine:
                 ctx.request.delete(f"{B}/api/orders/{o['id']}")

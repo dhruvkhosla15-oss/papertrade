@@ -1174,7 +1174,8 @@ function showTab(tab,home){if(tab==='orders'){tab='account';setPf('orders');}if(
   if(tab==='account'){loadOrdView();loadLedger();loadPerf();renderTfa();}if(tab==='positions')refreshAll();if(tab==='watch')setHome(home||currentHome());}
 function currentHome(){try{return localStorage.getItem('lfx_home')||'pulse'}catch(e){return 'pulse'}}
 function resetMarket(){/* dock tap on Market always lands on the category page, not the last scrip */
-  for(const [cat,und,chain] of [['#catList','#undList','#chainPanel'],['#catListF','#undListF','#futPanel']]){const c=$(cat),u=$(und),ch=$(chain);if(c)c.classList.remove('hidden');if(u)u.classList.add('hidden');if(ch)ch.classList.add('hidden');}}
+  for(const [cat,und,chain] of [['#catList','#undList','#chainPanel'],['#catListF','#undListF','#futPanel']]){const c=$(cat),u=$(und),ch=$(chain);if(c)c.classList.remove('hidden');if(u)u.classList.add('hidden');if(ch)ch.classList.add('hidden');}
+  /* and always opens on Futures, whatever was chosen last time */const f=$('#segFut');if(f&&!f.classList.contains('active'))f.click();}
 $$('#pfSeg button').forEach(b=>b.onclick=()=>setPf(b.dataset.pf));dateBar('orders',loadOrdView);dateBar('pnl',loadPerf);dateBar('ledger',loadLedger);
 $$('nav.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='market')resetMarket();if(b.dataset.tab==='account')setPf('orders');showTab(b.dataset.tab,b.dataset.home);});
 $('#hFunds').onclick=()=>{setPf('acct');showTab('account');};

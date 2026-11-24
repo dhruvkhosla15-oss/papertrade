@@ -111,8 +111,17 @@ def sample(db, feed, user_ids, exchanges) -> dict:
     sig = tuple(sorted((p.user_id, p.token, p.qty) for p in pos))
     due = traded or sig != _state["sig"] or time.time() - _state["real_at"] >= REAL_EVERY
     out = {"rule": round(total, 2), "real": None}
+    # Nothing of the database may be held while the broker's calculator is asked: it is asked once for
+    # everybody and once per user, and each answer takes a moment. A user's first trade of the day makes a
+    # new row above, and the database then stayed locked for writing through all of those calls: every
+    # order of every user waited for the last answer (with 13 users holding positions and 0.4 s per answer
+    # another user's order took 5 s; found 24 Nov 2026). So: what is known is saved first, the calculator
+    # is asked with nothing open, and its figures are written afterwards.
+    db.commit()
     if due:
+        baskets = {uid: _basket(feed, ps) for uid, ps in by.items()}
         tot = _real(feed, _basket(feed, pos))
+        per = {uid: _real(feed, b) for uid, b in baskets.items()} if tot is not None else {}
         if tot is None:
             if n_new:
                 r = _row(db, day, 0); r.real_missed = (r.real_missed or 0) + n_new
@@ -121,8 +130,7 @@ def sample(db, feed, user_ids, exchanges) -> dict:
             r = _row(db, day, 0)
             if r.real_peak is None or tot > r.real_peak:
                 r.real_peak = tot; r.real_at = at
-            for uid, ps in by.items():
-                v = _real(feed, _basket(feed, ps))
+            for uid, v in per.items():
                 if v is not None:
                     ru = _row(db, day, uid)
                     if ru.real_peak is None or v > ru.real_peak:

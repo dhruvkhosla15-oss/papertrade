@@ -118,7 +118,7 @@ td:first-child,th:first-child{text-align:left}
 .seg button.active{background:rgba(154,209,60,.14);color:var(--acc);border-color:var(--acc);font-weight:700}
 #sideBuy.active{background:rgba(34,197,94,.16);color:var(--up);border-color:var(--up)}
 #sideSell.active{background:rgba(239,68,68,.16);color:var(--dn);border-color:var(--dn)}
-.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 16px;border-radius:10px;z-index:30;max-width:90%;box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none}   /* a message never swallows the tap meant for the button under it */
 .toast.err{background:#7f1d1d}
 .big{font-size:22px;font-weight:700}
 .fsum{padding:14px 16px}.fs3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}.fs3>div{min-width:0}.fs3 .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fs3 .h{font-size:11px;color:var(--mut);margin-top:3px}
@@ -779,7 +779,7 @@ async function loadFutures(){
 $('#segOpt').onclick=()=>{$('#segOpt').classList.add('active');$('#segFut').classList.remove('active');$('#optView').classList.remove('hidden');$('#futView').classList.add('hidden');};
 $('#segFut').onclick=()=>{$('#segFut').classList.add('active');$('#segOpt').classList.remove('active');$('#futView').classList.remove('hidden');$('#optView').classList.add('hidden');if(!state.futs)loadFutures();};
 function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)return;
-  const rows=$$('#chainTbl tbody tr');let best=null,bd=1e18;
+  const rows=$$('#chainTbl tbody tr[data-strike]');let best=null,bd=1e18;
   rows.forEach(r=>{const d=Math.abs(+r.dataset.strike-sp);if(d<bd){bd=d;best=r;}});
   rows.forEach(r=>{r.classList.toggle('atm',r===best);
     const s=+r.dataset.strike;r.children[0].classList.toggle('itm',s<sp);r.children[1].classList.toggle('itm',s<sp);r.children[3].classList.toggle('itm',s>sp);r.children[4].classList.toggle('itm',s>sp);});
@@ -865,7 +865,8 @@ function renderChainRows(){const {strikes,ce,pe}=state._chainStrikes||{};if(!str
   $('#chainTbl tbody').innerHTML=strikes.map(s=>`<tr data-strike="${s}">
     <td class="ce num" data-tok="${ce[s]?.token||''}" id="p${ce[s]?.token}">—</td><td class="ce num small mut" id="c${ce[s]?.token}"></td>
     <td class="strike num">${cry?fmt(cp('CRYPTO',s),0):s}</td>
-    <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('');
+    <td class="pe num small mut" id="c${pe[s]?.token}"></td><td class="pe num" data-tok="${pe[s]?.token||''}" id="p${pe[s]?.token}">—</td></tr>`).join('')
+    ||`<tr><td colspan="5" class="mut" style="text-align:center;padding:22px 14px;white-space:normal;line-height:1.5">No options are listed for ${escH($('#undName').textContent)} right now. Tap Back to choose another name.</td></tr>`;   /* nothing listed (every option of the name has expired): say so instead of a bare table head */
   $$('#chainTbl td[data-tok]').forEach(td=>td.onclick=()=>{const i=state.chain.find(x=>x.token==td.dataset.tok);if(i)openSheet(i);});
   onPrices(state.chain.map(i=>state.prices[i.token]).filter(Boolean));}
 function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_options||[];if(!opts.length){w.classList.add('hidden');state.lev=null;return;}
@@ -1056,7 +1057,8 @@ function pulseRow(r,i,mode,maxT){const up=(r.pct||0)>=0;const head=`<div class="
   if(mode==='52')return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}</small><div class="m2 w"><span>52w L <b>${fmt(r.lo52)}</b></span><span>52w H <b>${fmt(r.hi52)}</b></span></div></div><div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${r._near==='hi'?'up':'dn'}">${r._near==='hi'?pctS(r.from_hi)+' from high':pctS(r.from_lo)+' from low'}</small></div></div>`;
   return `<div class="prow" data-name="${r.name}" data-ex="${r.exchange}">${head}<div class="nm"><b>${GNAME[r.name]||r.name}</b><small>${r.label}${r.vol_x?' · vol '+r.vol_x+'×':''}</small>${rangeBar(r)}</div>${sparkSvg(r.spark,up)}<div class="px"><b class="num">${fmt(r.ltp)}</b><small class="${up?'up':'dn'}">${pctS(r.pct)}</small></div></div>`;}
 function cvRow(r){if(r.exchange!=='CRYPTO'||!inrOn())return r;const k=cRate();const o={...r};for(const f of ['ltp','high','low','prev_close','hi52','lo52'])if(o[f]!=null)o[f]=o[f]*k;if(o.spark)o.spark=o.spark.map(v=>v*k);return o;}
-async function loadPulse(){let d;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
+async function loadPulse(){let d;const kp=pulseP,kk=pulseK;try{d=await fetch(`/api/public/pulse?period=${pulseP}&kind=${pulseK}`).then(r=>r.json());}catch(e){return;}
+  if(kp!==pulseP||kk!==pulseK)return;   /* an answer for the market or period chosen before this one arrived late: it must not replace the list shown under the new choice */
   for(const k of ['gainers','losers','traded','shockers','oi','near_hi','near_lo'])d[k]=(d[k]||[]).map(cvRow);for(const k of ['gainer','loser','traded'])if(d.hero[k])d.hero[k]=cvRow(d.hero[k]);
   const live=!d.session||d.session.live!==false||!d.session.date;
   const sd=!live?new Date(d.session.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}):'';

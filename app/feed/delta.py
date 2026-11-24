@@ -332,6 +332,19 @@ class DeltaCrypto:
 
     async def _fresh(self):
         """Stop the old connection and its retry loop, reload the contract list, start a new connection at once."""
+        if getattr(self, "_freshing", False):
+            # One rebuild at a time. A second Reconnect while the first was still loading the contract list (or a
+            # Reconnect while the site was rebuilding by itself after six quick drops) started a second
+            # connection loop beside the first, and nothing ever stopped it: two connections to the exchange for
+            # good, and "connected" went off whenever either of them dropped (found 25 Nov 2026).
+            return
+        self._freshing = True
+        try:
+            await self._fresh_once()
+        finally:
+            self._freshing = False
+
+    async def _fresh_once(self):
         self._last_fresh = time.time()
         old = self._run_task
         if old is not None and not old.done():
@@ -502,10 +515,27 @@ class DeltaCrypto:
                     pass
             if op:
                 d["close"] = float(op)   # "previous close" for a 24x7 market = price 24h ago
-            if q.get("best_bid") is not None and q.get("best_ask") is not None:
+            ins = self.items.get(tok)
+            if ins is not None and ins.instrument_type != "FUT" and (q.get("best_bid") is None or q.get("best_ask") is None):
+                # An option's whole book is the best bid and offer this message carries. When one side (or both)
+                # is missing, nobody is quoting there now. The book of an earlier message used to stay in
+                # memory under the new time: with the buyers gone and the option really worth 250, a sale was
+                # still filled at the old bid of 395, also right after a reconnect, when that bid was from
+                # before the drop (found 25 Nov 2026). A side that is not in the message is empty.
+                def _side(px, size):
+                    try:
+                        px, size = float(px), int(float(size or 0))
+                    except (TypeError, ValueError):
+                        return None, 0
+                    return (px, size) if math.isfinite(px) and px > 0 and size > 0 else (None, 0)
+                bb, bs = _side(q.get("best_bid"), q.get("bid_size")); ba, as_ = _side(q.get("best_ask"), q.get("ask_size"))
+                d["bids"] = [(bb, bs, 0)] if bs else []
+                d["asks"] = [(ba, as_, 0)] if as_ else []
+                d["bid"] = bb; d["ask"] = ba
+                d["tbq"] = bs; d["tsq"] = as_
+            elif q.get("best_bid") is not None and q.get("best_ask") is not None:
                 bb, ba = float(q["best_bid"]), float(q["best_ask"])
                 bs, as_ = int(float(q.get("bid_size") or 0)), int(float(q.get("ask_size") or 0))
-                ins = self.items.get(tok)
                 if ins and ins.instrument_type != "FUT":
                     # options: top of book only (sizes in contracts)
                     d["bids"] = [(bb, bs, 0)] if bs else []

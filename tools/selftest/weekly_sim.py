@@ -977,6 +977,60 @@ try:
 finally:
     _E.ENFORCE_MARKET_HOURS = False
 
+# ---- opening valuation: a position stays on its closing price until the session's first price ---------------
+# (Accounts / Price officer, 25 Nov 2026; owner's decision of 21 Nov 2026, which had no check yet.) At the opening
+# the price in memory is the last session's book or a stray quote from the time the market was shut. Every screen,
+# Available Balance, the Master's row, the Shadow Book and the figure of the running week must stand on the closing
+# price until the contract's first price of the new session. Found 25 Nov: the position card was told to re-price
+# itself in the browser (flag off), and the running week and the Shadow Book were worked out from the stray quote.
+W15 = W14 + timedelta(days=7)
+at(day(W15, 3, 11)); px(nifty=30000)
+mk_user("opval", 5_000_000); mk_user("opval2", 1_000_000)
+trade("opval", F_NIFTY, "BUY", 2); trade("opval2", F_NIFTY, "BUY", 3)
+_ovp = lambda n="opval": db.query(Position).filter_by(user_id=users[n].id, token=F_NIFTY, is_closed=False).first()
+_E.ENFORCE_MARKET_HOURS = True
+try:
+    at(day(W15, 4, 15, 29)); feed.set(F_NIFTY, 30400); feed.set(I_NIFTY, 30400); W.remember_marks(engine, db); db.expire_all()
+    _ovf = engine.funds(db, users["opval"]); _ovc = _ovp().last_mark
+    ok("opening valuation: the closing price is kept at Friday's close", near(_ovc, 30399.95, 0.001) and near(_ovf["unrealised"], 59985.0, 0.01), f"{_ovc} {_ovf['unrealised']}")
+    at(day(W15, 5, 12)); feed.set(F_NIFTY, 27000); W.remember_marks(engine, db); db.expire_all()      # a stray quote on Saturday, 11% lower
+
+    def _ov_same(tag):
+        db.expire_all(); _p = _ovp(); _u = users["opval"]
+        _f = engine.funds(db, _u); _d = engine.position_dict(_p)
+        ok(f"opening valuation: {tag}: Available Balance and Unrealised stand on the closing price",
+           near(_f["unrealised"], _ovf["unrealised"], 0.005) and near(_f["available"], _ovf["available"], 0.005), f"{_f['unrealised']} / {_f['available']} vs {_ovf['unrealised']} / {_ovf['available']}")
+        ok(f"opening valuation: {tag}: the position is shown at the closing price, and the screen is told to keep that figure",
+           _d["mark"] == _ovc and near(_d["unrealised"], _ovf["unrealised"], 0.005) and _d["at_close"] is True, f"mark {_d['mark']} unrealised {_d['unrealised']} at_close {_d['at_close']}")
+        _rr = W.running_row(engine, db, _u)
+        ok(f"opening valuation: {tag}: the running week's open-position figure is the same", near(_rr["valuation"], _ovf["unrealised"], 0.02), f"{_rr['valuation']} vs {_ovf['unrealised']}")
+        _ar = next(r for r in M._admin_rows(db) if r["username"] == "opval")
+        ok(f"opening valuation: {tag}: the Master's row is the same", near(_ar["unrealised"], _ovf["unrealised"], 0.02), str(_ar["unrealised"]))
+        _mp = next(x for x in M.admin_positions(admin=None, db=db) if x["username"] == "opval")
+        ok(f"opening valuation: {tag}: the Master's Live Positions row is the same", near(_mp["unrealised"], _ovf["unrealised"], 0.005) and _mp["at_close"] is True, str(_mp["unrealised"]))
+        _sh = [x for x in M.admin_shadow(None, None, admin=None, db=db)["positions"] if x.get("user") == "OPVAL"]      # (the mirror sold at the bid of the entry, 29,999.95)
+        ok(f"opening valuation: {tag}: the Shadow Book values its mirror position at the same closing price",
+           len(_sh) == 1 and near(_sh[0]["unrealised"], -(_ovc - 29999.95) * 150, 0.02), str([(x.get("unrealised")) for x in _sh]))
+        ok(f"opening valuation: {tag}: the kept closing price is not overwritten", _p.last_mark == _ovc, str(_p.last_mark))
+        ok(f"opening valuation: {tag}: an account that the stray quote would leave short is not short",
+           not engine.funds(db, users["opval2"])["margin_short"], str(engine.funds(db, users["opval2"])["available"]))
+
+    _mon = day(W15 + timedelta(days=7), 0, 9, 15)
+    at(_mon); W.remember_marks(engine, db)
+    _ov_same("9:15:00, a stray weekend quote in memory")
+    run(engine._check_liquidations()); db.expire_all()
+    ok("opening valuation: nothing is squared off on the stray quote", _ovp("opval2").qty == 225, str(_ovp("opval2").qty))
+    at(_mon + timedelta(seconds=1)); feed.prices[F_NIFTY]["ts"] = time.time() - 0.5; W.remember_marks(engine, db)   # handed out again: it looks fresh
+    _ov_same("9:15:01, the old quote handed out again")
+    at(_mon + timedelta(seconds=6)); feed.set(F_NIFTY, 30900); feed.set(I_NIFTY, 30900); W.remember_marks(engine, db); db.expire_all()
+    _d = engine.position_dict(_ovp()); _rr = W.running_row(engine, db, users["opval"])
+    ok("opening valuation: with the first price of the session the position is live again, on every figure",
+       near(_d["mark"], 30899.95, 0.001) and _d["at_close"] is False and near(engine.funds(db, users["opval"])["unrealised"], 134985.0, 0.01)
+       and near(_rr["valuation"], 134985.0, 0.02) and near(_ovp().last_mark, 30899.95, 0.001), f"mark {_d['mark']} at_close {_d['at_close']} week {_rr['valuation']}")
+    trade("opval", F_NIFTY, "SELL", 2); trade("opval2", F_NIFTY, "SELL", 3)
+finally:
+    _E.ENFORCE_MARKET_HOURS = False
+
 # ---- a slow feed: the order book stops arriving while the last price goes on (20 Nov 2026) ---------------
 # Crypto perpetuals and forex / Global get the book that orders are filled against in other messages than the
 # quoted price. When only the book messages stopped, the price looked a second old and a buy was filled at the
@@ -1309,6 +1363,108 @@ try:
 finally:
     M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram = _bk_keep[:5]
     M.set_setting_safe("backup_check", _bk_keep[5])
+
+# ---- the crypto connection drops and comes back; a crypto option with nobody on one side (25 Nov 2026) ----------
+# (Price officer; state of the night: reconnecting, after the crypto reconnect was rebuilt on 23 Nov.) The real
+# crypto feed class is fed by hand. During the drop and after it nothing may fill at a price from before the drop.
+# Found: an option's book was only renewed when a message carried BOTH a bid and an offer; with one side gone the
+# old book stayed in memory under the new time and a sale was filled at the bid from before the drop. And two
+# rebuilds of the connection at the same time (Reconnect pressed twice) left two connection loops for good.
+if True:
+    _f5 = PriceFeed(); _f5.connected = True
+    _c5 = DeltaCrypto(_f5); _c5._save_inr = lambda: None
+    _B5, _O5, _OS = _CB + 2, _CB + 50, "C-BTC-76000-311227"
+    _c5.items = {_B5: Instrument(_B5, "BTCUSD", "BTC", "CRYPTO", "CRYPTO-PERP", "FUT", "", 0, 1, 0.5, multiplier=0.001),
+                 _O5: Instrument(_O5, _OS, "BTC", "CRYPTO", "CRYPTO-OPT", "CE", "2027-12-31", 76000, 1, 0.1, multiplier=0.001, expiry_at=time.time() + 400 * 86400)}
+    _c5.symbols = {"BTCUSD": _B5, _OS: _O5}; _c5._merge()
+    _c5._handle({"type": "spot_price", "symbol": _c5.INR_INDEX, "price": "90"})
+    _e5 = Engine(_f5)
+    _f5.subscribe([_B5, _O5]); _c5.connected = True; _c5._last_msg = time.time()
+    _bk5 = lambda p: _c5._handle({"type": "l2_orderbook", "symbol": "BTCUSD", "buy": [{"limit_price": str(p - 0.5 * i), "size": 5000} for i in (1, 2, 3)],
+                                  "sell": [{"limit_price": str(p + 0.5 * i), "size": 5000} for i in (1, 2, 3)]})
+    _tk5 = lambda p: _c5._handle({"type": "v2/ticker", "symbol": "BTCUSD", "close": p, "mark_price": str(p),
+                                  "quotes": {"best_bid": str(p - 0.5), "best_ask": str(p + 0.5), "bid_size": "40", "ask_size": "30"}})
+
+    def _ot5(mark, bid, ask, quotes=True):
+        _q = {"best_bid": None if bid is None else str(bid), "best_ask": None if ask is None else str(ask),
+              "bid_size": None if bid is None else "50", "ask_size": None if ask is None else "50"}
+        _c5._handle({"type": "v2/ticker", "symbol": _OS, "close": mark, "mark_price": str(mark), **({"quotes": _q} if quotes else {})})
+
+    _u5 = User(username="reconn", display_name="RECONN", password_hash="x", is_admin=False, balance=0.0)
+    db.add(_u5); db.flush(); engine._ledger(db, _u5, 5_000_000, "ADMIN_CREDIT", "initial allocation"); db.commit()
+
+    def _o5(tok, side, lots):
+        _e5._consumed.clear()
+        try:
+            _o = _e5.place_order(db, _u5, tok, side, lots); db.commit()
+            return _o.fill_price
+        except EngineError as _err:
+            db.rollback()
+            return str(_err)
+
+    _bk5(75000); _tk5(75000); _ot5(400, 395, 405)
+    ok("reconnect: before the drop a crypto perpetual and an option fill at the book of the moment", _o5(_B5, "BUY", 10) == 75000.5 and _o5(_O5, "BUY", 10) == 405.0)
+    _un5 = _e5.funds(db, _u5)["unrealised"]
+    _c5.connected = False; _c5._ws = None                                   # the connection drops
+    _r1, _r2 = _o5(_B5, "SELL", 10), _o5(_O5, "SELL", 10)
+    ok("reconnect: while the connection is down every crypto order is refused in plain words", all(isinstance(x, str) and "offline" in x for x in (_r1, _r2)), f"{_r1} | {_r2}")
+    ok("reconnect: while it is down the positions stand where the last price left them", near(_e5.funds(db, _u5)["unrealised"], _un5, 0.005))
+    time.sleep(0.02); _c5._resync(); _c5._last_msg = time.time(); _c5.connected = True      # connected again (what _run does); the market is 2% lower
+    _r1, _r2 = _o5(_B5, "SELL", 10), _o5(_O5, "SELL", 10)
+    ok("reconnect: connected again but no new price yet: nothing fills at the price from before the drop", all(isinstance(x, str) and "No live price" in x for x in (_r1, _r2)), f"{_r1} | {_r2}")
+    ok("reconnect: nor do the automatic closes act yet", not _e5.feed_delivering(_c5.items[_B5]) and not _e5.feed_delivering(_c5.items[_O5]))
+    _tk5(73500)
+    _r1 = _o5(_B5, "SELL", 10)
+    ok("reconnect: a last-price message alone does not make the old order book fresh", isinstance(_r1, str) and _f5.prices[_B5]["bid"] == 74999.5, str(_r1))
+    _ot5(250, None, 260)                                                    # the option: buyers gone, an offer at 260
+    _r2 = _o5(_O5, "SELL", 10); _t5 = _f5.prices[_O5]
+    ok("reconnect: an option with no buyers after the reconnect is not sold at the bid from before the drop",
+       isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bids"] == [] and _t5["bid"] is None and _t5["ask"] == 260.0, f"{_r2} | {_t5.get('bids')} {_t5.get('asks')}")
+    ok("reconnect: a buy of that option meets the offer of now", _o5(_O5, "BUY", 1) == 260.0)
+    _ot5(250, None, None, quotes=False); _t5 = _f5.prices[_O5]
+    _r2 = _o5(_O5, "SELL", 1)
+    ok("reconnect: an option message with no quotes at all leaves nothing to fill against", isinstance(_r2, str) and _t5["bids"] == [] and _t5["asks"] == [] and _t5["ask"] is None, f"{_r2} | {_t5.get('asks')}")
+    _bk5(73500)
+    ok("reconnect: with the new order book the perpetual is sold at the new bid", _o5(_B5, "SELL", 10) == 73499.5)
+    _ot5(250, 245, 255)
+    ok("reconnect: with both sides quoted again the option is sold at the new bid", _o5(_O5, "SELL", 11) == 245.0)
+    _ot5(400, 395, 405); _o5(_O5, "BUY", 5); _ot5(300, None, 310)             # no reconnect at all: the buyers simply leave
+    _r2 = _o5(_O5, "SELL", 5); _t5 = _f5.prices[_O5]
+    ok("crypto option: when the buyers leave, the bid of the last message is not kept under the new time", isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bid"] is None and _t5["ask"] == 310.0, f"{_r2} | {_t5.get('bid')}")
+    _ot5(300, 295, 305)
+    ok("crypto option: with a bid again the sale goes through at it", _o5(_O5, "SELL", 5) == 295.0)
+    _last["orders"] = max([_last["orders"]] + [x.id for x in db.query(Order).filter_by(user_id=_u5.id).all()])
+    _last["trades"] = max([_last["trades"]] + [x.id for x in db.query(Trade).filter_by(user_id=_u5.id).all()])
+    _last["ledger"] = max([_last["ledger"]] + [x.id for x in db.query(Ledger).filter_by(user_id=_u5.id).all()])
+
+    async def _two_rebuilds():
+        _f6 = PriceFeed(); _c6 = DeltaCrypto(_f6); _c6._loop = asyncio.get_event_loop()
+        _c6.refresh_products = lambda: time.sleep(0.2)                      # the contract list takes a moment to load
+        _alive = []
+
+        async def _loop6():
+            _alive.append(1)
+            try:
+                await asyncio.sleep(3600)
+            finally:
+                _alive.pop()
+        _c6._run = _loop6
+        _c6._run_task = asyncio.get_event_loop().create_task(_loop6())
+        await asyncio.sleep(0.02)
+        await asyncio.gather(_c6._fresh(), _c6._fresh(), _c6._fresh())      # Reconnect pressed again while the first rebuild is still running
+        await asyncio.sleep(0.05)
+        _n1 = len(_alive)
+        await _c6._fresh(); await asyncio.sleep(0.05)                       # and a later Reconnect still rebuilds
+        _n2 = len(_alive); _t = _c6._run_task
+        _t.cancel()
+        try:
+            await _t
+        except BaseException:
+            pass
+        return _n1, _n2, _c6.connected
+    _n1, _n2, _conn = asyncio.get_event_loop().run_until_complete(_two_rebuilds())
+    ok("reconnect: rebuilding the crypto connection three times at once leaves one connection loop, not three", _n1 == 1, f"{_n1} loops")
+    ok("reconnect: a later Reconnect still rebuilds it (one loop)", _n2 == 1 and _conn is False, f"{_n2} loops")
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

@@ -548,6 +548,21 @@ class Probe:
                     except EngineError as e:
                         db.rollback()
                         res = str(e)
+                    # ---- added 24 Nov 2026 (Security officer): the closing price until the first price ----
+                    # In that same instant the position must be VALUED at its closing price, not at the old
+                    # book in memory (owner's decision of 21 Nov 2026, engine.awaiting_first_price: a stray
+                    # weekend quote squared off two crude lots in the test). A recognisable closing price is
+                    # put on the test position in memory only (never saved) and its value is asked for.
+                    held = None
+                    if res != "FILLED":
+                        try:
+                            p_ = self.engine._position(db, ua.id, T)
+                            if p_ is not None and p_.qty:
+                                planted = round(bid * 0.9, 4)
+                                p_.last_mark = planted
+                                held = (self.engine.value_price(p_), planted)
+                        finally:
+                            db.rollback()                    # the planted price is never written
                 finally:
                     self.engine.__dict__.pop("session_opened", None)
                     db.close()
@@ -555,6 +570,9 @@ class Probe:
                 self.ok(name, res != "FILLED", "filled at a price from before the opening" if res == "FILLED" else res[:100])
             else:
                 self.note("order at the opening inconclusive", res[:150])
+            if held is not None:
+                self.ok("in the first instant of a session a position is valued at its closing price, not at the old book in memory",
+                        held[0] is not None and abs(held[0] - held[1]) < 1e-9, "" if held[0] == held[1] else f"valued at {held[0]}, closing price {held[1]}")
         finally:
             try:
                 await self._flatten(ca)
@@ -2172,6 +2190,50 @@ class Probe:
             self.ok("expiry time readable", False, type(e).__name__)
         self.note("feeds", f"NSE/MCX {'on' if self.feed.connected else 'OFF'} · crypto {'on' if cry and cry.connected else 'OFF'} · forex/global {'on' if fx and fx.connected else 'OFF'}")
 
+    # ---- added 24 Nov 2026 (Security officer) -----------------------------------------------------
+    def _one_feed_loop(self):
+        """Crypto prices come over ONE connection. Found 24 Nov 2026: "Reconnect crypto" pressed twice at
+        the same moment (or pressed while the automatic rebuild after six quick drops was reloading the
+        contract list) started two connection loops. Both stayed for good: every price was handled twice,
+        "Disconnect" closed only one of them (prices went on arriving on a paused feed) and each later
+        Reconnect left the extra one running. Read only: the feed counts its own loops."""
+        self.area = "Price socket"
+        cry = getattr(self.feed, "crypto", None)
+        if cry is None:
+            self.note("crypto connection not checked", "no crypto feed on this site"); return
+        if not hasattr(cry, "_runs"):
+            self.ok("crypto prices come over one connection, never two at once", False, "the feed does not count its connection loops"); return
+        n = int(getattr(cry, "_runs", 0) or 0)
+        if n > 1 and (getattr(cry, "_fresh_busy", False) or time.time() - (getattr(cry, "_last_fresh", 0) or 0) < 60):
+            # a rebuild is under way this very minute: the old loop may still be closing its connection
+            self.note("crypto connection not judged", f"it is being rebuilt right now ({n} loops for a moment)"); return
+        self.ok("crypto prices come over one connection, never two at once", n <= 1, f"{n} connection loops are running")
+
+    async def _edge_dates(self, ua):
+        """A date at the very edge of the calendar in a statement address. Found 24 Nov 2026: 0001-01-01 or
+        9999-12-31 as the first or last day of a report, an Excel statement, the order / trade / ledger
+        lists or the weekly figure crashed the request ("500"); each crash writes about 20,000 characters to
+        the server's output, and a login could repeat it without end. The test account asks for its own
+        figures with such dates: each must be refused plainly (or answered), never crash. Read only."""
+        self.area = "Capacity"
+        c = self._client(ua)
+        try:
+            bad, n = [], 0
+            for path, prm in (("/api/report", {"from": "0001-01-01"}), ("/api/report", {"from": "9999-12-31", "to": "9999-12-31"}),
+                              ("/api/trades", {"from": "0001-01-01", "to": "0001-01-01"}), ("/api/orders", {"from": "9999-12-31", "to": "9999-12-31"}),
+                              ("/api/ledger", {"from": "0001-01-01"}), ("/api/export.xlsx", {"from": "0001-01-01", "sheets": "ledger"}),
+                              ("/api/weekly", {"week_end": "0001-01-01"})):
+                n += 1
+                try:
+                    code = (await c.get(path, params=prm)).status_code
+                except Exception as e:                       # in-process, a crash of the request arrives here as the error itself
+                    code = f"crashed ({type(e).__name__})"
+                if not isinstance(code, int) or code >= 500:
+                    bad.append(f"{path} {code}")
+            self.ok(f"a date at the edge of the calendar is refused plainly, never a server error ({n} requests)", not bad, ", ".join(bad[:4]))
+        finally:
+            await c.aclose()
+
     # ---- run -----------------------------------------------------------------------------------
     async def run(self) -> dict:
         t0 = time.time()
@@ -2264,7 +2326,7 @@ class Probe:
             except Exception as e:
                 log.exception("probe turns check crashed")
                 self.ok("the turns check ran to the end", False, f"{type(e).__name__}: {e}")
-            for name, fn in (("Master doors", lambda: self._doors(ua)), ("offered contracts", lambda: self._offered(ua)),
+            for name, fn in (("Master doors", lambda: self._doors(ua)), ("offered contracts", lambda: self._offered(ua)), ("edge dates", lambda: self._edge_dates(ua)),
                              ("cancelled-order stream", lambda: self._leak_end(leak))):
                 try:
                     await fn()
@@ -2276,6 +2338,11 @@ class Probe:
             except Exception as e:
                 log.exception("probe closing-price check crashed")
                 self.ok("the closing-price check ran to the end", False, f"{type(e).__name__}: {e}")
+            try:
+                self._one_feed_loop()
+            except Exception as e:
+                log.exception("probe crypto-connection check crashed")
+                self.ok("the crypto-connection check ran to the end", False, f"{type(e).__name__}: {e}")
             try:
                 self._price_sanity()
             except Exception as e:

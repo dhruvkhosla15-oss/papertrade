@@ -57,7 +57,8 @@ class DeltaCrypto:
         self._fails = 0                  # drops in a row that came soon after connecting (for the waiting time before the next try)
         self._run_task = None
         self._last_fresh = 0.0           # when the connection was last rebuilt from scratch
-        self._fresh_busy = False         # a rebuild from scratch is going on
+        self._fresh_busy = False         # a rebuild from scratch is under way
+        self._runs = 0                   # connection loops alive right now: one, never more (the daily check reads it)
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
         self._orig_sub, self._orig_unsub = feed._subscribe, feed._unsubscribe
@@ -386,6 +387,13 @@ class DeltaCrypto:
         self._stale_book = {t for t in subs if t in self.items and self.items[t].instrument_type == "FUT"}
 
     async def _run(self):
+        self._runs += 1
+        try:
+            await self._run_loop()
+        finally:
+            self._runs -= 1
+
+    async def _run_loop(self):
         import websockets
         while True:
             if self.paused:

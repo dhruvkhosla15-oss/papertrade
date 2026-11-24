@@ -2210,6 +2210,11 @@ class Probe:
             # a rebuild is under way this very minute: the old loop may still be closing its connection
             self.note("crypto connection not judged", f"it is being rebuilt right now ({n} loops for a moment)"); return
         self.ok("crypto prices come over one connection, never two at once", n <= 1, f"{n} connection loops are running")
+        # a note only (25 Nov 2026): how the exchange sends an option's quotes when one side is empty. It decides
+        # whether the fix waiting on the branch security-fix/2026-11-25 is right for the real exchange.
+        if hasattr(cry, "_opt_msgs"):
+            self.note("crypto option price messages since the restart",
+                      f"{cry._opt_msgs} in all · {cry._opt_one} with one side of the quotes missing · {cry._opt_noq} with no quotes at all")
 
     async def _edge_dates(self, ua):
         """A date at the very edge of the calendar in a statement address. Found 24 Nov 2026: 0001-01-01 or

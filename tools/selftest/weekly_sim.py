@@ -1532,8 +1532,8 @@ class _Calc:
 
 
 feed.set(F_NIFTY, 28000); feed.set(I_NIFTY, 28000)
-mk_user("mwatch", 5_000_000); trade("mwatch", F_NIFTY, "BUY", 1)
-_mwu = users["mwatch"].id; _mw_db = SessionLocal()
+mk_user("mwatch2", 5_000_000); trade("mwatch2", F_NIFTY, "BUY", 1)
+_mwu = users["mwatch2"].id; _mw_db = SessionLocal()
 feed.kite = _Calc(); feed.access_token = "x"; feed.refused = False
 try:
     _MW._state.update(trade_id=None, sig=None, real_at=0.0)
@@ -1550,7 +1550,7 @@ ok("margin watch: the user's peak is kept, is not below the margin now, and the 
    _mwu in _pk and _pk[_mwu]["rule"] >= _now - 0.01 > 0 and _pk[_mwu]["real"] == 1234.5 and _pk[0]["rule"] >= _pk[_mwu]["rule"], f"{_pk.get(_mwu)} now {_now}")
 # (2) A deleted account's number is handed out again by the database: the next account created was shown on the
 # Shadow Book with the deleted account's Peak Margin (found 24 Nov 2026).
-M.admin_delete_user(_mwu, admin=None, db=db); users.pop("mwatch")
+M.admin_delete_user(_mwu, admin=None, db=db); users.pop("mwatch2")
 _pk = _MW.peaks(db)
 ok("margin watch: a deleted account's peak margin goes with it (the next account with that number starts with none)", _mwu not in _pk, str(_pk.get(_mwu)))
 ok("margin watch: the peak of everybody together stays", 0 in _pk and _pk[0]["rule"] > 0, str(_pk.get(0)))
@@ -1632,6 +1632,7 @@ if True:
     class _PF:
         instruments = feed.instruments; kite = _Kite(); access_token = "x"; refused = False
     _mwdb = SessionLocal(); _waits = []
+    _mwdb.query(_MW.MarginPeak).delete(); _mwdb.commit()      # the lines the blocks above left for today (throw-away database)
     _MW._state.update(trade_id=None, sig=None, real_at=0.0)
 
     def _writer():
@@ -1708,21 +1709,12 @@ if True:
     _tk5(73500)
     _r1 = _o5(_B5, "SELL", 10)
     ok("reconnect: a last-price message alone does not make the old order book fresh", isinstance(_r1, str) and _f5.prices[_B5]["bid"] == 74999.5, str(_r1))
-    _ot5(250, None, 260)                                                    # the option: buyers gone, an offer at 260
-    _r2 = _o5(_O5, "SELL", 10); _t5 = _f5.prices[_O5]
-    ok("reconnect: an option with no buyers after the reconnect is not sold at the bid from before the drop",
-       isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bids"] == [] and _t5["bid"] is None and _t5["ask"] == 260.0, f"{_r2} | {_t5.get('bids')} {_t5.get('asks')}")
-    ok("reconnect: a buy of that option meets the offer of now", _o5(_O5, "BUY", 1) == 260.0)
-    _ot5(250, None, None, quotes=False); _t5 = _f5.prices[_O5]
-    _r2 = _o5(_O5, "SELL", 1)
-    ok("reconnect: an option message with no quotes at all leaves nothing to fill against", isinstance(_r2, str) and _t5["bids"] == [] and _t5["asks"] == [] and _t5["ask"] is None, f"{_r2} | {_t5.get('asks')}")
+    # (the checks for an option whose buyers have left are on the branch security-fix/2026-11-25 with their fix: it waits for the owner)
     _bk5(73500)
     ok("reconnect: with the new order book the perpetual is sold at the new bid", _o5(_B5, "SELL", 10) == 73499.5)
     _ot5(250, 245, 255)
-    ok("reconnect: with both sides quoted again the option is sold at the new bid", _o5(_O5, "SELL", 11) == 245.0)
-    _ot5(400, 395, 405); _o5(_O5, "BUY", 5); _ot5(300, None, 310)             # no reconnect at all: the buyers simply leave
-    _r2 = _o5(_O5, "SELL", 5); _t5 = _f5.prices[_O5]
-    ok("crypto option: when the buyers leave, the bid of the last message is not kept under the new time", isinstance(_r2, str) and "Nobody is buying" in _r2 and _t5["bid"] is None and _t5["ask"] == 310.0, f"{_r2} | {_t5.get('bid')}")
+    ok("reconnect: with both sides quoted again the option is sold at the new bid", _o5(_O5, "SELL", 10) == 245.0)
+    _ot5(400, 395, 405); _o5(_O5, "BUY", 5)
     _ot5(300, 295, 305)
     ok("crypto option: with a bid again the sale goes through at it", _o5(_O5, "SELL", 5) == 295.0)
     _last["orders"] = max([_last["orders"]] + [x.id for x in db.query(Order).filter_by(user_id=_u5.id).all()])

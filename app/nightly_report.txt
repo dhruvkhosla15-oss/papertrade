@@ -1,25 +1,31 @@
-limefx officers' nightly audit, 21 Nov 2026 (IST): LOOPHOLE FOUND AND FIXED. A future that expired with only sellers (or only buyers) in its book was paid at an old last trade: free coins. Closed and live, with about 30 other fixes.
+limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; corrected and live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers everything since 21 Nov.)
 
-Technology: found. Clean start, all 8 jobs running, backup-bad alarm fires, a forced restart in mid-trading lost or doubled none of 2,600 orders. Fixed: a backup damaged by a restart was kept and sent off-server as it was; each "Download backup" left an open copy of the books on the server. 100 users: screens 15 ms, orders 24 ms, not slower.
+Technology: found. While the recorder asked the broker's margin calculator, every order waited (9 seconds in a test). It no longer holds anything up and is now a watched job. Reconnect crypto pressed twice could leave two connections that Disconnect did not close; now always one. Clean start, 9 jobs running, domain alarm fires, a forced restart lost none of 2,919 orders, restore drill and old-database test passed. 100 users: screens 28 ms, orders 50 ms. Double the last figures, but the old code is as slow on tonight's test machine: it is the machine, not the site.
 
-Security: found. Besides the expiry loophole (please confirm the new rule: such a future is settled no better than the price it could be dealt at): any user could fill your activity list with his own lines; the current password could be guessed without limit in the change-password box; one account's Excel downloads slowed everyone; a stop-loss was refused when short of margin. Master page behind the login: 31 tricks, none got it. All 7 markets attacked, 14 sweep rows, no-login sweep clean, software weaknesses: the same 3 old reports, no secrets.
+Security: found. A deleted account's Peak Margin showed on the next account created; an impossible date crashed a report. Both corrected. Your rule "closing price until the first price" gives a user nothing. All 7 markets attacked, 38 sweep rows, no-login sweep clean, same 3 old software reports, no secrets.
 
-Accounts: found. A real week with a real Sunday cut-off was played: 72,000 comparisons, 104 commissions by hand. Fixed: last week's Net P&L on Performance and Excel differed from Weekly Settlement for accounts holding Crypto over Sunday midnight; a fill in the seconds after the cut-off was counted in two weeks; position cards of a shut market moved with late quotes; tiny amounts read -0.
+Accounts: found. 9 accounts, 6,500 comparisons, 40 commissions by hand, coins in whole paise: all agree. Just after an opening the position card, running week and Shadow Book did not yet follow the closing-price rule; Peak Margin could show below Margin Now. Corrected.
 
-Price: found. All 7 markets: fills at the live book, nothing fills while shut; one closing price everywhere after weekend restarts. Fixed: while prices were down the automatic square-off sold at the old price, and an expiring contract was paid at it; after a night restart a bought option was counted like a future and could get an account's crypto squared off with the charge. This last one may ALREADY have cost users coins: look for system square-offs in Crypto or Forex in the hours after a night restart.
+Price: found. All 7 markets: fills only at the live price, nothing while shut or before the first price. A contract leaving the crypto list could kill crypto prices until a restart; corrected. Possibly the cause of the night of 23 Nov; that night's server log would show it.
 
-UI: found. Master Users, Live Positions and Performance tables now fit a laptop; Order Book and user panel no longer hide Status; "+-0.00", cut-off Watchlist lines. 330 screenshots.
+UI: found. Your changes of 21 to 24 Nov all work on phone and computer and now have checks. Corrected: Pulse showing the previous market's list; messages swallowing taps on Back / Options / Other expiries; an empty option chain now says "No options are listed for X right now".
 
-Risk: clean. 102 hard moves: warning, shortfall, only the lots needed, one charge per order. After a 10% gap, 10 lakh coins end at NSE +4.5 lakh, BSE and MCX +3.5, Currency -16.6, Crypto, Forex, Global -29.9 lakh. Below zero from a 2.5% gap (3.8% Currency).
+Risk: found. 230 hard moves; warning, shortfall, only the lots needed, one charge all held. After a 10% gap 10 lakh coins end about 30 lakh below zero in Crypto, Forex and Global, 17 lakh below in Currency; NSE, BSE, MCX stay above zero. Unchanged; no new limit.
 
-User experience: found. New user: 31 steps, none over 0.7 s. Three refusals reworded in plain words. Stop-loss button and Order Book cards work.
+User experience: clean. New user: 55 taps, each under 1 second. Every refusal read: all plain.
 
-Compliance (not a legal opinion): found. Every Master action now leaves a line saying what changed, none holds a password. Still no line for Master logins and downloads. Whether the business is within the law is for your lawyer and accountant.
+Compliance (not a legal opinion): clean but for the deleted account's figure. Two-step login cannot be skipped, passwords appear nowhere, new buttons leave a record. Whether the business is within the law is for your lawyer and accountant.
 
-Release: approved by an independent reviewer, nothing held. Final self-test 0 failed.
+Release: independent reviewer approved all but two changes; those went to the branch. Final self-test 0 failed.
 
-Daily checks added: 9 on the live site, 58 browser checks.
+Checks added: 3 on the live site, 17 in the browser.
 
-Waiting for you (no branch; open Claude and say "apply the held patch"): (1) keep the closing price until the first price of a new session; (2) coins typed with a fraction of a paisa. Also: position card to show a resting stop.
+Waiting for you: open Claude and say "put security-fix/2026-11-25 live" (or name the numbers):
+1. Weekly figure in an opening's first seconds uses the closing price.
+2. A stop-loss meeting too few buyers keeps resting for the rest (now the rest loses its stop).
+3. A hedged account is not squared off because one side's first price came seconds earlier.
+4. A crypto option whose buyers left could be sold at an old price (shown in a test only; the daily check now counts it).
+5. After a part square-off, the user's stop or target is cut to the lots left (now the stop is refused, a target leaves the account short).
+6. Plainer words for "price outside the exchange band".
 
-Not tested: thin MCX options by hand (daily check only). If the two-weeks fault happened last Sunday, the new daily check will say so once.
+Not tested: 300-user load; the real calculator.

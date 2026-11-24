@@ -11,7 +11,7 @@ account is rewritten, honest trading unchanged). Only a fix that cannot meet tho
 branch `security-fix/YYYY-MM-DD` for the owner.
 
 ## Waiting for the owner
-Branch `security-fix/2026-11-25` is waiting (four separate commits, each with its checks; "put security-fix/2026-11-25
+Branch `security-fix/2026-11-25` is waiting (six separate commits, each with its checks; "put security-fix/2026-11-25
 live", or name the ones wanted):
 1. (25 Nov) The weekly figure in the first seconds of a session, and a cut-off that runs in those seconds, use the
    closing price like every other screen (completes the decision of 21 Nov; `weekly.close_price`). Changes what a
@@ -26,7 +26,14 @@ live", or name the ones wanted):
    bid of 395 with the option worth 250). HELD because it changes how a held option with no bid is valued and
    because the real exchange's messages could not be seen offline: the daily check now prints, as a note, how many
    option price messages came with one side missing or with no quotes at all. Read that note first.
-Not ready, sketch only (scratch `risk/held_crypto_price_before_book.patch`, described under Risk, 25 Nov): a crypto
+5. (25 Nov) After the auto square-off has closed PART of a position, the user's resting stop-loss or target for
+   that position is cut down to the lots that are left (now the stop is refused when its price is reached and the
+   rest has no stop; a target leaves the account short). New sentence on the order: "Reduced to N lots — part of
+   the position was squared off (margin shortfall)". Held by the release reviewer: new behaviour for a user's order.
+6. (25 Nov) Refusal reworded: "Price outside the exchange band (±5% around X) — the exchange would reject this
+   order" → "This price is too far from the market: the exchange only takes prices within 5% of the current price
+   (X) — choose a price nearer to it". Held by the release reviewer: wording is the owner's.
+Not ready, sketch only (on the branch as `tools/selftest/held/crypto_price_before_book.patch`, described under Risk, 25 Nov): a crypto
 stop filled against the order book from the moment before a jump when the price message arrives before the book.
 (The two patches held on 21 Nov were applied on 21 Nov by the owner's "Yes to all": see "Owner's decisions, 21 Nov".)
 Decisions and wishes put to the owner (do not build without his word; do not repeat in the report once he has
@@ -54,9 +61,8 @@ answered; what he decided is under "Owner's decisions" at the end and is not her
   writes a 0.00 line; the Master's Live Positions tooltip says "Market is shut" also in the opening moments.
   Master page on a phone: the forex card's title is squeezed beside its two buttons; Shadow Book "By User" on a
   tablet needs a sideways scroll for the three margin columns; Performance chart's "-6K" label under the value tag.
-- (25 Nov) New sentence users can read since 25 Nov: "Reduced to N lots — part of the position was squared off
-  (margin shortfall)" on a stop or target the square-off has cut down. Reworded: a limit price too far from the
-  market ("This price is too far from the market: the exchange only takes prices within 5% …").
+- (25 Nov) New sentence on the user's option chain since 25 Nov: "No options are listed for X right now. Tap Back to
+  choose another name." (it was an empty table). Other words?
 - (21 Nov) A contract whose feed only returns the day after its expiry, and an MCX future expiring during an outage,
   settle at the last price seen; use the exchange's published settlement price (needs a source)?
 - (21 Nov) The Shadow Book's open P&L steps by one spread per position when a market shuts (our exit side while
@@ -218,7 +224,8 @@ activity record. `security-fix/2026-11-16` is on main since 16 Nov 2026; `securi
   peak >= now, peak survives a square-off, a deleted account's lines go, the recorder is a watched job), "site
   health: every job started with the site is one the watchdog knows", "domain: …" (7), "opening valuation: …" (19),
   "reconnect: …" (crypto drop and return, a contract that left the list, rebuilds at once), "crypto reconnect: …",
-  "square-off and a resting stop: …" (9), "expiry: the ledger line of a settled option …".
+  "expiry: the ledger line of a settled option …". (On the branch with their fixes: "square-off and a resting
+  stop: …", the one-sided crypto option book.)
 
 ## Normal-working checks added to `site_check.py` (private copy, real browser)
 - 25 Nov 2026 (seventeen): `ui_block_25nov` (11): resting stop / target line on the position card; a Pulse row opens
@@ -422,6 +429,218 @@ one's own position refused with 'need ₹0.00' while short of margin" was fixed 
 All of these are layout or feature changes: under "Waiting for the owner".
 
 ## Findings
+
+### 2026-11-25 (officers' nightly audit, night of 24 → 25 Nov; the first since 21 Nov) — no free-coins loophole on main; eleven faults in the code released since 21 Nov fixed and live; six changes wait on `security-fix/2026-11-25`
+Self-test at the start (main 034f88b): safety check 316 / 0, browser check 301 / 0, weekly simulation 6762 / 0, no
+server error. On tonight's code: safety check 325 / 0, browser check 318 / 0, weekly simulation 6824 / 0, no server
+error (see Release). Five officers' agents worked side by side, each in its own worktree and isolated private copy
+(`tools/selftest/isolated.sh`, new); the coordinator merged, ran the gates, and had the result reviewed. No audit
+ran on 22, 23 or 24 Nov, so everything since cfeac56 counted as "recent".
+
+#### Technology
+- **FAULT, FIXED, live: the Shadow Book's margin recorder (new 21 Nov) kept the database locked for writing while it
+  asked the broker's margin calculator.** Whenever a look had just started a day's line for an account (its first
+  position of the day, or the first look after midnight / a restart) the lock was held through one calculator call
+  for everybody and one per account with a position: every order on the site waited. Found independently by three
+  officers with stand-in calculators (6 accounts, 1.5 s a call: another account's order took 8.67 s; 6.5 s a call:
+  refused after 30 s, "database is locked"; 13 accounts, 0.4 s: 5.05 s). Not visible on the private copy as
+  shipped (no calculator there). *Fix (`margin_watch.sample`):* what is known is committed first, the calculator is
+  asked with nothing held, the answers are written afterwards; same figures. After: 0.01 s. Real users may have had
+  all orders stall for seconds at an account's first trade of the day since 21 Nov (no coins involved; cannot be
+  told from here). Checks: weekly_sim "margin watch: …".
+- **FAULT, FIXED, live: the recorder was the one background job the watchdog did not know** (no beat, no line in
+  Site health). Now the ninth job, "Shadow Book peak-margin record" (allowed silence 15 min). Checks: weekly_sim
+  "margin watch: the recorder is a job the watchdog knows …", "site health: every job started with the site is one
+  the watchdog knows".
+- **FAULT, FIXED, live: "Reconnect crypto" asked for again while the first rebuild was still loading the contract
+  list (a second press, a second Master, or the automatic rebuild after six quick drops) left a second price
+  connection that nothing stopped any more**, not even Disconnect (prices went on arriving on a "paused" feed; each
+  later Reconnect left two again; in the 23 Nov situation it doubled the knocking at the exchange). Found by three
+  officers. *Fix (`feed/delta.py _fresh`, `_stop_run`, `_runs`):* one rebuild at a time, and whatever is connecting
+  is stopped before the new connection starts. Checks: site_check `tech_block` (2), weekly_sim "crypto reconnect: …",
+  "reconnect: rebuilding the crypto connection three times at once …", daily check `_one_feed_loop`.
+- **FAULT, FIXED, live (small): a hosting setting PT_DOMAIN_EXPIRY that is not a date broke the Site health card**
+  (500, an error a minute). Now the built-in date is used. Checks: weekly_sim "domain: …" (7).
+- The crypto Reconnect of 23 Nov used for real (simulated exchange killed and restarted): button always shown; waits
+  5, 10, 20, 40, 80 s after quick drops, rebuilt itself at 156 s; every drop on record with its reason; ONE "DOWN"
+  message per outage and ONE "back and steady"; with the exchange away Reconnect answers after 20.0 s "Not connected
+  yet …", with it back after 4.0 s "Connected: crypto prices are arriving again."; a user's order meanwhile refused
+  in plain words; no drop reason reaches a user.
+- T1: fresh copy 0 tracebacks, /healthz 200, all jobs running, today's backup passes, off-server copy opens. Alarm of
+  the night DOMAIN RENEWAL, forced in-process: 30, 14, 7, 3, 2, 1, 0 days: one message each, after 10 am IST, not
+  twice a day, not again after a restart; nothing on other days (really 9 Nov 2027, 349 days). Forced restart in
+  mid-trading (6 accounts, 6 markets, `kill -9` after 1,717 answered orders): answering after 1.1 s; 2,919 answered
+  orders all in the books, none lost, none doubled, 2,438 filled orders with exactly one trade, positions = sums of
+  trades, ledger = balance, integrity clean, nine jobs running.
+- T2 (coordinator, quiet machine): 100 users 60 s: LOAD RESULT OK, no server error; screens 28 ms, orders 50 ms
+  median (95% under 463 / 381 ms), 55 requests a second. More than double the 21 Nov figures (15 / 24), but the
+  21 Nov code measured on this machine the same night gave 25 / 60 ms, 53 a second: the machine, not the code.
+- T3 (the Sunday run was missed): the restore drill itself was broken (it took its option from the search, which
+  listed no NIFTY call first; fixed in the tool: option chain). Then RESTORE 42 passed, 0 failed. The 300-user load
+  test was NOT run (shared machine).
+- T4: no new package; one new environment variable with a default (PT_FEED_STEADY_SECS); one new table
+  (margin_peaks, created at start-up). Proven on a database made by the code of cfeac56 (6 accounts, 14 trades in
+  five markets, a test cut-off with 9 carried positions): tonight's code starts in 1.1 s, only margin_peaks added,
+  every old row identical, old logins work, the recorder rebuilt the earlier days; going back also starts clean.
+- T5: backup holds all 12 tables and every account, integrity and foreign keys clean (also after the kill);
+  pruning 20 → 14 with the newest kept; the encrypted copy opens with its password and with no other; passwords are
+  hashes. Growth after 2,923 orders (1.6 MB): orders 508 KB (fastest, about 174 bytes a row), ledger 393, trades
+  221, positions 139 (closed positions stay), shadow_fills 94; margin_peaks one line per account per day (under
+  2 MB a year at 50 accounts, never pruned); crypto drops: memory only, last 30.
+- kite_reactor_check: KITE-REACTOR OK. pip-audit: the same three reports in the one library the price-feed client
+  pins, nothing new. Secrets: 364 commits of every branch scanned: none (placeholders and the fake local values only).
+
+#### Security
+- No loophole that gives coins, takes over an account or lets a visitor change anything was found on main.
+- **FAULT, FIXED, live: a deleted account's Peak Margin was shown on the next account created** (margin_peaks is
+  filed by account number and was not in `_forget_number`; found by three officers: pk1 bought 2 NIFTY lots, was
+  deleted, pk2 got the number and stood on the Shadow Book with Peak Margin 438,102.90 and no order). *Fix:* the
+  per-account lines go with the account and when a number is handed out; "everybody together" stays. Checks:
+  weekly_sim "margin watch: a deleted account's peak margin goes with it …", site_check "Shadow Book: a new account
+  does not start with the Peak Margin of a deleted account that had its number".
+- **FAULT, FIXED, live: the first or last day of the calendar (0001-01-01, 9999-12-31) crashed six addresses**
+  (report, Excel, trades, orders, ledger, weekly: "500", about 20,000 characters to the server's output each; one
+  login could repeat it without end). Now refused like any badly written date. Check: daily check `_edge_dates`.
+- Closing price until a session's first price (a8075ed), attacked in-process with clock and prices set by hand: no
+  gain (orders on that contract refused, nothing squared off, Available the closing-price figure). Found there: the
+  weekly figure of those seconds (branch item 1) and the closing price of a position opened in the last minute
+  before a close (Waiting list). New daily check: `_session_open` widened in every market.
+- Deep area: currency conversion in Crypto / Forex / Global exact to the paisa (round trips −55.06 / −714.04 /
+  −469.82 = prices × factor; 14 Global contracts through their own currency; margin exactly 2.0% at 50x); export /
+  report as another account: own data only; nothing injected through file names; weekly cut-off of a shut market
+  valued at the closing price.
+- Sweep rows run: 11 by Security (2, 4, 5, 6, 10, 11, 13, 14, 19 in-process, 24, 25), 13 by Risk, 14 by Accounts /
+  Price (dates in the matrix). All seven markets attacked by hand (junk numbers, buying past the visible book, Exit
+  six times at once, limit above the offer, round trips losing money, ledger = coins).
+- No-login sweep: 88 addresses, five methods, as visitor and as user (870 calls): only the public pages, the small
+  login page, login, logout, /healthz and the public home data answer a visitor; a user is refused on every Master
+  address; wrong passwords 5 then locked, same words for known and unknown names; cookie HttpOnly, SameSite, Secure;
+  logged-out and password-changed logins dead; two-step cannot be skipped; no framing; visitor's socket gets prices
+  only. New text places since 21 Nov (resting line, "no options", drop reasons, Shadow Book columns): all escaped.
+
+#### Accounts
+- Nine accounts (two in all seven markets; one without trades, one frozen, one deleted after the cut-off, one with a
+  segment switched off, two auto-squared-off, one brand new), one database through five server starts (ordinary
+  day, a pretend Saturday with hours enforced, a pretend Monday 9:15:00 on old and new code). Truth rebuilt from
+  the tables and compared with the Master row, dashboard formulas, Weekly Settlement, Performance, Shadow Book, the
+  user's own screens and every Excel file: about 6,500 comparisons; the ones not equal were the two faults below
+  or the script's own. Identities hold; commission by hand on 40 fills with settings 0.037 / 0.17 / 11 / 0.063 /
+  0.0058 / 29 / 0.09: all agree; one charge per system order. Coins with fractions of a paisa (eight entries and a
+  first allocation): whole paise, ledger line = balance step, once each. Deleted account: 24 totals dropped by
+  exactly its figures. Master dashboard formulas were re-done in script, not read off the browser.
+- **FAULT (display), FIXED, live: in the first moments of a session the position card, the running week and the
+  Shadow Book did not stand on the closing price** although the server valued Available Balance at it (decision of
+  21 Nov): the screen was told to re-price the card itself, and the running week and Shadow Book used the old book
+  or a stray quote (NIFTY long, stray quote 11% lower: +59,985 on the rows, −450,015 on the running week; lasts
+  until the contract's first price, on a thin contract hours). *Fix:* `engine.position_dict` "at_close" also while
+  awaiting the first price; `weekly.running_price` for the running row only; `main.admin_shadow`. The cut-off
+  itself is unchanged (branch item 1). Checks: weekly_sim "opening valuation: …" (19), daily books check widened.
+- **FAULT (display), FIXED, live: the Shadow Book showed Peak Margin below Margin Now right after a trade** (the
+  recorder looks every 20 s: 1,461,628 beside 801,099). The peak shown is never below the margin of the moment;
+  nothing stored. Check: site_check "Shadow Book: right after a trade Peak Margin is not below Margin Now …".
+- First jobs done: opening valuation, coins in whole paise, Shadow Book peak (checks in site_check and weekly_sim).
+
+#### Price
+- P1, in-process with hours enforced, 13 kinds of contract in seven markets, 200 checks: fills only at the live
+  offer / bid; nothing on a holiday, at night, at the weekend, in a Global break or in the opening instant; limits
+  never better than the book. P2: after a pretend Saturday restart 18 positions at the closing price, P&L equal to
+  the close, none at zero, no "feed down" for the shut Indian markets (Forex / Global not judged: the pretend feed
+  keeps the real clock). P3: 25 carried positions at the week-close price, average kept. P5: one rupee factor per
+  contract on every screen, rates known after five restarts. P4 only by the existing simulation checks and 5 scratch
+  checks. P6 RECONNECTING (crypto): 88 sell orders during a real reconnect with the market 2% lower: 87 filled at
+  the new prices, 1 refused; none at a pre-drop price.
+- **FAULT, FIXED, live: a contract that left the crypto list while still open on somebody's screen (an option the
+  night after its expiry) broke every later connection** ("KeyError" on its number before anything was subscribed:
+  no crypto prices until a restart, whatever Reconnect was pressed). Matches the night of 23 Nov but NOT proven
+  (needs that night's server log). *Fix (`delta._channels`, `_unsubscribe`).* Checks: weekly_sim "reconnect: a
+  contract that left the crypto list …" (2).
+- **WRONG-PRICE LOOPHOLE, fix WAITING (branch item 4): a crypto option keeps an old bid or offer when one side of
+  its book goes empty** (sold 10 lots at an old bid of 395 with the option worth 250; proven with messages fed by
+  hand only). Held by the coordinator: the fix changes how a held option with no bid is valued, and whether the
+  real exchange sends an empty side as "nothing" could not be seen offline (if it sometimes sends no quotes at all,
+  the fix would empty option books). Main only counts such messages; the daily check prints the note.
+
+#### UI
+- N2: everything asked for between 21 and 24 Nov used for real at 412 and 1440 and works as its commit says:
+  resting line on the position card; Shadow Book cards and columns; Reconnect buttons; a Pulse row opens the
+  nearest future in all eight views; Back | Options › | Other expiries as three equal buttons (122 / 120 / 122 px
+  at 412; also 360, 820, 1440, light and dark), each doing what it says, incl. "No options trade on X" and "Only
+  one contract is listed"; Back from the chain; Market tab opens on Futures. Each has its check (`ui_block_25nov`).
+- About 620 screenshots at 1440 / 412 / 360 / 820, measured by script (off-screen, undefined / NaN, cut text, small
+  tap areas, script errors: none); about 30 read by eye.
+- **FAULTS (display), FIXED, live:** (1) Pulse showed the list of the market or period chosen a moment earlier
+  under the new choice (a late answer replaced the list; 29 rows of other markets under "Indices"); (2) the little
+  messages after an Exit covered Back | Options | Other expiries and swallowed the taps (the message now lets taps
+  through; nothing looks different); (3) an option chain with nothing listed was a bare table head: it now says
+  "No options are listed for X right now. Tap Back to choose another name." (new sentence: shown to the owner in
+  the report).
+- The Stop-loss / Target comparison check waited fixed times (the failure of 24 Nov): it now waits for what it reads.
+
+#### Risk (50x cap; 1,000,000 coins, 80% used; 21 Nov in brackets)
+- About 230 hard moves. R1 (102): warning first on a slide, shortfall and square-off of only the lots needed, a deep
+  loss closes everything, one charge per system order, a bought option never squared off, in all runs.
+- Net Balance after a 10% gap, future: NSE +451,756 (+448,719); BSE +359,116 (+355,904); MCX +357,326 (+354,013);
+  Currency −1,676,652 (−1,655,858); Crypto −3,033,760 (−2,993,117); Forex −2,995,395 (−2,994,958); Global
+  −2,997,462 (−2,982,856). Below zero from a one-step gap of 2.4% (Crypto), 2.5% (Forex, Global), 3.7% (Currency),
+  15.6% (BSE, MCX), 18.3% (NSE). Unchanged rules; nothing new proposed. Largest position for 1,000,000 coins: NIFTY 4
+  lots, SENSEX 5, crude 14, gold 1, USDINR 391, BTC 6,613, EURUSD 472, US500 69 (same multiples as before).
+- a8075ed at the opening, 40 runs in six markets: a stray quote while shut changes nothing; a real gap is judged at
+  the first real price; nobody escapes. Found: branch items 1 and 3.
+- **FAULT, fix WAITING (branch item 5; held by the release reviewer): after the auto square-off closed PART of a
+  position, the user's stop-loss still asked for all the lots**: refused when its price was reached ("Insufficient
+  coins") and the remaining lots had no stop (all 9 slide cases in 7 markets); a target in the same situation was
+  filled in full and left the account SHORT (NSE −1 lot, Crypto −341 lots …). The fix cuts such an order down to the
+  lots that are left. Held: nobody gains, and it is new behaviour for a user's own order with a new sentence.
+- Thin book: branch item 2 (the rest of a stop is dropped); a bystander's stop refused and deleted when the visible
+  buyers were taken by twenty square-offs (Waiting list). Crypto price message before book message: a stop filled
+  563,062 coins better than the market on the feed class fed by hand (sketch only; needs a live measurement).
+- **FAULT (text), FIXED, live:** the ledger note of a settled option read "settled @ 2430.0000000000036"; now
+  "2430.0". The amount booked is unchanged. Check: weekly_sim "expiry: the ledger line of a settled option …".
+- Weekly cut-off with hours enforced (14 runs): Sunday warning, one reminder at Monday 9:15:00, at 12:00:30 only the
+  lots needed, one charge.
+
+#### User experience
+- U1, brand-new futures-only user on a 412 phone, about 55 real taps from first login to logging in again: 0.05 to
+  0.83 s each, nothing stuck. U2: every refusal hit and read (coins, lots, bad numbers, shut contract, inactive
+  segment, feed off, thin trading, expired, 501st pending order, frozen): all plain, no provider name. One
+  rewording (limit price outside the exchange band) was HELD by the reviewer (branch item 6). U3: Master's message
+  (once, as text, right user), access switch (lock on the open ticket at once), install banner (Android and iPhone
+  wording, ✕ keeps it away). U4: items 1 and 17 answered; new items 20 to 24.
+
+#### Compliance (housekeeping, not a legal opinion)
+- C1: 55 Master addresses refuse a user and a visitor; two-step: password alone gives no session, the 5-minute pass
+  is refused everywhere, a second Master needs his own code; no password, hash or secret in 20 Master answers,
+  Excel files, the activity record, the server log or the errors file; backup holds hashes only.
+- C2: every coins entry, setting, access switch, freeze, square-off, notice and the new Reconnect / Disconnect
+  buttons leave a line saying what. Still none for downloads, Master login / log-out, own password change, the
+  daily price-feed login, a refused action (already waiting). The Reconnect crypto line reads "reconnected from
+  scratch" also when it did not connect (Waiting list).
+- C3: data held as before plus per account and day the peak-margin figures; the deleted account's line was the fault
+  above; one user's marks appear on nobody else's screens, files or socket.
+- C4: charge shown before the order = charged (675.51 at 0.037%); no provider name or drop reason in 40-odd user
+  answers; nothing promises profit. Whether the business is within the law is for the owner's lawyer and accountant.
+
+#### Release
+- Independent reviewer (fresh agent; saw only the diff against the live code, the rules, D and the list of claims):
+  **approved except two items, which were taken off main**: (10) cutting a resting stop / target down after a
+  partial auto square-off: the fault is real and the code sound, but it is new behaviour for a user's own order
+  with a new sentence, so the owner's yes is needed; (12) the reworded "exchange band" refusal: no proved fault.
+  Both are on the branch (items 5 and 6). Held by the coordinator before the review: the crypto option fix (item 4).
+- The reviewer's remarks for later: the Master's tooltip "Market is shut" now also shows in the opening moments; the
+  recorder's 15-minute silence could false-alarm if the calculator answers very slowly for many accounts; a
+  Reconnect pressed during a rebuild is dropped silently (the answer still tells the true state); `_channels` with
+  every wanted contract gone would send an empty subscribe; dates one day inside the calendar's edges were not
+  tried; the three margin-recorder blocks in weekly_sim overlap and "every job … the watchdog knows" breaks when a
+  task is added that is not a watchdog job; if item 5 is released: lot size from the contract, a try / except round
+  the call, a sentence in the square-off alert.
+- Coordinator's own changes after the merge: three officers had fixed the recorder, the reconnect and the deleted
+  account's peak each in their own way: one version kept (Technology's), every officer's checks kept; two test
+  blocks used the same account name and the same day's line; the browser check "Master Shadow Book: …" assumed the
+  Peak card equals the sum of the users' peaks (it is the peak of everybody together and keeps deleted accounts):
+  corrected in the check. Gates: full run on the merged code 325 / 0 and 318 / 0; final runs on exactly what was
+  pushed: see the commit of this entry.
+- Not tested: the 300-user load test; the recorder against the real calculator; real exchange messages; MCX options
+  over the API (the copy lists none); light theme by eye at every size; real phones.
 
 ### 2026-11-21 (officers' nightly audit) — one free-coins loophole (expiry of a one-sided book), four wrong-price / wrong-margin faults that give or take coins, four other loopholes and about twenty-five faults, all live tonight; two fixes held as patches
 Self-test at the start: safety check 292 / 0, browser check 243 / 0, weekly simulation 6681 / 0, no server error.

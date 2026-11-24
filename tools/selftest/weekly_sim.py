@@ -1310,6 +1310,106 @@ finally:
     M._backup_to, M._tg_ready, M._tg_state, M._tg_send, _PB._telegram = _bk_keep[:5]
     M.set_setting_safe("backup_check", _bk_keep[5])
 
+# ---- added 24 Nov 2026 (Security officer): the margin watch, a deleted account's peak margin, the crypto reconnect ----
+# (1) The margin watch (app/margin_watch.py, live since 21 Nov) asks the broker's margin calculator once for
+# everybody and once per user. A user's first trade of the day made a new row, and the database then stayed
+# locked for writing through all of those calls: with 13 users holding positions and 0.4 s per answer, another
+# user's order waited 5 s. The stand-in calculator here tries, each time it is asked, what an order placed at
+# that moment would have to do: open the database for writing.
+from app import margin_watch as _MW                       # noqa: E402
+import sqlite3 as _sq                                     # noqa: E402
+_asked, _other = [], []
+
+
+class _Calc:
+    def basket_order_margins(self, basket, consider_positions=False):
+        try:
+            _c = _sq.connect(str(M._db_file()), timeout=0.3); _c.execute("BEGIN IMMEDIATE"); _c.rollback(); _c.close(); _asked.append(True)
+        except _sq.OperationalError:
+            _asked.append(False)
+        return {"final": {"total": 1234.5}}
+
+    def __getattr__(self, name):                          # anything else it is asked to do (an order, above all) is written down
+        _other.append(name); raise AttributeError(name)
+
+
+feed.set(F_NIFTY, 28000); feed.set(I_NIFTY, 28000)
+mk_user("mwatch", 5_000_000); trade("mwatch", F_NIFTY, "BUY", 1)
+_mwu = users["mwatch"].id; _mw_db = SessionLocal()
+feed.kite = _Calc(); feed.access_token = "x"; feed.refused = False
+try:
+    _MW._state.update(trade_id=None, sig=None, real_at=0.0)
+    _MW.sample(_mw_db, feed, {_mwu}, ("NFO", "BFO", "MCX"))
+finally:
+    del feed.kite, feed.access_token, feed.refused
+    _mw_db.close()
+db.expire_all()
+_pk = _MW.peaks(db); _now = sum(p.margin_blocked for p in db.query(Position).filter_by(user_id=_mwu, is_closed=False))
+ok("margin watch: the broker's calculator is asked with nothing of the database held (an order placed meanwhile does not wait)",
+   len(_asked) >= 2 and all(_asked), f"asked {len(_asked)} times, database free each time: {_asked}")
+ok("margin watch: it only asks the calculator, never anything else of the broker (no order)", not _other, str(_other))
+ok("margin watch: the user's peak is kept, is not below the margin now, and the calculator's figure is kept",
+   _mwu in _pk and _pk[_mwu]["rule"] >= _now - 0.01 > 0 and _pk[_mwu]["real"] == 1234.5 and _pk[0]["rule"] >= _pk[_mwu]["rule"], f"{_pk.get(_mwu)} now {_now}")
+# (2) A deleted account's number is handed out again by the database: the next account created was shown on the
+# Shadow Book with the deleted account's Peak Margin (found 24 Nov 2026).
+M.admin_delete_user(_mwu, admin=None, db=db); users.pop("mwatch")
+_pk = _MW.peaks(db)
+ok("margin watch: a deleted account's peak margin goes with it (the next account with that number starts with none)", _mwu not in _pk, str(_pk.get(_mwu)))
+ok("margin watch: the peak of everybody together stays", 0 in _pk and _pk[0]["rule"] > 0, str(_pk.get(0)))
+
+# (3) "Reconnect crypto" pressed twice at the same moment (or pressed while the automatic rebuild after six quick
+# drops was reloading the contract list) started two connection loops that both stayed for good (found 24 Nov
+# 2026). The real feed class, with a stand-in for the exchange's connection.
+import websockets as _wsm                                 # noqa: E402
+_live = set()
+
+
+class _FakeWS:
+    close_code = 1000; close_reason = ""
+
+    def __init__(self):
+        self._gone = asyncio.Event()
+
+    async def send(self, _m):
+        pass
+
+    async def close(self):
+        self._gone.set()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await self._gone.wait()
+        raise StopAsyncIteration
+
+
+class _FakeConn:
+    async def __aenter__(self):
+        self.w = _FakeWS(); _live.add(self.w); return self.w
+
+    async def __aexit__(self, *_a):
+        _live.discard(self.w)
+
+
+async def _press_thrice():
+    _c3 = DeltaCrypto(PriceFeed()); _c3._loop = asyncio.get_event_loop()
+    _c3.refresh_products = lambda: time.sleep(0.05)
+    _c3._run_task = _c3._loop.create_task(_c3._run()); await asyncio.sleep(0.05)
+    await asyncio.gather(_c3._fresh(), _c3._fresh(), _c3._fresh()); await asyncio.sleep(0.3)
+    _n, _loops = len(_live), getattr(_c3, "_runs", None)
+    for _t in [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]:
+        _t.cancel()
+    await asyncio.sleep(0.05)
+    return _n, _loops
+
+_kc = _wsm.connect; _wsm.connect = lambda *_a, **_k: _FakeConn()
+try:
+    _n3, _l3 = asyncio.get_event_loop().run_until_complete(_press_thrice())
+finally:
+    _wsm.connect = _kc
+ok("crypto reconnect: three rebuilds at the same moment leave ONE connection to the exchange", _n3 == 1 and _l3 == 1, f"{_n3} connections, {_l3} loops")
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

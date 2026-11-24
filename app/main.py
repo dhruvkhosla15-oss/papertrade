@@ -2547,6 +2547,12 @@ def _forget_number(db, uid: int):
     before 18 Nov 2026). Never called for an account that exists."""
     from .db import DaySnap, Setting
     db.query(DaySnap).filter_by(user_id=uid).delete()
+    if uid:
+        # the Shadow Book's peak-margin lines of that number (25 Nov 2026: they stayed, and the next account given
+        # the number was shown in the Shadow Book with the deleted account's peak margin). Line 0, everybody
+        # together, is the day's history and stays.
+        from .margin_watch import MarginPeak
+        db.query(MarginPeak).filter_by(user_id=uid).delete()
     for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_", "logout_"):
         db.query(Setting).filter_by(key=f"{k}{uid}").delete()
     from . import auth as _auth

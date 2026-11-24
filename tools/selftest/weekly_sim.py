@@ -1300,6 +1300,12 @@ try:
     _calc.basket_order_margins = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("calculator down"))
     trade("mwatch", F_NIFTY, "BUY", 1); _r = _MW.sample(_mw_db, feed, {_mwu.id}, M.SHADOW_EXCHANGES); trade("mwatch", F_NIFTY, "SELL", 1)
     ok("margin watch: a calculator that does not answer is only noted (trades not measured are counted)", _r["real"] is None and _MW.peaks(_mw_db)[0]["missed"] >= 1, str(_r))
+    # a deleted account: nothing of it stays in the recorder, and the next account with the same number starts clean
+    _mw_db.add(_MW.MarginPeak(day="2026-11-20", user_id=999_999, rule_peak=5.0)); _mw_db.add(_MW.MarginPeak(day="2026-11-20", user_id=0, rule_peak=7.0)); _mw_db.commit()
+    M._forget_number(_mw_db, 999_999); _mw_db.commit()
+    ok("margin watch: forgetting an account number removes its lines and leaves the figure for everybody together",
+       _mw_db.query(_MW.MarginPeak).filter_by(user_id=999_999).count() == 0 and _mw_db.query(_MW.MarginPeak).filter_by(day="2026-11-20", user_id=0).count() == 1)
+    _mw_db.query(_MW.MarginPeak).filter_by(day="2026-11-20").delete(); _mw_db.commit()
 finally:
     feed.kite, feed.access_token = _mw_keep[0], _mw_keep[1]
     _MW._state.clear(); _MW._state.update(_mw_keep[2])

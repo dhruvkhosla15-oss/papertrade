@@ -1,4 +1,4 @@
-limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; corrected and live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers everything since 21 Nov.)
+limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; corrected and live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers all since 21 Nov.)
 
 Technology: found. While the recorder asked the broker's margin calculator, every order waited (9 seconds in a test). It no longer holds anything up and is now a watched job. Reconnect crypto pressed twice could leave two connections that Disconnect did not close; now always one. Clean start, 9 jobs running, domain alarm fires, a forced restart lost none of 2,919 orders, restore drill and old-database test passed. 100 users: screens 28 ms, orders 50 ms. Double the last figures, but the old code is as slow on tonight's test machine: it is the machine, not the site.
 
@@ -12,7 +12,7 @@ UI: found. Your changes of 21 to 24 Nov all work on phone and computer and now h
 
 Risk: found. 230 hard moves; warning, shortfall, only the lots needed, one charge all held. After a 10% gap 10 lakh coins end about 30 lakh below zero in Crypto, Forex and Global, 17 lakh below in Currency; NSE, BSE, MCX stay above zero. Unchanged; no new limit.
 
-User experience: clean. New user: 55 taps, each under 1 second. Every refusal read: all plain.
+User experience: clean. New user: 55 taps, each under 1 second. All refusals read: plain.
 
 Compliance (not a legal opinion): clean but for the deleted account's figure. Two-step login cannot be skipped, passwords appear nowhere, new buttons leave a record. Whether the business is within the law is for your lawyer and accountant.
 

@@ -1932,3 +1932,10 @@ the exchange, a fallback that reads crypto prices over the exchange's REST addre
   old connection and its retries, reloads the contract list, connects at once) and tells the Master within 20 s whether
   prices are arriving. Six quick drops in a row do the same by themselves (at most every 15 min). "Reconnect forex" is
   always shown once a token is saved and drops the old connection at once. Do not hide these buttons in any state.
+
+## 24 Nov 2026, 9:00 am — Zerodha prices stuck at "connecting" after the morning login
+Login worked 10 times (today's login saved, contract list downloaded) but the price connection never opened. Cause:
+since 19 Nov the site stops retrying a refused login; with nothing left to do, the price library's background
+loop (Twisted reactor) sits idle, and a new connection asked for from another thread is never picked up until
+something wakes the loop. A restart (this note's release) starts the loop fresh. Proper fix to follow: start and
+close the Zerodha connection through reactor.callFromThread.

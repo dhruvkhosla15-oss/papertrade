@@ -762,7 +762,7 @@ class Engine:
             lo = min(tk.get("bid") or anchor, anchor) * (1 - ins.price_band_pct / 100)
             hi = max(tk.get("ask") or anchor, anchor) * (1 + ins.price_band_pct / 100)
             if ref and anchor and not (lo <= ref <= hi):
-                raise EngineError(f"Price outside the exchange band (±{ins.price_band_pct:g}% around {anchor}) — the exchange would reject this order")
+                raise EngineError(f"This price is too far from the market: the exchange only takes prices within {ins.price_band_pct:g}% of the current price ({anchor}) — choose a price nearer to it")
         if leverage is not None:
             if not ins.leverage_options:
                 leverage = None

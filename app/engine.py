@@ -1520,10 +1520,12 @@ class Engine:
             order = Order(user_id=user.id, token=p.token, symbol=symbol, exchange=p.exchange, side=side,
                           order_type="MARKET", lots=filled // ins.lot_size, qty=filled, status="OPEN")
             db.add(order); db.flush()
+            held = abs(p.qty)
             self._fill(db, user, order, px)
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px
                 charged += self._liq_charge(db, user, order, ins, px)
+                self._trim_exits(db, user, p, held)
                 closed.append(f"{filled // ins.lot_size} lot{'s' if filled // ins.lot_size != 1 else ''} of {symbol}")
                 detail.append(f"{closed[-1]} at {_px_words(ins.exchange, px)}")
             self._emit(user.id, {"type": "order", "order": self.order_dict(order)})
@@ -1543,6 +1545,28 @@ class Engine:
                                    f"₹{f['available']:,.0f}. Closed {', '.join(closed)} at market. Available Balance now ₹{after:,.0f}.")
         else:
             db.commit()
+
+    def _trim_exits(self, db: Session, user: User, p: Position, held: int):
+        """The auto square-off has just closed PART of a position (held = its size before). A stop-loss or
+        target the user had resting for that position is now bigger than what is left of it. Left as it
+        was, the stop was refused at the very moment its price was reached ("Insufficient coins": selling
+        3 lots while holding 2 opens a short that needs margin the account does not have) and the lots still
+        open had no stop any more; a target was filled in full and left the account SHORT by the lots the
+        square-off had taken (found 25 Nov 2026, in all seven markets). Such an order is cut down to the
+        position that is left, so it goes on doing what the user placed it for: closing the position. Only
+        orders that were no bigger than the position before this square-off are touched (an order the user
+        himself made bigger than his position is his own choice); no margin is reserved on them, so no
+        coins move."""
+        left = abs(p.qty or 0)
+        if not left or p.is_closed or left >= held:
+            return
+        exit_side = "SELL" if p.qty > 0 else "BUY"
+        lot = max(p.lot_size or 1, 1)
+        for o in db.query(Order).filter_by(user_id=user.id, token=p.token, status="OPEN", side=exit_side).all():
+            if left < (o.qty or 0) <= held and not (o.margin_blocked or 0):
+                o.qty = left; o.lots = left // lot
+                o.reason = f"Reduced to {o.lots} lot{'s' if o.lots != 1 else ''} — part of the position was squared off (margin shortfall)"
+                self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
 
     def _liquidate(self, db: Session, user: User, f: dict):
         """Force-close every open position at the book (what the exchange/broker RMS does), cancel

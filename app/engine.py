@@ -1188,6 +1188,8 @@ class Engine:
                     if not user:
                         continue
                     try:
+                        if self._half_priced(db, uid):
+                            continue        # judged on the next pass, when the account's other contracts have opened too
                         f = self.funds(db, user)
                         self._margin_notice(user, f, strict, strict_from)
                         self.week_grace_tick(db, user, f)
@@ -1201,6 +1203,29 @@ class Engine:
                         db.rollback()
             finally:
                 db.close()
+
+    OPEN_WAIT_SECS = 30.0       # how long an account is not judged while some of its contracts have no price of the new session yet
+
+    def _half_priced(self, db: Session, uid: int) -> bool:
+        """True in the first seconds of a session while SOME of the account's contracts already have their
+        first price and others, in a market that opened less than OPEN_WAIT_SECS ago, do not. The account
+        is then valued half at today's prices and half at the last closing prices. An account long NIFTY
+        and short BANKNIFTY, on a morning that opened 5% lower, had a NIFTY lot squared off (10%: both, and
+        was left with the short alone) because the index future's first price arrived a few seconds before
+        the other one's, although it was never short of margin (25 Nov 2026). Such an account is judged
+        once all its contracts have opened, or after OPEN_WAIT_SECS whatever has arrived."""
+        waiting = priced = False
+        for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
+            ins = self.feed.instruments.get(p.token)
+            if not p.qty or ins is None or not self.tradable_now(ins):
+                continue
+            opened = self.session_opened(ins)
+            if opened is not None and not self.session_price(ins):
+                if time.time() - opened < self.OPEN_WAIT_SECS:
+                    waiting = True
+            else:
+                priced = True
+        return waiting and priced
 
     def _force_close(self, db: Session, user: User, p: Position, note: str) -> bool:
         """Close a position at the book with a system MARKET order (liquidation / intraday square-off)."""

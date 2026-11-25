@@ -209,7 +209,8 @@ urows = [r for r in ms[8:] if r[1] and r[0] != "TOTAL"]
 ok("Master summary Excel: the same accounts as the Users list, a deleted one marked deleted (not frozen) under its plain name",
    sorted(r[1] for r in urows) == sorted(re.sub(r"~deleted\d+$", "", u["username"]) for u in users_l)
    and [r[2] for r in urows if r[1] == o1n] and all(r[2] == "deleted" for r in urows if r[0] == "Owner user" and r[13] == 2)
-   and "~deleted" not in str(ms) and "1 deleted" in str(ms[1][0]), str([(r[1], r[2]) for r in urows]) + str(ms[1][0]))
+   and "~deleted" not in str(ms) and f"{len([u for u in users_l if u['deleted']])} deleted" in str(ms[1][0])
+   and f"{len([u for u in users_l if not u['deleted']])} Users" in str(ms[1][0]), str([(r[1], r[2]) for r in urows]) + str(ms[1][0]))
 def sheet_weeks(wb_):
     rows = [r for r in wb_["Weekly Settlement"].iter_rows(values_only=True)][4:]
     return sorted((r[1], str(r[2])) for r in rows if r[1] in ("FINAL", "PROVISIONAL"))

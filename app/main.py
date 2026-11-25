@@ -2647,8 +2647,20 @@ class CoinsIn(BaseModel):
     note: str = ""
 
 
+# Every movement of coins waits for its turn, as an order does (26 Nov 2026). These calls used to read the coins,
+# work out the new figure and write it back with nothing held: two of them at the same instant (two tabs, a double
+# click), or one of them and a fill, each wrote its own figure and one change was lost while both ledger lines
+# stayed. A master gave 100,000 coins to each of two users at once from a stock of 100,000 and both were accepted;
+# taking them back left him 200,000. Nothing slow is done while the turn is held (a password is worked out before).
 @app.post("/api/admin/users/{uid}/coins")
-def admin_coins(uid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+async def admin_coins_turn(uid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    db.rollback()      # no database connection is held while waiting for the turn
+    async with engine._lock:
+        db.expire_all()
+        return admin_coins(uid, body, admin, db)
+
+
+def admin_coins(uid: int, body: CoinsIn, admin: User = None, db: Session = None):
     u = _owners_user(db, uid)
     body.amount = round(float(body.amount), 2)      # whole paise only (owner's decision, 21 Nov 2026): 250000.335 was booked as .33 in the ledger and .34 on the balance
     _b = u.balance or 0.0
@@ -2696,7 +2708,14 @@ def _patch_user(db, u: User, body: UserPatch):
 
 
 @app.delete("/api/admin/users/{uid}")
-def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+async def admin_delete_user_turn(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    db.rollback()
+    async with engine._lock:      # in its turn: no order of the account can fill between the "is it flat" look and the delete
+        db.expire_all()
+        return admin_delete_user(uid, admin, db)
+
+
+def admin_delete_user(uid: int, admin: User = None, db: Session = None):
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404)
@@ -2959,8 +2978,15 @@ def masters_one(mid: int, admin: User = Depends(current_admin), db: Session = De
 
 
 @app.post("/api/admin/masters/{mid}/stock")
-def masters_stock(mid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+async def masters_stock(mid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """Give a master more coins to hand out (+), or take back coins he has not handed out (-)."""
+    db.rollback()
+    async with engine._lock:      # coins move one at a time (see admin_coins)
+        db.expire_all()
+        return _masters_stock(db, mid, body)
+
+
+def _masters_stock(db, mid: int, body: CoinsIn):
     m = _the_master(db, mid)
     amt = _coins_amount(body.amount)
     if not amt:
@@ -3032,18 +3058,28 @@ def master_users(me: User = Depends(current_master), db: Session = Depends(get_d
 
 
 @app.post("/api/master/users")
-def master_create_user(body: UserIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
+async def master_create_user(body: UserIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
     if not uname or len(uname) > 64 or db.query(User).filter_by(username=uname).first():
         raise HTTPException(400, "Username empty or already exists")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
+    db.rollback()
+    pw_hash = await asyncio.get_event_loop().run_in_executor(None, hash_password, body.password)   # slow on purpose: never while the turn is held
+    async with engine._lock:      # coins move one at a time (see admin_coins)
+        db.expire_all()
+        return _master_create_user(db, me, body, uname, pw_hash)
+
+
+def _master_create_user(db, me: User, body: UserIn, uname: str, pw_hash: str):
+    if db.query(User).filter_by(username=uname).first():
+        raise HTTPException(400, "Username empty or already exists")
     coins = _coins_amount(body.initial_coins or 0)
     if coins < 0:
         raise HTTPException(400, "The first coins cannot be below zero")
     if coins > (me.balance or 0.0) + 1e-9:
         raise HTTPException(400, f"You hold {me.balance or 0.0:,.2f} coins. Ask for more before giving {coins:,.2f}")
-    u = User(username=uname, display_name=(body.display_name or uname)[:128], password_hash=hash_password(body.password),
+    u = User(username=uname, display_name=(body.display_name or uname)[:128], password_hash=pw_hash,
              must_change_password=True, master_id=me.id)
     db.add(u); db.flush()
     _forget_number(db, u.id)
@@ -3056,8 +3092,15 @@ def master_create_user(body: UserIn, me: User = Depends(current_master), db: Ses
 
 
 @app.post("/api/master/users/{uid}/coins")
-def master_coins(uid: int, body: CoinsIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
+async def master_coins(uid: int, body: CoinsIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
     """Deposit to a user from the master's stock (+), or withdraw from a user back into it (-)."""
+    db.rollback()
+    async with engine._lock:      # coins move one at a time (see admin_coins)
+        db.expire_all()
+        return _master_coins(db, uid, body, me)
+
+
+def _master_coins(db, uid: int, body: CoinsIn, me: User):
     u = _his_user(db, uid, me)
     amt = _coins_amount(body.amount)
     if not amt:
@@ -3093,9 +3136,12 @@ async def master_squareoff(uid: int, me: User = Depends(current_master), db: Ses
 
 
 @app.delete("/api/master/users/{uid}")
-def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
+async def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
     """A master deletes one of his users: the account is shut, its coins return to his stock, its records remain."""
-    return _delete_user(db, _his_user(db, uid, me), master=me)
+    db.rollback()
+    async with engine._lock:      # in its turn (see admin_delete_user)
+        db.expire_all()
+        return _delete_user(db, _his_user(db, uid, me), master=me)
 
 
 @app.get("/api/master/users/{uid}/detail")

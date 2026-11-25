@@ -202,5 +202,74 @@ ok("resumed", login(m1n, "mine12345").get("/api/master/me").status_code == 200)
 own.patch(f"/api/admin/masters/{M1}", json={"password": "again1234"})
 ok("owner's password reset ends the master's old logins", m1.get("/api/master/me").status_code == 401)
 
+# ---- Technology officer, 26 Nov 2026: coins move one at a time ----
+# Found: two movements of coins at the same instant (two tabs, a double click) each read the stock, worked out its
+# own new figure and wrote it: from a stock of 100,000 a master gave 100,000 to each of two users, both accepted,
+# and taking them back left him 200,000. Each movement now waits for its turn, as an order does.
+import threading
+
+
+def at_once(*calls):
+    gate, out = threading.Barrier(len(calls)), [None] * len(calls)
+
+    def go(i, f):
+        gate.wait()
+        try:
+            out[i] = f().status_code
+        except Exception as e:      # a dropped connection is not an answer
+            out[i] = type(e).__name__
+    th = [threading.Thread(target=go, args=(i, f)) for i, f in enumerate(calls)]
+    [t.start() for t in th]; [t.join() for t in th]
+    return out
+
+
+m3n = f"mthree{tag}"
+M3 = own.post("/api/admin/masters", json={"username": m3n, "display_name": "Master Three", "password": "first123", "share_pct": 10, "stock": 100000}).json()["id"]
+m3 = login(m3n, "first123", "mine12345"); m3b = login(m3n, "mine12345")
+c1 = m3.post("/api/master/users", json={"username": f"uc{tag}", "password": "first123", "initial_coins": 0}).json()["id"]
+c2 = m3.post("/api/master/users", json={"username": f"ud{tag}", "password": "first123", "initial_coins": 0}).json()["id"]
+books = lambda: (lambda d: (d["stock"], d["with_users"], d["given"]))(own.get(f"/api/admin/masters/{M3}").json())
+coins_of = lambda uid: own.get(f"/api/admin/users/{uid}/detail").json()["user"]["balance"]
+bad, answers = [], set()
+for _ in range(12):
+    r = at_once(lambda: m3.post(f"/api/master/users/{c1}/coins", json={"amount": 100000}), lambda: m3b.post(f"/api/master/users/{c2}/coins", json={"amount": 100000}))
+    answers.add(tuple(sorted(r)))
+    s_, w_, g_ = books()
+    if sorted(r) != [200, 400] or (s_, w_, g_) != (0.0, 100000.0, 100000.0) or coins_of(c1) + coins_of(c2) != 100000.0:
+        bad.append((r, s_, w_, g_))
+    for u_ in (c1, c2):
+        if coins_of(u_) > 0:
+            m3.post(f"/api/master/users/{u_}/coins", json={"amount": -coins_of(u_)})
+    if books() != (100000.0, 0.0, 100000.0):
+        bad.append(("after taking back", books())); break
+ok("coins at once: a stock of 100,000 given whole to two users at the same instant goes to one of them only, every time (12 rounds)", not bad, f"{bad[:2]} answers {answers}")
+bad = []
+for _ in range(12):
+    r = at_once(lambda: m3.post(f"/api/master/users/{c1}/coins", json={"amount": 60000}), lambda: m3b.post(f"/api/master/users/{c1}/coins", json={"amount": 60000}))
+    if sorted(r) != [200, 400] or books() != (40000.0, 60000.0, 100000.0) or coins_of(c1) != 60000.0:
+        bad.append((r, books(), coins_of(c1)))
+    m3.post(f"/api/master/users/{c1}/coins", json={"amount": -coins_of(c1)})
+ok("coins at once: the same gift pressed twice at the same instant is given once when the stock covers only one (12 rounds)", not bad and books() == (100000.0, 0.0, 100000.0), f"{bad[:2]} {books()}")
+bad = []
+for k in range(8):
+    r = at_once(lambda: m3.post("/api/master/users", json={"username": f"ue{k}{tag}", "password": "first123", "initial_coins": 100000}),
+                lambda: m3b.post("/api/master/users", json={"username": f"uf{k}{tag}", "password": "first123", "initial_coins": 100000}))
+    s_, w_, g_ = books()
+    if sorted(r) != [200, 400] or (s_, w_, g_) != (0.0, 100000.0, 100000.0):
+        bad.append((r, s_, w_, g_))
+    for u_ in m3.get("/api/master/users").json():
+        if u_["balance"] > 0:
+            m3.post(f"/api/master/users/{u_['id']}/coins", json={"amount": -u_["balance"]})
+ok("coins at once: two new users each given the whole stock at the same instant: one is created with the coins, the other refused (8 rounds)", not bad, str(bad[:2]))
+r = at_once(lambda: own.post(f"/api/admin/masters/{M3}/stock", json={"amount": -100000}), lambda: m3.post(f"/api/master/users/{c1}/coins", json={"amount": 100000}))
+s_, w_, g_ = books()
+ok("coins at once: the owner takes the stock back while the master hands it out: one of the two happens, the books add up",
+   sorted(r) == [200, 400] and s_ == 0.0 and (w_, g_) in ((0.0, 0.0), (100000.0, 100000.0)), f"{r} {s_} {w_} {g_}")
+o2 = own.post("/api/admin/users", json={"username": f"uo2{tag}", "password": "first123", "initial_coins": 1000}).json()["id"]
+r = at_once(*[(lambda: client_own.post(f"/api/admin/users/{o2}/coins", json={"amount": 10})) for client_own in [own, login("admin", "admin123"), login("admin", "admin123"), login("admin", "admin123")] for _ in range(5)])
+led = own.get(f"/api/admin/users/{o2}/detail").json()
+ok("coins at once: twenty gifts of 10 coins from the owner at the same instant all arrive (ledger and coins agree)",
+   r == [200] * 20 and led["user"]["balance"] == 1200.0 and round(sum(l["amount"] for l in led["ledger"]), 2) == 1200.0, f"{r} {led['user']['balance']}")
+
 print(f"\nMASTERS {sum(res)} passed, {len(res) - sum(res)} failed")
 sys.exit(0 if all(res) else 1)

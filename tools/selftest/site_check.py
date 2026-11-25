@@ -472,6 +472,37 @@ def ui_block_25nov(br, actx, uctx, ok, near):
     ctx.close()
 
 
+def ui_block_26nov(br, actx, uctx, ok, near):
+    """UI / user experience officer, 26 Nov 2026. (1) The Master's user panel, Coin ledger: a long note (a week-close
+    valuation, a long deposit note) pushed "Balance after" off the right edge of the panel on a computer screen, so
+    only its first digit could be read; the note now wraps. (The look-only panel for a master's user is in masters_screens_check.py.)"""
+    A = actx.request
+    ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
+    page = ctx.new_page(); errs = []; page.on("pageerror", lambda e: errs.append(str(e)))
+    page.on("dialog", lambda d: d.dismiss())
+    page.goto(f"{B}/admin")
+
+    def until(js, ms=10000):
+        try:
+            page.wait_for_function(js if js.lstrip().startswith(("(", "async")) else "() => (" + js + ")", timeout=ms); return True
+        except Exception:
+            return False
+    try:
+        until("document.querySelectorAll('#uTbl tbody tr[data-id]').length > 0", 15000)
+        uid = next((u["id"] for u in A.get(f"{B}/api/admin/users").json() if u.get("username") == "sitecheck"), None)
+        A.post(f"{B}/api/admin/users/{uid}/coins", data={"amount": 1, "note": "a long note the Master typed, as long as the box lets him type: one hundred and twenty characters of it, no less than"[:120]})
+        page.click(f"#uTbl tbody tr[data-id='{uid}']"); until("!document.querySelector('#detail').classList.contains('hidden') && document.querySelector('#dName').textContent.length > 2")
+        page.click("#detail [data-dt=ledger]"); until("[...document.querySelectorAll('#detail table')].some(t => t.tHead && /Balance after/.test(t.tHead.innerText) && t.tBodies[0].rows.length > 3)")
+        m = page.evaluate("""() => { const box = document.querySelector('#detail .box').getBoundingClientRect(); const rows = [...document.querySelectorAll('#detail table')].filter(t => t.getClientRects().length && t.tHead && /Balance after/.test(t.tHead.innerText)).flatMap(t => [...t.tBodies[0].rows]);
+            const last = rows.map(r => r.cells[r.cells.length - 1].getBoundingClientRect().right); const head = [...document.querySelectorAll('#detail table')].filter(t => t.getClientRects().length).map(t => t.tHead ? t.tHead.innerText : '').join(' ');
+            return {rows: rows.length, worst: Math.max(...last), box: box.right, head}; }""")
+        ok("Master user panel (1440 wide): in the Coin ledger every 'Balance after' is on the screen in full (a long note wraps)",
+           m["rows"] > 3 and "Balance after" in m["head"] and m["worst"] <= m["box"] + 0.5, m)
+    except Exception as e:
+        ok("UI block 26 Nov ran to its end", False, repr(e)[:300])
+    ctx.close()
+
+
 def main():
     with sync_playwright() as pw:
         br = pw.chromium.launch()
@@ -1267,6 +1298,7 @@ def main():
         ok("Master user panel: a forex price keeps its decimals, and nothing reads '-0.00'", fxp == [True, True, True, False, "0.00"], fxp)
         # ======== end of the UI / user experience block of 21 Nov 2026 ========
         ui_block_25nov(br, actx, uctx, ok, near)   # UI / user experience officer's block, 25 Nov 2026 (above main)
+        ui_block_26nov(br, actx, uctx, ok, near)   # UI / user experience officer's block, 26 Nov 2026 (above main)
 
         tech_block(br, actx, ok)                          # Technology officer's block, 25 Nov 2026 (above main)
 

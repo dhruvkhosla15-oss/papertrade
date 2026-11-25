@@ -42,7 +42,7 @@ async def main():
         await m.fill("#nUser","testuser"); await m.fill("#nName","Test User"); await m.fill("#nPass","first123"); await m.fill("#nCoins","500000"); await m.click("#nBtn"); await m.wait_for_timeout(2500)
         ok("master: user created, coins left 50,000, coins with users 50,000", num(await m.inner_text("#sStock"))==500000 and num(await m.inner_text("#sWith"))==500000 and "Test User" in await m.inner_text("#uT tbody"), await m.inner_text("#sStock"))
         await m.click("#uT tr[data-u]"); await m.wait_for_timeout(1500)
-        await m.fill("#dAmt","10000"); await m.click("#dDep"); await m.wait_for_timeout(2500)
+        await m.fill("#dAmt","10000"); await m.fill("#dNote",("a long note typed by the master, as long as the box lets him type, "*3)[:120]); await m.click("#dDep"); await m.wait_for_timeout(2500)
         await m.fill("#dAmt","5000"); await m.click("#dWd"); await m.wait_for_timeout(2500)
         ok("master: deposit 10,000 and withdraw 5,000 by the buttons: coins left 45,000", num(await m.inner_text("#sStock"))==495000 and num(await m.inner_text("#sWith"))==505000, await m.inner_text("#sStock"))
         await m.fill("#dAmt","99999999"); await m.click("#dDep"); await m.wait_for_timeout(1500)
@@ -76,6 +76,12 @@ async def main():
         # every one is refused by the server, and Freeze and Reset password said nothing at all (a script error the page hid)
         shown=await o.evaluate("() => ['#dSquare','#dFreeze','#dPass','#d2fa','#dDelete','#dAccWrap','#dLook'].filter(s => { const e=document.querySelector('#detail '+s); return e && e.getClientRects().length>0; })")
         ok("owner: his user's panel offers no button that would change him, and says that only his master does", shown==['#dLook'] and "only his master" in await o.inner_text("#dLook"), shown)
+        FITS="() => { const box=document.querySelector('#detail .box').getBoundingClientRect(); const rows=[...document.querySelectorAll('#detail table')].filter(t=>t.getClientRects().length&&t.tHead&&/Balance after/i.test(t.tHead.innerText)).flatMap(t=>[...t.tBodies[0].rows]); return [rows.length, Math.max(...rows.map(r=>r.cells[r.cells.length-1].getBoundingClientRect().right)) <= box.right+0.5]; }"
+        await o.click("#detail [data-dt=ledger]"); await o.wait_for_timeout(1200); fit=await o.evaluate(FITS)
+        ok("owner: his user's coin ledger shows every balance in full on a computer screen (a long note wraps)", fit[0]>=3 and fit[1], fit)
+        mw=await b.new_context(viewport={"width":1280,"height":900}); await mw.add_cookies(await mc.cookies()); m2=await mw.new_page(); await m2.goto(B+"/admin"); await m2.wait_for_timeout(3500)
+        await m2.click("#uT tr[data-u]"); await m2.wait_for_timeout(1500); await m2.click("#detail [data-dt=ledger]"); await m2.wait_for_timeout(800); fit=await m2.evaluate(FITS)
+        ok("master: a user's Coins list shows every balance in full on a computer screen (a long note wraps)", fit[0]>=3 and fit[1], fit); await mw.close()
         # ---- master deletes ----
         await m.click("[data-nav=users]"); await m.wait_for_timeout(800); await m.click("#uT tr[data-u]"); await m.wait_for_timeout(1500); await m.click("#dDel"); await m.wait_for_timeout(3000)
         ok("master: the flat user is deleted, coins all back (1,00,000), user greyed 'deleted'", num(await m.inner_text("#sStock"))==1000000 and num(await m.inner_text("#sWith"))==0 and "deleted" in await m.inner_text("#uT tbody"), await m.inner_text("#uT tbody"))

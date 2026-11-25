@@ -318,6 +318,61 @@ r = m3.post("/api/master/users", json={"username": ("y" + tag) * 9 + "y", "passw
 r2 = m3.delete(f"/api/master/users/{r.json()['id']}") if r.status_code == 200 else r
 r3 = m3.post("/api/master/users", json={"username": ("y" + tag) * 9 + "y", "password": "first123", "initial_coins": 0})
 ok("delete: the same for a master's user with a 64-letter name", (r.status_code, r2.status_code, r3.status_code) == (200, 200, 200), f"{r.status_code} {r2.status_code} {r3.status_code}")
+# ---- coins cannot be made out of nothing by firing deposits at the same instant (26 Nov 2026) ----
+# A master's stock is read, checked to be enough, then the move is booked. Two deposits firing together used
+# to read the same stock, both pass and both book: coins the owner never gave. The stock moves now take their
+# turn, so stock + coins with his users = coins the owner gave, however many fire at once.
+import threading
+rc = own.post("/api/admin/masters", json={"username": f"mrace{tag}", "display_name": "Race", "password": "first123", "share_pct": 20, "stock": 1000000})
+if rc.status_code == 200:
+    MR = rc.json()["id"]; mr = login(f"mrace{tag}", "first123", "mine12345")
+    N, AMT = 12, 90000                                   # a stock of 1,000,000 funds only 11 such deposits
+    ruids = [mr.post("/api/master/users", json={"username": f"ur{tag}{i}", "password": "first123", "initial_coins": 0}).json()["id"] for i in range(N)]
+    bar = threading.Barrier(N); succ = [0] * N
+    def _dep(i, uid):
+        cl = httpx.Client(base_url=BASE, timeout=120, cookies=mr.cookies)
+        bar.wait()
+        succ[i] = 1 if cl.post(f"/api/master/users/{uid}/coins", json={"amount": AMT}).status_code == 200 else 0
+    ts = [threading.Thread(target=_dep, args=(i, uid)) for i, uid in enumerate(ruids)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    meR = mr.get("/api/master/me").json(); nsucc = sum(succ)
+    ok("deposits firing together cannot overspend the stock (coins from nothing)",
+       abs(meR["stock"] + meR["with_users"] - meR["given"]) < 0.01 and nsucc <= 1000000 // AMT,
+       f"{nsucc}/{N} succeeded; stock={meR['stock']} with_users={meR['with_users']} given={meR['given']}")
+    for uid in ruids:
+        mr.post(f"/api/master/users/{uid}/coins", json={"amount": -AMT})
+        mr.delete(f"/api/master/users/{uid}")
+
+    # ---- deleting a user at the same instant his order fills: never a shut account still holding a position ----
+    # The delete's "no open positions" check and the fill used to run side by side (delete has the stock lock,
+    # the fill has the order lock): the check saw no position, the account was shut, then the fill opened one on
+    # the shut account (seen 26 Nov 2026, 5 of 15 tries). The delete now takes the order lock too, so the two
+    # take turns: the fill goes first (delete refused — open position) or the delete goes first (order refused —
+    # account frozen). Never both.
+    ctok = next((x["token"] for x in own.get("/api/search?q=BTC").json() if x.get("exchange") == "CRYPTO"), None)
+    stuck = 0
+    if ctok:
+        for i in range(10):
+            ruid = mr.post("/api/master/users", json={"username": f"udr{tag}{i}", "password": "first123", "initial_coins": 400000}).json()["id"]
+            ru = login(f"udr{tag}{i}", "first123", "mine12345")
+            bar2 = threading.Barrier(2)
+            def _ord():
+                cl = httpx.Client(base_url=BASE, timeout=120, cookies=ru.cookies); bar2.wait()
+                cl.post("/api/orders", json={"token": ctok, "side": "BUY", "lots": 1})
+            def _del():
+                cl = httpx.Client(base_url=BASE, timeout=120, cookies=mr.cookies); bar2.wait()
+                cl.delete(f"/api/master/users/{ruid}")
+            t1 = threading.Thread(target=_ord); t2 = threading.Thread(target=_del)
+            t1.start(); t2.start(); t1.join(); t2.join(); time.sleep(0.3)
+            row = [x for x in mr.get("/api/master/users").json() if x["id"] == ruid]
+            poss = mr.get(f"/api/master/users/{ruid}/detail").json().get("positions", [])
+            if row and row[0].get("deleted") and poss:
+                stuck += 1
+            else:
+                mr.post(f"/api/master/users/{ruid}/squareoff"); time.sleep(0.3); mr.delete(f"/api/master/users/{ruid}")
+    ok("deleting a user as his order fills never shuts the account with a position still open", ctok is not None and stuck == 0, f"stuck={stuck}")
+else:
+    ok("a master for the concurrency check can be created", False, rc.text[:120])
 
 print(f"\nMASTERS {sum(res)} passed, {len(res) - sum(res)} failed")
 sys.exit(0 if all(res) else 1)

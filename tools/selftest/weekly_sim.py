@@ -1915,6 +1915,170 @@ for _k, _v in _ck.items():
     D.set_setting(db, _k, _v or "")
 db.commit()
 
+# ==== Risk officer, 26 Nov 2026 ====================================================================================
+# The owner approved held items 2, 3 and 6 of 25 Nov on 25 Nov; they came to main without a check of their own.
+# ---- item 2: the rest of a stop-loss that met fewer buyers than it needs keeps resting as a stop ------------------
+# (Before: a stop for 7 crude lots that met 2 visible lots sold 2, and the other 5 lots had no stop any more.)
+W31 = W20 + timedelta(days=77)
+at(day(W31, 1, 11)); px(crude=6000, nifty=30000)
+
+
+def _thin(tok, last, bid, lots_bid, ask=None):
+    """A book with only lots_bid lots of buyers (0 = nobody)."""
+    _i = feed.instruments[tok]; ask = ask or round(bid + _i.tick_size * 2, 4)
+    feed.prices[tok] = {"token": tok, "ltp": last, "bid": bid if lots_bid else None, "ask": ask, "ts": time.time(), "ltt": time.time(),
+                        "bids": [[bid, lots_bid * _i.lot_size, 1]] if lots_bid else [], "asks": [[ask, 10 ** 8, 1]]}
+
+
+def _rq(n, tok):
+    return sum(p.qty for p in db.query(Position).filter_by(user_id=users[n].id, token=tok, is_closed=False))
+
+
+def _resting(n, tok):
+    return db.query(Order).filter_by(user_id=users[n].id, token=tok, status="OPEN").order_by(Order.id).all()
+
+
+def _pend(tok):
+    engine._pending_tokens.add(tok); run(engine._process_pending(tok, feed.prices[tok]["ltp"])); db.expire_all()
+
+
+_rcomm = lambda n: round(-sum(l.amount for l in db.query(Ledger).filter_by(user_id=users[n].id, kind="COMMISSION")), 2)
+
+
+def _stop_meets_two(n):
+    """7 crude lots with a stop-loss for all 7 at 5,900; its price is reached with buyers for 2 lots only."""
+    engine._consumed.clear(); px(crude=6000)
+    mk_user(n, 5_000_000)
+    trade(n, F_CRUDE, "BUY", 7)
+    o = trade(n, F_CRUDE, "SELL", 7, order_type="SL", trigger_price=5900.0, validity="GTT")
+    c0 = _rcomm(n)
+    engine._consumed.clear(); _thin(F_CRUDE, 5890.0, 5889.0, 2); _pend(F_CRUDE)
+    return db.get(Order, o.id), _resting(n, F_CRUDE), c0
+
+
+_o, _ra, _c0 = _stop_meets_two("rest_a")
+ok("stop on a thin book: the stop sells the 2 lots that have buyers, at the buyers' price, and says so",
+   _o.status == "FILLED" and _o.qty == 200 and _o.lots == 2 and near(_o.fill_price, 5889.0, 0.001) and "partial: 2 lots filled, 5 still open" in (_o.reason or ""),
+   f"{_o.status} {_o.qty} @ {_o.fill_price} {_o.reason}")
+ok("stop on a thin book: the 5 lots that found no buyer keep a stop of their own at the same price (they are not dropped)",
+   len(_ra) == 1 and _ra[0].order_type == "SL" and _ra[0].side == "SELL" and _ra[0].qty == 500 and _ra[0].lots == 5 and _ra[0].trigger_price == 5900.0
+   and _ra[0].validity == "GTT" and not _ra[0].margin_blocked and _rq("rest_a", F_CRUDE) == 500,
+   str([(o.order_type, o.qty, o.trigger_price, o.validity, o.margin_blocked) for o in _ra]))
+ok("stop on a thin book: the new order says which order it is the rest of", bool(_ra) and (_ra[0].reason or "") == f"remainder of order #{_o.id}", str(_ra[0].reason if _ra else None))
+ok("stop on a thin book: nothing was refused and one commission was charged for the lots sold",
+   not db.query(Order).filter(Order.user_id == users["rest_a"].id, Order.status == "REJECTED").count() and _rcomm("rest_a") > _c0
+   and db.query(Trade).filter_by(user_id=users["rest_a"].id, token=F_CRUDE, side="SELL").count() == 1, f"commission {_c0} -> {_rcomm('rest_a')}")
+# the market comes back above the stop's price, then falls through it again with buyers for 3 lots, then he exits himself
+if not _ra:                                                 # (no rest at all: the checks below would have nothing to look at)
+    _ra = [_o]
+engine._consumed.clear(); px(crude=5950); _pend(F_CRUDE)
+ok("stop on a thin book: the rest goes on waiting while the price is back above the stop's price (it is a stop, not a sale at any price)",
+   [o.id for o in _resting("rest_a", F_CRUDE)] == [o.id for o in _ra] and _rq("rest_a", F_CRUDE) == 500, f"{_rq('rest_a', F_CRUDE)}")
+engine._consumed.clear(); _thin(F_CRUDE, 5851.0, 5850.0, 3); _pend(F_CRUDE)
+_r1 = db.get(Order, _ra[0].id); _ra2 = _resting("rest_a", F_CRUDE)
+_ra2x = _ra2 or [_r1]
+ok("stop on a thin book: the rest is filled later at the live price of that moment (5,850), again only the lots that have buyers",
+   _r1.status == "FILLED" and _r1.qty == 300 and near(_r1.fill_price, 5850.0, 0.001) and _rq("rest_a", F_CRUDE) == 200
+   and len(_ra2) == 1 and _ra2[0].qty == 200 and _ra2[0].order_type == "SL", f"{_r1.status} {_r1.qty} @ {_r1.fill_price}; left {_rq('rest_a', F_CRUDE)}; resting {[(o.qty) for o in _ra2]}")
+engine._consumed.clear(); px(crude=5860)
+trade("rest_a", F_CRUDE, "SELL", 2)                         # he closes the last 2 lots himself
+ok("stop on a thin book: when the position is closed the rest of the stop is cancelled", not _resting("rest_a", F_CRUDE) and db.get(Order, _ra2x[0].id).status == "CANCELLED"
+   and _rq("rest_a", F_CRUDE) == 0, f"{db.get(Order, _ra2x[0].id).status} {_rq('rest_a', F_CRUDE)}")
+engine._consumed.clear(); px(crude=5800); _pend(F_CRUDE)
+ok("stop on a thin book: so a later fall through the stop's price sells nothing: the account is not left short",
+   _rq("rest_a", F_CRUDE) == 0 and engine.funds(db, users["rest_a"])["used_margin"] == 0, f"{_rq('rest_a', F_CRUDE)}")
+# the auto square-off takes part of what is left: the resting rest is cut down with it (item 5), and still closes the position
+_o, _rb, _c0 = _stop_meets_two("rest_b")
+_rb = _rb or [_o]
+engine._consumed.clear(); px(crude=5950)
+_fb = engine.funds(db, users["rest_b"]); _per = _fb["used_margin"] / 5
+coins("rest_b", -(_fb["available"] + _per * 1.5), "coins taken out")      # short of margin by one and a half lots
+run(engine._check_liquidations()); db.expire_all(); _rb = db.get(Order, _rb[0].id)
+ok("stop on a thin book, then a partial auto square-off: the rest of the stop is cut down to the lots that are left, with the sentence",
+   _rq("rest_b", F_CRUDE) == 300 and _rb.status == "OPEN" and _rb.qty == 300 and _rb.lots == 3
+   and (_rb.reason or "") == "Reduced to 3 lots — part of the position was squared off (margin shortfall)", f"left {_rq('rest_b', F_CRUDE)}; {_rb.status} {_rb.qty} {_rb.reason}")
+engine._consumed.clear(); px(crude=5895); _pend(F_CRUDE); _rb = db.get(Order, _rb.id)
+ok("stop on a thin book, then a partial auto square-off: at its price the rest closes exactly what is left (not refused, nothing short)",
+   _rb.status == "FILLED" and _rb.qty == 300 and near(_rb.fill_price, 5894.0, 0.001) and _rq("rest_b", F_CRUDE) == 0 and engine.funds(db, users["rest_b"])["used_margin"] == 0,
+   f"{_rb.status} {_rb.reason} left {_rq('rest_b', F_CRUDE)}")
+# a margin call (deep loss) closes everything: the rest of the stop goes with it
+_o, _rc, _c0 = _stop_meets_two("rest_c")
+_rc = _rc or [_o]
+engine._consumed.clear(); px(crude=5950)
+_fc = engine.funds(db, users["rest_c"])
+coins("rest_c", -(_fc["equity"] - _fc["maintenance"] * 0.5), "coins taken out")
+run(engine._check_liquidations()); db.expire_all()
+ok("stop on a thin book, then a margin call: the position is closed and the rest of the stop is cancelled with it",
+   _rq("rest_c", F_CRUDE) == 0 and db.get(Order, _rc[0].id).status == "CANCELLED" and not _resting("rest_c", F_CRUDE), f"{_rq('rest_c', F_CRUDE)} {db.get(Order, _rc[0].id).status}")
+engine._consumed.clear(); px(crude=5800); _pend(F_CRUDE)
+ok("stop on a thin book, then a margin call: a later fall through the stop's price opens no short", _rq("rest_c", F_CRUDE) == 0 and engine.funds(db, users["rest_c"])["used_margin"] == 0)
+for _n in ("rest_a", "rest_b", "rest_c"):
+    _ll = db.query(Ledger).filter_by(user_id=users[_n].id).order_by(Ledger.id.desc()).first()
+    ok(f"stop on a thin book: {_n}'s coins equal the last ledger line", near(users[_n].balance, _ll.balance_after, 0.011), f"{users[_n].balance} vs {_ll.balance_after}")
+
+# ---- item 3: a hedged account is not judged while one of its contracts has no price of the new session yet ---------
+# (Before: long NIFTY and short BANKNIFTY on a morning that opened 5% lower had a NIFTY lot squared off because the
+# first NIFTY price came a few seconds before the first BANKNIFTY price, although it was never short of margin.)
+import app.engine as _EN26                               # noqa: E402
+F_BANK, F_FIN = 46, 47
+feed.instruments[F_BANK] = Instrument(F_BANK, "BANKNIFTY27DECFUT", "BANKNIFTY", "NFO", "NFO-FUT", "FUT", FAR, 0, 30, 0.05)
+feed.instruments[F_FIN] = Instrument(F_FIN, "FINNIFTY27DECFUT", "FINNIFTY", "NFO", "NFO-FUT", "FUT", FAR, 0, 40, 0.05)
+at(day(W31, 2, 11)); engine._consumed.clear(); px(nifty=30000); feed.set(F_BANK, 60000); feed.set(F_FIN, 27000)
+mk_user("hedge", 2_000_000); trade("hedge", F_NIFTY, "BUY", 3); trade("hedge", F_BANK, "SELL", 4)       # long 67.5 lakh, short 72 lakh
+mk_user("hedge2", 1_900_000); trade("hedge2", F_NIFTY, "BUY", 3); trade("hedge2", F_FIN, "SELL", 6)     # its second contract will get no price at all
+mk_user("twolong", 2_000_000); trade("twolong", F_NIFTY, "BUY", 3); trade("twolong", F_BANK, "BUY", 4)  # no hedge: it loses on both
+mk_user("oneleg", 1_100_000); trade("oneleg", F_NIFTY, "BUY", 3)                                         # one contract only
+_hq = lambda n: tuple(_rq(n, t) for t in (F_NIFTY, F_BANK, F_FIN))
+_EN26.ENFORCE_MARKET_HOURS = True
+try:
+    at(day(W31, 4, 15, 29))
+    for _t in (F_NIFTY, I_NIFTY, F_BANK, F_FIN):
+        feed.set(_t, feed.prices[_t]["ltp"]); feed.prices[_t]["ts"] = time.time() - 3 * 86400            # Friday's last book
+    W.remember_marks(engine, db)
+    _mon = day(W31 + timedelta(days=7), 0, 9, 15)
+    at(_mon + timedelta(seconds=5)); feed.set(F_NIFTY, 28500); feed.set(I_NIFTY, 28500)                  # Monday opens 5% lower; NIFTY's first price is here,
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()                         # the other contracts' is not
+    ok("opening, hedged account: with NIFTY priced and BANKNIFTY not yet, it is not judged (nothing squared off)", _hq("hedge") == (225, -120, 0), str(_hq("hedge")))
+    ok("opening, hedged account: it is waiting only because of the 30 seconds", engine._half_priced(db, users["hedge"].id) and engine.funds(db, users["hedge"])["margin_short"],
+       str(engine.funds(db, users["hedge"])["available"]))
+    ok("opening, one contract: an account with a single contract is judged at its first price as before (lots squared off at 9:15:05)",
+       0 <= _hq("oneleg")[0] < 225 and not engine._half_priced(db, users["oneleg"].id), str(_hq("oneleg")))
+    _ol = db.query(Trade).filter_by(user_id=users["oneleg"].id, token=F_NIFTY).order_by(Trade.id.desc()).first()
+    ok("opening, one contract: at the price of the new session", _ol.side == "SELL" and near(_ol.price, 28499.95, 0.001), f"{_ol.side} @ {_ol.price}")
+    ok("opening, two losing contracts: it waits too (one contract has no price yet)", _hq("twolong") == (225, 120, 0), str(_hq("twolong")))
+    at(_mon + timedelta(seconds=20)); feed.set(F_BANK, 57000)                                            # BANKNIFTY's first price, 5% lower too
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _fh = engine.funds(db, users["hedge"])
+    ok("opening, hedged account: with both first prices it is judged, is not short and keeps every lot",
+       _hq("hedge") == (225, -120, 0) and not _fh["margin_short"] and not engine._half_priced(db, users["hedge"].id), f"{_hq('hedge')} available {_fh['available']}")
+    _ft = engine.funds(db, users["twolong"])
+    ok("opening, two losing contracts: with both first prices it IS judged: lots are squared off until it is no longer short (nobody escapes by waiting)",
+       sum(map(abs, _hq("twolong"))) < 345 and not _ft["margin_short"], f"{_hq('twolong')} available {_ft['available']}")
+    ok("opening, second contract never priced: still waiting 20 seconds after the opening", _hq("hedge2") == (225, 0, -240) and engine._half_priced(db, users["hedge2"].id), str(_hq("hedge2")))
+    at(_mon + timedelta(seconds=31))
+    engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
+    _f2 = engine.funds(db, users["hedge2"])
+    ok("opening, second contract never priced: after 30 seconds the account is judged on what has arrived (nothing is stuck for good)",
+       not engine._half_priced(db, users["hedge2"].id) and _hq("hedge2")[0] < 225 and _hq("hedge2")[2] == -240 and not _f2["margin_short"], f"{_hq('hedge2')} available {_f2['available']}")
+    ok("opening, hedged account: untouched to the end", _hq("hedge") == (225, -120, 0), str(_hq("hedge")))
+finally:
+    _EN26.ENFORCE_MARKET_HOURS = False
+
+# ---- item 6: a limit price outside the exchange's band is refused in plain words (the owner's wording, 25 Nov) -----
+at(day(W31 + timedelta(days=7), 2, 11)); engine._consumed.clear(); px(btc=90000)
+_band0 = feed.instruments[F_BTC].price_band_pct
+feed.instruments[F_BTC].price_band_pct = 5.0
+try:
+    mk_user("bander", 1_000_000)
+    _why = refused("bander", F_BTC, "BUY", 1, order_type="LIMIT", limit_price=99000.0) or ""
+    ok("price band: a limit price 10% from the market is refused, in the plain words the owner approved",
+       _why.startswith("This price is too far from the market: the exchange only takes prices within 5% of the current price (") and _why.endswith("— choose a price nearer to it")
+       and "exchange band" not in _why and "would reject" not in _why, _why)
+    ok("price band: a limit price inside the band is taken", refused("bander", F_BTC, "BUY", 1, order_type="LIMIT", limit_price=88000.0) is None)
+finally:
+    feed.instruments[F_BTC].price_band_pct = _band0
+# ==== end of the Risk officer's block, 26 Nov 2026 ==================================================================
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

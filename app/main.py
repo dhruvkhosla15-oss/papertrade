@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -2797,6 +2798,15 @@ async def _squareoff(db, u: User):
 #   stock (the master's balance) + coins allocated to his users = coins the owner gave him, always.
 STOCK_IN, STOCK_OUT, TO_USER, FROM_USER = "STOCK_IN", "STOCK_OUT", "TO_USER", "FROM_USER"
 
+# Moving coins between a master's stock and his users reads the stock, checks it is enough, then books the
+# move. These endpoints are ordinary (sync) handlers that run side by side in the thread pool, so two of them
+# firing at the same instant used to read the same stock, both pass the check and both book the move: coins
+# the owner never gave (seen 26 Nov 2026 — 12 deposits of 90,000 from a stock of 1,000,000 all went through,
+# 630,000 coins out of nothing). This lock makes every stock move take its turn; after taking it the handler
+# re-reads the stock (db.expire_all) so its check sees what the one before it left. Honest, one-at-a-time use
+# is unchanged. Not the order lock (asyncio): these handlers are synchronous.
+_coins_lock = threading.Lock()
+
 
 class MasterIn(BaseModel):
     username: str
@@ -2961,6 +2971,12 @@ def masters_one(mid: int, admin: User = Depends(current_admin), db: Session = De
 @app.post("/api/admin/masters/{mid}/stock")
 def masters_stock(mid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """Give a master more coins to hand out (+), or take back coins he has not handed out (-)."""
+    with _coins_lock:
+        db.expire_all()
+        return _masters_stock(db, mid, body)
+
+
+def _masters_stock(db, mid: int, body: "CoinsIn"):
     m = _the_master(db, mid)
     amt = _coins_amount(body.amount)
     if not amt:
@@ -3033,6 +3049,12 @@ def master_users(me: User = Depends(current_master), db: Session = Depends(get_d
 
 @app.post("/api/master/users")
 def master_create_user(body: UserIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    with _coins_lock:
+        db.expire_all()
+        return _master_create_user(db, me, body)
+
+
+def _master_create_user(db, me: User, body: "UserIn"):
     uname = body.username.strip().lower()
     if not uname or len(uname) > 64 or db.query(User).filter_by(username=uname).first():
         raise HTTPException(400, "Username empty or already exists")
@@ -3058,6 +3080,12 @@ def master_create_user(body: UserIn, me: User = Depends(current_master), db: Ses
 @app.post("/api/master/users/{uid}/coins")
 def master_coins(uid: int, body: CoinsIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
     """Deposit to a user from the master's stock (+), or withdraw from a user back into it (-)."""
+    with _coins_lock:
+        db.expire_all()
+        return _master_coins(db, uid, me, body)
+
+
+def _master_coins(db, uid: int, me: User, body: "CoinsIn"):
     u = _his_user(db, uid, me)
     amt = _coins_amount(body.amount)
     if not amt:
@@ -3095,7 +3123,9 @@ async def master_squareoff(uid: int, me: User = Depends(current_master), db: Ses
 @app.delete("/api/master/users/{uid}")
 def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
     """A master deletes one of his users: the account is shut, its coins return to his stock, its records remain."""
-    return _delete_user(db, _his_user(db, uid, me), master=me)
+    with _coins_lock:
+        db.expire_all()
+        return _delete_user(db, _his_user(db, uid, me), master=me)
 
 
 @app.get("/api/master/users/{uid}/detail")

@@ -202,5 +202,32 @@ ok("resumed", login(m1n, "mine12345").get("/api/master/me").status_code == 200)
 own.patch(f"/api/admin/masters/{M1}", json={"password": "again1234"})
 ok("owner's password reset ends the master's old logins", m1.get("/api/master/me").status_code == 401)
 
+# ---- coins cannot be made out of nothing by firing deposits at the same instant (26 Nov 2026) ----
+# A master's stock is read, checked to be enough, then the move is booked. Two deposits firing together used
+# to read the same stock, both pass and both book: coins the owner never gave. The stock moves now take their
+# turn, so stock + coins with his users = coins the owner gave, however many fire at once.
+import threading
+rc = own.post("/api/admin/masters", json={"username": f"mrace{tag}", "display_name": "Race", "password": "first123", "share_pct": 20, "stock": 1000000})
+if rc.status_code == 200:
+    MR = rc.json()["id"]; mr = login(f"mrace{tag}", "first123", "mine12345")
+    N, AMT = 12, 90000                                   # a stock of 1,000,000 funds only 11 such deposits
+    ruids = [mr.post("/api/master/users", json={"username": f"ur{tag}{i}", "password": "first123", "initial_coins": 0}).json()["id"] for i in range(N)]
+    bar = threading.Barrier(N); succ = [0] * N
+    def _dep(i, uid):
+        cl = httpx.Client(base_url=BASE, timeout=120, cookies=mr.cookies)
+        bar.wait()
+        succ[i] = 1 if cl.post(f"/api/master/users/{uid}/coins", json={"amount": AMT}).status_code == 200 else 0
+    ts = [threading.Thread(target=_dep, args=(i, uid)) for i, uid in enumerate(ruids)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    meR = mr.get("/api/master/me").json(); nsucc = sum(succ)
+    ok("deposits firing together cannot overspend the stock (coins from nothing)",
+       abs(meR["stock"] + meR["with_users"] - meR["given"]) < 0.01 and nsucc <= 1000000 // AMT,
+       f"{nsucc}/{N} succeeded; stock={meR['stock']} with_users={meR['with_users']} given={meR['given']}")
+    for uid in ruids:
+        mr.post(f"/api/master/users/{uid}/coins", json={"amount": -AMT})
+        mr.delete(f"/api/master/users/{uid}")
+else:
+    ok("a master for the concurrency check can be created", False, rc.text[:120])
+
 print(f"\nMASTERS {sum(res)} passed, {len(res) - sum(res)} failed")
 sys.exit(0 if all(res) else 1)

@@ -271,5 +271,21 @@ led = own.get(f"/api/admin/users/{o2}/detail").json()
 ok("coins at once: twenty gifts of 10 coins from the owner at the same instant all arrive (ledger and coins agree)",
    r == [200] * 20 and led["user"]["balance"] == 1200.0 and round(sum(l["amount"] for l in led["ledger"]), 2) == 1200.0, f"{r} {led['user']['balance']}")
 
+# A deleted account's name is marked with its number; cut at the end, a name of 57 letters or more lost the number:
+# a 64-letter name was not freed, and the second account of a 60-letter name could never be deleted (an error).
+for n_ in (64, 60, 57):
+    long_name, got = ("z" + tag) * 10, []
+    long_name = long_name[:n_]
+    for _ in range(3):
+        r = own.post("/api/admin/users", json={"username": long_name, "password": "first123", "initial_coins": 500})
+        got.append(r.status_code)
+        if r.status_code == 200:
+            got.append(own.delete(f"/api/admin/users/{r.json()['id']}").status_code)
+    ok(f"delete: a name of {n_} letters is freed and can be created and deleted again and again", got == [200] * 6, str(got))
+r = m3.post("/api/master/users", json={"username": ("y" + tag) * 9 + "y", "password": "first123", "initial_coins": 0})
+r2 = m3.delete(f"/api/master/users/{r.json()['id']}") if r.status_code == 200 else r
+r3 = m3.post("/api/master/users", json={"username": ("y" + tag) * 9 + "y", "password": "first123", "initial_coins": 0})
+ok("delete: the same for a master's user with a 64-letter name", (r.status_code, r2.status_code, r3.status_code) == (200, 200, 200), f"{r.status_code} {r2.status_code} {r3.status_code}")
+
 print(f"\nMASTERS {sum(res)} passed, {len(res) - sum(res)} failed")
 sys.exit(0 if all(res) else 1)

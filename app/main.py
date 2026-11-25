@@ -2743,7 +2743,11 @@ def _delete_user(db, u: User, master: Optional[User] = None):
     u.deleted_at = datetime.utcnow()
     u.pw_changed_at = float(int(time.time()))          # every login of the account ends now
     u.totp_enabled = False; u.totp_secret = ""
-    u.username = f"{_name}~deleted{u.id}"[:64]          # the name is free again for a new account
+    # the name is free again for a new account. The mark with the account's number is kept whole and a long name is
+    # shortened to make room (26 Nov 2026): cut at the end, a name of 57 letters or more lost its number, so the
+    # name was not freed (64 letters) or the next account of that name could never be deleted (an error instead)
+    _mark = f"~deleted{u.id}"
+    u.username = _name[:64 - len(_mark)] + _mark
     db.query(Watch).filter_by(user_id=u.id).delete()
     from .db import Setting as _S
     for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_"):

@@ -2322,6 +2322,8 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   of the P&L and of the brokerage alike. Book P&L (users' P&L before brokerage, turned round) + brokerage = book
   total = owner's share + master's share, to the paisa. A finished week is written down at the cut-off
   (setting mweek_<master>_<week>) and never worked out again: a later percentage or a deleted user cannot alter it.
-- The master (not the owner) squares off and deletes his users. Delete only when flat, no waiting orders and nothing
-  done in the running week; the user's allocated coins return to the master's stock.
+- The master (not the owner) squares off and deletes his users. Owner's decision 14:03: a deleted user's data never
+  goes away. The account is shut (deleted_at, cannot log in, name freed), its allocated coins return to the master,
+  and its trades, ledger and weeks stay in the master's records and the owner's; the running week still counts it.
+  Delete needs a flat account with no waiting orders.
 - Not built (say so if asked): per-master brokerage or leverage; moving a user between masters.

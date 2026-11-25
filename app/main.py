@@ -929,7 +929,7 @@ def change_password(body: PasswordIn, request: Request, response: Response, user
 
 
 def _user_dict(u: User):
-    return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin, "is_sub": bool(u.is_sub), "master_id": u.master_id,
+    return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin, "is_sub": bool(u.is_sub), "master_id": u.master_id, "deleted": bool(u.deleted_at),
             "is_active": u.is_active, "balance": round(u.balance, 2), "twofa": bool(u.totp_enabled),
             "must_change_password": bool(u.must_change_password)}
 
@@ -2822,10 +2822,11 @@ def _the_master(db, mid: int) -> User:
     return m
 
 
-def _his_user(db, uid: int, me: User) -> User:
-    """A master's own user, or the same 'no such user' whether the number belongs to nobody or to somebody else."""
+def _his_user(db, uid: int, me: User, gone_ok: bool = False) -> User:
+    """A master's own user, or the same 'no such user' whether the number belongs to nobody or to somebody else.
+    An account he deleted can still be looked at (gone_ok), never changed."""
     u = db.get(User, uid)
-    if not u or u.is_admin or u.master_id != me.id:
+    if not u or u.is_admin or u.master_id != me.id or (u.deleted_at and not gone_ok):
         raise HTTPException(404, "No such user")
     return u
 
@@ -2892,7 +2893,7 @@ def _master_dict(db, m: User, weeks: bool = False) -> dict:
     given = round(sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == m.id, Ledger.kind.in_([STOCK_IN, STOCK_OUT]))), 2)
     d = {"id": m.id, "username": m.username, "display_name": m.display_name or m.username, "is_active": bool(m.is_active),
          "twofa": bool(m.totp_enabled), "share_pct": float(m.share_pct or 0.0), "stock": round(m.balance or 0.0, 2),
-         "with_users": alloc, "given": given, "users": len(us), "created_at": m.created_at.isoformat() + "Z"}
+         "with_users": alloc, "given": given, "users": len([u for u in us if not u.deleted_at]), "deleted_users": len([u for u in us if u.deleted_at]), "created_at": m.created_at.isoformat() + "Z"}
     if weeks:
         d["weeks"] = _master_weeks(db, m)
     return d
@@ -2993,7 +2994,7 @@ def masters_remove(mid: int, admin: User = Depends(current_admin), db: Session =
     m = _the_master(db, mid)
     n = db.query(User).filter_by(master_id=m.id).count()
     if n:
-        raise HTTPException(400, f"He still has {n} user{'s' if n != 1 else ''}. Pause him instead: a master can be removed only when he has no users")
+        raise HTTPException(400, f"He has {n} user account{'s' if n != 1 else ''} (deleted ones with their records included). Pause him instead: a master can be removed only when nothing is filed under him")
     _note(f"Removed master {m.username} ({m.display_name}); he held {m.balance or 0.0:,.2f} coins at that moment")
     db.query(Ledger).filter_by(user_id=m.id).delete()
     db.query(Watch).filter_by(user_id=m.id).delete()
@@ -3078,28 +3079,33 @@ async def master_squareoff(uid: int, me: User = Depends(current_master), db: Ses
 
 @app.delete("/api/master/users/{uid}")
 def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
-    """A master deletes one of his users. Only an account that is flat and has done nothing in the week now running:
-    otherwise that week's result would vanish from the books. His coins go back to the master."""
+    """A master deletes one of his users. The account is shut for good and its coins go back to the master, but
+    nothing it did is thrown away (owner's decision, 25 Nov 2026): its trades, its ledger and its weeks stay in the
+    master's records and in the owner's, and the week now running still counts what it made or lost."""
     u = _his_user(db, uid, me)
     if db.query(Position).filter_by(user_id=u.id, is_closed=False).filter(Position.qty != 0).count():
         raise HTTPException(400, f"{u.username} has open positions. Square him off first")
     if db.query(Order).filter_by(user_id=u.id, status="OPEN").count():
         raise HTTPException(400, f"{u.username} has orders waiting. Cancel them first (Square off also cancels them)")
-    row = _weekly.running_row(engine, db, u)
-    if abs(row["result"]) >= 0.005 or abs(row["commission"]) >= 0.005 or abs(row["closed"]) >= 0.005:
-        raise HTTPException(400, f"{u.username} has traded this week ({row['result']:+,.2f} so far). He can be deleted after the weekly settlement on Sunday night; freeze him until then")
     back = _weekly.allocated(db, u)
-    _s = me.balance or 0.0
+    _s, _name = me.balance or 0.0, u.username
     if abs(back) >= 0.005:
-        engine._ledger(db, me, back, FROM_USER, f"from {u.username}: account deleted")
-    _note(f"Master {me.username}: {back:,.2f} coins of {u.username} back to his stock ({_s:,.2f} → {me.balance or 0.0:,.2f})")
-    _delete_user(db, u)
+        engine._ledger(db, me, back, FROM_USER, f"from {_name}: account deleted")
+        engine._ledger(db, u, -back, "ADMIN_DEBIT", "account deleted: coins back to the master")
+    u.is_active = False
+    u.deleted_at = datetime.utcnow()
+    u.pw_changed_at = float(int(time.time()))          # every login of the account ends now
+    u.totp_enabled = False; u.totp_secret = ""
+    u.username = f"{_name}~deleted{u.id}"[:64]          # the name is free again for a new account
+    db.query(Watch).filter_by(user_id=u.id).delete()
+    db.commit()
+    _note(f"Master {me.username} deleted user {_name} ({u.display_name}); his records are kept. {back:,.2f} coins back to the master's stock ({_s:,.2f} → {me.balance or 0.0:,.2f})")
     return {"ok": True, "stock": round(me.balance or 0.0, 2)}
 
 
 @app.get("/api/master/users/{uid}/detail")
 def master_user_detail(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
-    return _user_detail(db, _his_user(db, uid, me))
+    return _user_detail(db, _his_user(db, uid, me, gone_ok=True))
 
 
 @app.get("/api/master/positions")

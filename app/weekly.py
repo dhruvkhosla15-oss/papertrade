@@ -355,7 +355,7 @@ def close_week(engine, db, week_end: date, exact: bool = True, stamp: Optional[d
 # ---- reports ------------------------------------------------------------------------------------------
 def row_dict(db, r: WeekSettlement, user: User) -> dict:
     return {"user_id": user.id, "username": user.username, "display_name": user.display_name or user.username,
-            "is_admin": bool(user.is_admin), "week_end": r.week_end, "final": True, "exact": bool(r.exact),
+            "is_admin": bool(user.is_admin), "deleted": bool(getattr(user, "deleted_at", None)), "week_end": r.week_end, "final": True, "exact": bool(r.exact),
             "closed": r.closed, "valuation": r.valuation, "commission": r.commission, "other": r.other, "result": r.result,
             "closed_crypto": r.closed_crypto, "valuation_crypto": r.valuation_crypto, "commission_crypto": r.commission_crypto,
             "allocated": r.allocated, "coins_after": r.allocated, "carried": r.carried, "unpriced": r.unpriced}
@@ -386,7 +386,7 @@ def running_row(engine, db, user: User) -> dict:
         other = 0.0
     we = week_end_of((datetime.utcnow() + IST).date())
     return {"user_id": user.id, "username": user.username, "display_name": user.display_name or user.username,
-            "is_admin": bool(user.is_admin), "week_end": we.isoformat(), "final": False, "exact": True,
+            "is_admin": bool(user.is_admin), "deleted": bool(getattr(user, "deleted_at", None)), "week_end": we.isoformat(), "final": False, "exact": True,
             "closed": round(sp["closed"], 2), "valuation": round(valuation, 2), "commission": round(sp["commission"], 2),
             "other": other, "result": result,
             "closed_crypto": round(sp["closed_crypto"], 2), "valuation_crypto": round(valuation_crypto, 2),
@@ -410,6 +410,8 @@ def report(engine, db, week_end: Optional[str] = None, user_ids: Optional[list] 
         d = week_end_of((datetime.utcnow() + IST).date())
         rows = [running_row(engine, db, u) for u in us]
         final = False
+    # a deleted account stays in every week it did something in, and in no other
+    rows = [r for r in rows if not r.get("deleted") or abs(r["result"]) >= 0.005 or abs(r["commission"]) >= 0.005 or abs(r["closed"]) >= 0.005]
     keys = ("closed", "valuation", "commission", "other", "result", "closed_crypto", "valuation_crypto", "commission_crypto", "allocated", "carried", "unpriced")
     tot = {k: round(sum(r[k] for r in rows), 2) for k in keys}
     return {"week_end": d.isoformat(), "week_start": (d - timedelta(days=6)).isoformat(), "label": week_label(d), "final": final,

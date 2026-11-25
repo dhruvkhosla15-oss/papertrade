@@ -37,7 +37,10 @@ class User(Base):
     # coins the owner gave him (his balance is that stock). The owner's own pages and settings stay closed to him.
     is_sub = Column(Boolean, default=False)
     master_id = Column(Integer, index=True)          # the master this user belongs to; empty = the owner's own user
-    share_pct = Column(Float, default=0.0)           # a master's share of his users' weekly result, in percent
+    share_pct = Column(Float, default=0.0)           # on a master: what the owner takes of his book, in percent
+    # A master's user that he deleted (owner's decision, 25 Nov 2026): the account is shut for good and its coins are
+    # back with the master, but everything it traded stays in his records and the owner's.
+    deleted_at = Column(DateTime)
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)   # set on creation / admin reset; cleared when the user changes it
     totp_secret = Column(String(64), default="")   # master 2FA (TOTP); empty = not set up
@@ -242,6 +245,8 @@ def init_db():
             con.execute(text("ALTER TABLE users ADD COLUMN master_id INTEGER"))
             con.execute(text("ALTER TABLE users ADD COLUMN share_pct FLOAT DEFAULT 0"))
             con.execute(text("CREATE INDEX IF NOT EXISTS ix_users_master_id ON users (master_id)"))
+        if "deleted_at" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
         if "must_change_password" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
             # users created earlier who have never placed an order still get the first-login prompt

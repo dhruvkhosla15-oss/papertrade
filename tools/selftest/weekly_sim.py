@@ -1097,7 +1097,9 @@ if True:
             continue
         _n += 1
         _src = _insp.getsource(_r.endpoint)
-        for _h in ("_patch_user", "_delete_user", "_squareoff"):      # the owner's and a master's calls share these bodies, which write the lines
+        # the owner's and a master's calls share these bodies, which write the lines; since 26 Nov 2026 the calls that
+        # move coins take their turn first and then run their body (admin_coins, _masters_stock, ...), which writes the line
+        for _h in ("_patch_user", "_delete_user", "_squareoff", "admin_coins", "_masters_stock", "_master_create_user", "_master_coins"):
             if _h + "(" in _src:
                 _src += _insp.getsource(getattr(M, _h))
         if "_note(" not in _src:

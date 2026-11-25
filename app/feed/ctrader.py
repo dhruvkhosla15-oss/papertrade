@@ -651,6 +651,17 @@ class CTraderForex:
                 d["_hlday"] = fxday
             d["high"] = max(d.get("high") or d["ltp"], d["ltp"]); d["low"] = min(d.get("low") or d["ltp"], d["ltp"])
             _lb, _la = d.get("bids"), d.get("asks")
+            if _lb and _la and not d.get("_synth"):
+                # Counted only, nothing is changed by it (26 Nov 2026): how often, and how far, the ladder in memory
+                # is wholly on the wrong side of this newer quote (orders are filled against the ladder; in the test
+                # a buy was filled 2% under the quote in the seconds after a jump). The daily check prints it.
+                try:
+                    self._bk_msgs = getattr(self, "_bk_msgs", 0) + 1
+                    if d["bid"] > 0 and (_la[0][0] < d["bid"] or _lb[0][0] > d["ask"]):
+                        self._bk_cross = getattr(self, "_bk_cross", 0) + 1
+                        self._bk_far = max(getattr(self, "_bk_far", 0.0), round((d["bid"] - _la[0][0] if _la[0][0] < d["bid"] else _lb[0][0] - d["ask"]) / d["bid"] * 100, 3))
+                except Exception:
+                    pass
             if "bids" in d and not d.get("_synth") and time.time() - (d.get("_depth_ts") or 0) > QUIET_SECS and (
                     (_lb and _lb[0][0] != d["bid"]) or (_la and _la[0][0] != d["ask"])):
                 # The order-book ladder comes in its own messages. When those stop (or lag) while the quotes

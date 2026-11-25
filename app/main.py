@@ -2697,12 +2697,18 @@ def _patch_user(db, u: User, body: UserPatch):
 
 
 @app.delete("/api/admin/users/{uid}")
-def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    u = db.get(User, uid)
-    if not u or u.is_admin:
-        raise HTTPException(404)
-    _owners_user(db, uid)
-    return _delete_user(db, u)
+async def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    # Under the order lock, and re-reading, so the "no open position" check cannot miss a fill that is
+    # committing at the same instant (see _delete_user).
+    db.rollback()
+    async with engine._lock:
+        with _coins_lock:
+            db.expire_all()
+            u = db.get(User, uid)
+            if not u or u.is_admin:
+                raise HTTPException(404)
+            _owners_user(db, uid)
+            return _delete_user(db, u)
 
 
 def _delete_user(db, u: User, master: Optional[User] = None):
@@ -3121,11 +3127,13 @@ async def master_squareoff(uid: int, me: User = Depends(current_master), db: Ses
 
 
 @app.delete("/api/master/users/{uid}")
-def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
+async def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
     """A master deletes one of his users: the account is shut, its coins return to his stock, its records remain."""
-    with _coins_lock:
-        db.expire_all()
-        return _delete_user(db, _his_user(db, uid, me), master=me)
+    db.rollback()
+    async with engine._lock:
+        with _coins_lock:
+            db.expire_all()
+            return _delete_user(db, _his_user(db, uid, me), master=me)
 
 
 @app.get("/api/master/users/{uid}/detail")

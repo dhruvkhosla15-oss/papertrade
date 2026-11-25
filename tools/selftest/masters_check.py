@@ -226,6 +226,35 @@ if rc.status_code == 200:
     for uid in ruids:
         mr.post(f"/api/master/users/{uid}/coins", json={"amount": -AMT})
         mr.delete(f"/api/master/users/{uid}")
+
+    # ---- deleting a user at the same instant his order fills: never a shut account still holding a position ----
+    # The delete's "no open positions" check and the fill used to run side by side (delete has the stock lock,
+    # the fill has the order lock): the check saw no position, the account was shut, then the fill opened one on
+    # the shut account (seen 26 Nov 2026, 5 of 15 tries). The delete now takes the order lock too, so the two
+    # take turns: the fill goes first (delete refused — open position) or the delete goes first (order refused —
+    # account frozen). Never both.
+    ctok = next((x["token"] for x in own.get("/api/search?q=BTC").json() if x.get("exchange") == "CRYPTO"), None)
+    stuck = 0
+    if ctok:
+        for i in range(10):
+            ruid = mr.post("/api/master/users", json={"username": f"udr{tag}{i}", "password": "first123", "initial_coins": 400000}).json()["id"]
+            ru = login(f"udr{tag}{i}", "first123", "mine12345")
+            bar2 = threading.Barrier(2)
+            def _ord():
+                cl = httpx.Client(base_url=BASE, timeout=120, cookies=ru.cookies); bar2.wait()
+                cl.post("/api/orders", json={"token": ctok, "side": "BUY", "lots": 1})
+            def _del():
+                cl = httpx.Client(base_url=BASE, timeout=120, cookies=mr.cookies); bar2.wait()
+                cl.delete(f"/api/master/users/{ruid}")
+            t1 = threading.Thread(target=_ord); t2 = threading.Thread(target=_del)
+            t1.start(); t2.start(); t1.join(); t2.join(); time.sleep(0.3)
+            row = [x for x in mr.get("/api/master/users").json() if x["id"] == ruid]
+            poss = mr.get(f"/api/master/users/{ruid}/detail").json().get("positions", [])
+            if row and row[0].get("deleted") and poss:
+                stuck += 1
+            else:
+                mr.post(f"/api/master/users/{ruid}/squareoff"); time.sleep(0.3); mr.delete(f"/api/master/users/{ruid}")
+    ok("deleting a user as his order fills never shuts the account with a position still open", ctok is not None and stuck == 0, f"stuck={stuck}")
 else:
     ok("a master for the concurrency check can be created", False, rc.text[:120])
 

@@ -282,6 +282,8 @@ def _owners_user(db, uid: int) -> User:
         raise HTTPException(404)
     if u.is_sub:
         raise HTTPException(400, "This is a master's own account: change it on the Masters page")
+    if u.deleted_at and not u.master_id:
+        raise HTTPException(400, "This account was deleted. Its records are kept, but it can no longer be changed")
     if u.master_id:
         m = db.get(User, u.master_id)
         raise HTTPException(403, f"{u.username} is a user of master {(m.display_name or m.username) if m else ''}: you can look, only he changes his users")
@@ -1517,6 +1519,8 @@ def admin_users(master: Optional[int] = None, admin: User = Depends(current_admi
 def _users_rows(db, master: Optional[int] = None) -> list:
     out = []
     for u in _book_users(db, master).order_by(User.id).all():
+        if u.deleted_at and not db.query(Trade.id).filter_by(user_id=u.id).first():
+            continue          # deleted before it ever traded: nothing to show (its coin lines stay in the database)
         f = engine.funds(db, u)
         out.append({**_user_dict(u), **f,
                     "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
@@ -2700,25 +2704,36 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     return _delete_user(db, u)
 
 
-def _delete_user(db, u: User):
-    uid = u.id
-    _note(f"Deleted user {u.username} ({u.display_name}); balance at that moment {u.balance or 0.0:,.2f}")
-    # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
-    # blocked the next trade on the site, which is given the same number (19 Nov 2026)
-    from .db import ShadowFill
-    db.query(ShadowFill).filter(ShadowFill.trade_id.in_(db.query(Trade.id).filter_by(user_id=uid))).delete(synchronize_session=False)
-    db.query(Trade).filter_by(user_id=uid).delete()
-    db.query(Ledger).filter_by(user_id=uid).delete()
-    db.query(Watch).filter_by(user_id=uid).delete()
-    # Everything else that is filed under this account's number goes with it (18 Nov 2026). The weekly
-    # record used to block the whole delete ("500", nothing happened on the Master's screen) for any
-    # account that had been through a weekly cut-off. And a number is handed out again: the next account
-    # created after deleting the newest one received its pop-up messages, trading-access switches and
-    # day-start records.
-    db.query(_weekly.WeekSettlement).filter_by(user_id=uid).delete()
-    _forget_number(db, uid)
-    db.delete(u); db.commit()
-    return {"ok": True}
+def _delete_user(db, u: User, master: Optional[User] = None):
+    """Delete an account. Records always remain (owner's decision, 25 Nov 2026): the account is shut for good, it
+    cannot log in and its name is free again, the coins it was given are taken back (to the master's stock when it
+    is a master's user), and everything it did stays: trades, ledger, weeks. The week now running still counts what
+    it made or lost. Before this date a delete threw all of that away."""
+    if db.query(Position).filter_by(user_id=u.id, is_closed=False).filter(Position.qty != 0).count():
+        raise HTTPException(400, f"{u.username} has open positions. Square him off first")
+    if db.query(Order).filter_by(user_id=u.id, status="OPEN").count():
+        raise HTTPException(400, f"{u.username} has orders waiting. Cancel them first (Square off also cancels them)")
+    back = _weekly.allocated(db, u)
+    _name, _s = u.username, (master.balance or 0.0) if master else 0.0
+    _bal = u.balance or 0.0
+    if abs(back) >= 0.005:
+        if master is not None:
+            engine._ledger(db, master, back, FROM_USER, f"from {_name}: account deleted")
+        engine._ledger(db, u, -back, "ADMIN_DEBIT", "account deleted: coins taken back")
+    u.is_active = False
+    u.deleted_at = datetime.utcnow()
+    u.pw_changed_at = float(int(time.time()))          # every login of the account ends now
+    u.totp_enabled = False; u.totp_secret = ""
+    u.username = f"{_name}~deleted{u.id}"[:64]          # the name is free again for a new account
+    db.query(Watch).filter_by(user_id=u.id).delete()
+    from .db import Setting as _S
+    for k in ("access_", "access_optflat_", "user_alerts_", "week_grace_", "watch_showcase_"):
+        db.query(_S).filter_by(key=f"{k}{u.id}").delete()
+    db.commit()
+    _note(f"Deleted user {_name} ({u.display_name}); balance at that moment {_bal:,.2f}; his records are kept, {back:,.2f} coins taken back"
+          + (f" to master {master.username}'s stock ({_s:,.2f} → {master.balance or 0.0:,.2f})" if master else ""))
+    _emit(u.id, {"type": "refresh"})
+    return {"ok": True, "stock": round(master.balance or 0.0, 2)} if master else {"ok": True}
 
 
 @app.get("/api/admin/users/{uid}/detail")
@@ -3079,28 +3094,8 @@ async def master_squareoff(uid: int, me: User = Depends(current_master), db: Ses
 
 @app.delete("/api/master/users/{uid}")
 def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
-    """A master deletes one of his users. The account is shut for good and its coins go back to the master, but
-    nothing it did is thrown away (owner's decision, 25 Nov 2026): its trades, its ledger and its weeks stay in the
-    master's records and in the owner's, and the week now running still counts what it made or lost."""
-    u = _his_user(db, uid, me)
-    if db.query(Position).filter_by(user_id=u.id, is_closed=False).filter(Position.qty != 0).count():
-        raise HTTPException(400, f"{u.username} has open positions. Square him off first")
-    if db.query(Order).filter_by(user_id=u.id, status="OPEN").count():
-        raise HTTPException(400, f"{u.username} has orders waiting. Cancel them first (Square off also cancels them)")
-    back = _weekly.allocated(db, u)
-    _s, _name = me.balance or 0.0, u.username
-    if abs(back) >= 0.005:
-        engine._ledger(db, me, back, FROM_USER, f"from {_name}: account deleted")
-        engine._ledger(db, u, -back, "ADMIN_DEBIT", "account deleted: coins back to the master")
-    u.is_active = False
-    u.deleted_at = datetime.utcnow()
-    u.pw_changed_at = float(int(time.time()))          # every login of the account ends now
-    u.totp_enabled = False; u.totp_secret = ""
-    u.username = f"{_name}~deleted{u.id}"[:64]          # the name is free again for a new account
-    db.query(Watch).filter_by(user_id=u.id).delete()
-    db.commit()
-    _note(f"Master {me.username} deleted user {_name} ({u.display_name}); his records are kept. {back:,.2f} coins back to the master's stock ({_s:,.2f} → {me.balance or 0.0:,.2f})")
-    return {"ok": True, "stock": round(me.balance or 0.0, 2)}
+    """A master deletes one of his users: the account is shut, its coins return to his stock, its records remain."""
+    return _delete_user(db, _his_user(db, uid, me), master=me)
 
 
 @app.get("/api/master/users/{uid}/detail")

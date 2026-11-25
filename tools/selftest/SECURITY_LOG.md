@@ -2327,3 +2327,6 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   and its trades, ledger and weeks stay in the master's records and the owner's; the running week still counts it.
   Delete needs a flat account with no waiting orders.
 - Not built (say so if asked): per-master brokerage or leverage; moving a user between masters.
+- Owner's decision 14:20: "records should always remain, deleted or not". Every delete (the owner's own users too)
+  now shuts the account and keeps its trades, ledger and weeks; before, the owner's delete threw them away. A delete
+  needs a flat account with no waiting orders. An account's number is therefore never handed out again.

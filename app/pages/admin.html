@@ -660,7 +660,7 @@ function pdBars(){const r=pdRange();const h=[['all','All Time'],['day','Daily'],
     el.querySelectorAll('[data-pn]').forEach(b=>b.onclick=async()=>{PD.off=Math.min(0,PD.off+(+b.dataset.pn));pdBars();await loadPeriod(true);paintUsers();if(detail)refreshDetail();});}}
 function paintUsers(){const L=users.map(pdRow);const S=k=>L.reduce((a,u)=>a+(u[k]||0),0);
   const tc=S('total_credited'),te=S('equity');
-  $('#sUsersTxt').textContent=users.length+(users.length===1?' user':' users');$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(S('available'));$('#sTrades').textContent=S('trades');$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(S('used_margin'));$('#sPos').textContent=S('open_positions');
+  {const n=users.filter(u=>!u.deleted).length,g=users.length-n;$('#sUsersTxt').textContent=n+(n===1?' user':' users')+(g?` · ${g} deleted, records kept`:'');}$('#sEquity').textContent=inr(te);$('#sAvail').textContent=inr(S('available'));$('#sTrades').textContent=S('trades');$('#sCredited').textContent=inr(tc);$('#sExposure').textContent=inr(S('used_margin'));$('#sPos').textContent=S('open_positions');
   const set=(id,v)=>{$(id).textContent=sgn(v);$(id).className='num '+cls(v);};set('#hBooked',-S('realised_all'));set('#hOpen',-S('unrealised'));set('#hGross',-S('pl_total'));set('#hComm',S('commission_total'));set('#hNet',-S('pnl'));
   {const st=users.reduce((x,u)=>x+(u.settled_total||0),0),el=$('#pdNote');const miss=(PD.mode==='day'||PD.mode==='month')&&L.some(u=>u.pd_ok===false);
    if(el)el.innerHTML=(PD.mode==='day'||PD.mode==='month')?(miss?'Open positions are not counted for this period (the day-start record begins on 14 Nov 2026): closed trades and commission only.':'Unrealised here is the <b>move in open positions during this '+(PD.mode==='day'?'day':'month')+'</b>, so Net P&amp;L is the true result of the '+(PD.mode==='day'?'day':'month')+': closed trades + that move − commission.'):PD.mode==='all'&&Math.abs(st)>=0.5?`All Time adds every finished week to the running one. Finished weeks are already settled (users ${sgn(st)}, our side ${sgn(-st)}), so Net Balance = Allocated + this week's Net P&amp;L only. Realised is closed trades; Unrealised is open positions now plus what they were valued at when those weeks closed.`:'';}
@@ -675,14 +675,15 @@ function renderUsers(){
   list.sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==='string'?x.localeCompare(y):x-y)*sortDir;});
   $$('#uTbl th.sort').forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(th.dataset.k===sortK?(sortDir>0?' ▲':' ▼'):''));
   const focused=document.activeElement&&document.activeElement.classList.contains('coinIn')?{id:document.activeElement.dataset.id,v:document.activeElement.value}:null;
-  $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}">
-    <td><b>${esc(u.display_name)}</b><div class="small mut">${esc(u.username)}</div></td>
-    <td><span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span></td>
+  list=[...list.filter(u=>!u.deleted),...list.filter(u=>u.deleted)];      /* deleted accounts: records kept, shown last and greyed */
+  $('#uTbl tbody').innerHTML=list.map(u=>`<tr class="clickable" data-id="${u.id}"${u.deleted?' style="opacity:.6"':''}>
+    <td><b>${esc(u.display_name)}</b><div class="small mut">${esc(String(u.username).replace(/~deleted\d+$/,''))}</div></td>
+    <td>${u.deleted?'<span class="pill">deleted</span>':`<span class="pill ${u.is_active?'active':'frozen'}">${u.is_active?'active':'frozen'}</span>`}</td>
     <td class="num">${inr(u.total_credited)}</td><td class="num">${inr(u.available)}</td><td class="num">${inr(u.used_margin)}</td>
     <td class="num ${cls(u.unrealised)}">${sgn(u.unrealised)}</td><td class="num ${cls(u.realised_all)}">${sgn(u.realised_all)}</td><td class="num ${cls(u.pl_total)}"><b>${sgn(u.pl_total)}</b></td><td class="num mut">${u.commission_total?inr(-u.commission_total):'₹0'}</td>
     <td class="num ${cls(u.pnl)}"><b>${sgn(u.pnl)}</b></td><td class="num"><b>${inr(u.equity)}</b></td>
     <td class="num">${u.open_positions}</td><td class="num">${u.trades}</td>
-    <td><div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:78px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div></td>
+    <td>${u.deleted?'<span class="small mut">records kept</span>':`<div style="display:flex;gap:4px;justify-content:flex-end"><input class="coinIn num" data-id="${u.id}" type="number" placeholder="amount" style="width:78px;padding:6px"><button class="ok" data-add="${u.id}" style="padding:6px 10px">+</button><button class="danger" data-sub="${u.id}" style="padding:6px 10px">−</button></div>`}</td>
     <td><button class="ghost" data-view="${u.id}" style="padding:6px 10px">View</button></td></tr>`).join('')||`<tr><td colspan=14 class="mut">${users.length?'No match':'No users yet — add one above'}</td></tr>`;
   if(focused){const i=$(`.coinIn[data-id="${focused.id}"]`);if(i){i.value=focused.v;i.focus();}}
   $$('[data-add],[data-sub]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const id=b.dataset.add||b.dataset.sub;const inp=$(`.coinIn[data-id="${id}"]`);let amt=+inp.value;if(!amt)return toast('Enter an amount',1);if(b.dataset.sub)amt=-amt;
@@ -856,7 +857,7 @@ async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`
   $('#dFreeze').onclick=async()=>{await api(`/admin/users/${detail}`,{method:'PATCH',body:{is_active:!u.is_active}});toast(u.is_active?'Frozen':'Unfrozen');loadUsers();refreshDetail();};
   $('#d2fa').onclick=async()=>{if(!confirm('Reset two-factor login for '+u.username+'? They can log in with password only until they set it up again.'))return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{reset_2fa:true}});toast('2FA reset');refreshDetail();};
   $('#dPass').onclick=async()=>{const p=prompt('New password for '+u.username);if(!p)return;await api(`/admin/users/${detail}`,{method:'PATCH',body:{password:p}});toast('Password reset');};
-  $('#dDelete').onclick=async()=>{if(!confirm(`Delete ${u.username} and all their history? This cannot be undone.`))return;try{await api(`/admin/users/${detail}`,{method:'DELETE'});}catch(e){toast(e.message||'Could not delete this account',1);return;}toast('Account deleted');detail=null;$('#detail').classList.add('hidden');loadUsers();};
+  $('#dDelete').onclick=async()=>{if(!confirm(`Delete ${u.username}? He can never log in again and his coins are taken back. His trades and weekly records are kept. This cannot be undone.`))return;try{await api(`/admin/users/${detail}`,{method:'DELETE'});}catch(e){toast(e.message||'Could not delete this account',1);return;}toast('Account deleted');detail=null;$('#detail').classList.add('hidden');loadUsers();};
   $('#dSquare').onclick=async()=>{if(!confirm('Close all open positions for this user at market price?'))return;try{const r=await api(`/admin/users/${detail}/squareoff`,{method:'POST'});toast(`Closed ${r.closed}`+(r.errors.length?`, ${r.errors.length} failed`:''),r.errors.length>0);refreshDetail();}catch(e){toast(e.message,1)}};
 }
 $$('[data-dt]').forEach(b=>b.onclick=()=>{dtab=b.dataset.dt;$$('[data-dt]').forEach(x=>x.classList.toggle('active',x===b));refreshDetail();});

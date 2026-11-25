@@ -171,6 +171,23 @@ if r.status_code == 200:
 else:
     ok("weekly test switch available on the private copy", False, r.text[:100])
 
+# ---- the owner's own users: records always remain too (owner's decision, 25 Nov 2026, 14:20) ----
+o1 = login(o1n, "mine12345")
+o1.post("/api/orders", json={"token": tok, "side": "BUY", "lots": 1}); time.sleep(1)
+ok("owner: a user with an open position cannot be deleted", own.delete(f"/api/admin/users/{O1}").status_code == 400)
+own.post(f"/api/admin/users/{O1}/squareoff"); time.sleep(1)
+w0 = next(x for x in own.get("/api/admin/weekly").json()["rows"] if x["user_id"] == O1)
+r = own.delete(f"/api/admin/users/{O1}")
+rows = own.get("/api/admin/weekly").json()["rows"]; w1 = next((x for x in rows if x["user_id"] == O1), None)
+ok("owner deletes his user: the running week still counts him, to the paisa", r.status_code == 200 and w1 is not None and w1["deleted"]
+   and abs(w1["result"] - w0["result"]) < 0.006 and abs(w1["commission"] - w0["commission"]) < 0.006 and w0["result"] != 0, f"{w0} -> {w1}")
+lst = [u for u in own.get("/api/admin/users").json() if u["id"] == O1]
+ok("... he stays in the Users list marked deleted, with his trades and no coins", len(lst) == 1 and lst[0]["deleted"] and lst[0]["trades"] == 2 and lst[0]["total_credited"] == 0, str(lst)[:200])
+ok("... his trades can still be read, he cannot log in, and he cannot be changed", len(own.get(f"/api/admin/users/{O1}/detail").json()["trades"]) == 2
+   and o1.get("/api/me").status_code == 401 and own.post(f"/api/admin/users/{O1}/coins", json={"amount": 5}).status_code == 400
+   and own.patch(f"/api/admin/users/{O1}", json={"is_active": True}).status_code == 400)
+ok("... and his name is free for a new account with a number of its own", own.post("/api/admin/users", json={"username": o1n, "password": "first123"}).json().get("id") not in (None, O1))
+
 # ---- the record, pause, removal ----
 aud = " ".join(x["detail"] for x in own.get("/api/admin/audit").json())
 ok("the master's deposits and withdrawals are in the owner's activity record", f"Master {m1n} gave" in aud and f"Master {m1n} took back" in aud and f"Created master {m1n}" in aud)

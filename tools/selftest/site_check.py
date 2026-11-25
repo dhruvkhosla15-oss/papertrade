@@ -1117,7 +1117,7 @@ def main():
         A.delete(f"{B}/api/admin/admins/{mid}")
         rec("a Master login removed says which", f"DELETE /api/admin/admins/{mid}", r"^Removed Master login recmaster$")
         A.delete(f"{B}/api/admin/users/{rid}")
-        rec("a deleted user's line says who and the balance at that moment", f"DELETE /api/admin/users/{rid}", r"^Deleted user recuser \(Rec Renamed\); balance at that moment [\d,]+\.\d\d$")
+        rec("a deleted user's line says who and the balance at that moment", f"DELETE /api/admin/users/{rid}", r"^Deleted user recuser \(Rec Renamed\); balance at that moment [\d,]+\.\d\d; his records are kept, [\d,]+\.\d\d coins taken back$")
         # the other things a Master does: each says what it did (messages, notices, two-step login, own test coins)
         rec("the Master's two-step login turned on says so (from the set-up at the start of this run)", "/api/admin/2fa/confirm", r"^Two-step login turned on for admin$")
         rec("the two-step set-up says it was started, without the secret", "/api/admin/2fa/setup", r"^Two-step login: set-up started for admin",   # the line of the Master "admin" himself (another block sets up a second Master with markup in his name)

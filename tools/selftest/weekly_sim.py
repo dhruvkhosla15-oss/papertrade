@@ -1552,11 +1552,26 @@ ok("margin watch: the broker's calculator is asked with nothing of the database 
 ok("margin watch: it only asks the calculator, never anything else of the broker (no order)", not _other, str(_other))
 ok("margin watch: the user's peak is kept, is not below the margin now, and the calculator's figure is kept",
    _mwu in _pk and _pk[_mwu]["rule"] >= _now - 0.01 > 0 and _pk[_mwu]["real"] == 1234.5 and _pk[0]["rule"] >= _pk[_mwu]["rule"], f"{_pk.get(_mwu)} now {_now}")
-# (2) A deleted account's number is handed out again by the database: the next account created was shown on the
-# Shadow Book with the deleted account's Peak Margin (found 24 Nov 2026).
-M.admin_delete_user(_mwu, admin=None, db=db); users.pop("mwatch2")
+# (2) A deleted account's number was handed out again by the database: the next account created was shown on the
+# Shadow Book with the deleted account's Peak Margin (found 24 Nov 2026). Since 25 Nov 2026 (owner's decision:
+# records always remain) a delete shuts the account and keeps its lines, so its number is never handed out again.
+try:
+    M.admin_delete_user(_mwu, admin=None, db=db); _refused = False
+except Exception as _e:
+    _refused = "open positions" in str(getattr(_e, "detail", _e))
+db.rollback()
+ok("delete: an account with an open position is refused (square it off first)", _refused)
+trade("mwatch2", F_NIFTY, "SELL", 1)
+_ntr = db.query(Trade).filter_by(user_id=_mwu).count()
+M.admin_delete_user(_mwu, admin=None, db=db); users.pop("mwatch2"); db.expire_all()
+_gone = db.get(User, _mwu)
+ok("delete: the account is shut and its name freed, its trades, ledger and number stay",
+   _gone is not None and _gone.deleted_at is not None and not _gone.is_active and _gone.username != "mwatch2"
+   and db.query(Trade).filter_by(user_id=_mwu).count() == _ntr == 2 and db.query(Ledger).filter_by(user_id=_mwu).count() > 0
+   and W.allocated(db, _gone) == 0, str(_gone and (_gone.username, _gone.is_active)))
+mk_user("mwatch2", 1000)
+ok("delete: the next account gets a number of its own, never the deleted one's", users["mwatch2"].id != _mwu)
 _pk = _MW.peaks(db)
-ok("margin watch: a deleted account's peak margin goes with it (the next account with that number starts with none)", _mwu not in _pk, str(_pk.get(_mwu)))
 ok("margin watch: the peak of everybody together stays", 0 in _pk and _pk[0]["rule"] > 0, str(_pk.get(0)))
 
 # (3) "Reconnect crypto" pressed twice at the same moment (or pressed while the automatic rebuild after six quick

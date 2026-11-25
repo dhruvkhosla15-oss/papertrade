@@ -436,6 +436,7 @@ a{color:var(--acc)}
         <button class="ghost" id="dClose">✕</button>
       </div>
     </div>
+    <p id="dLook" class="small mut hidden" style="margin:12px 0 0;line-height:1.5"></p>
     <details id="dAccWrap" open style="margin:12px 0 0;border:1px solid var(--line);border-radius:12px;padding:10px 14px"><summary style="cursor:pointer;font-weight:700">Trading access <span class="small mut" id="dAccSum" style="font-weight:400"></span></summary><div id="dAccess" style="margin-top:8px"></div></details>
     <div class="pdbar" id="pdBar2" style="margin:12px 0 0"></div>
     <div class="grid" style="margin:12px 0" id="dFunds"></div>
@@ -838,7 +839,10 @@ function doApply(list){const s=$('#doSide').value,t=$('#doType').value,m=$('#doM
   return doF.st?base.filter(o=>o.status===doF.st):base;}
 ['doSide','doType','doMkt'].forEach(i=>$('#'+i).onchange=()=>{refreshDetail();});$('#doQ').oninput=()=>{refreshDetail();};
 async function refreshDetail(){const d=await api(`/admin/users/${detail}/detail`);const u=d.user,f=d.funds;
-  $('#dName').textContent=`${u.display_name} (${u.username})`+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa);$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
+  const look=!!(u.master_id||u.deleted);   /* a master's user, or a deleted account: the owner looks, nothing can be changed, so no button offers it (26 Nov 2026: the buttons were there and did nothing) */
+  $('#dName').textContent=`${u.display_name} (${String(u.username).replace(/~deleted\d+$/,'')})`+(u.deleted?' · deleted':'')+(u.twofa?' · 2FA on':'');$('#d2fa').classList.toggle('hidden',!u.twofa||look);
+  ['#dSquare','#dFreeze','#dPass','#dDelete','#dAccWrap'].forEach(x=>$(x).classList.toggle('hidden',look));$('#dLook').classList.toggle('hidden',!look);
+  $('#dLook').textContent=u.deleted?'This account was deleted. It cannot log in and nothing on it can be changed. Its trades, ledger and weeks are kept.':(u.master_id?'This is a user of a master. You can look; only his master deposits, withdraws, squares off, deletes or changes him.':'');$('#dFreeze').textContent=u.is_active?'Freeze account':'Unfreeze';
   const cred=(d.ledger||[]).filter(l=>l.kind.startsWith('ADMIN')).reduce((a,l)=>a+l.amount,0);const comm=-(d.ledger||[]).filter(l=>l.kind==='COMMISSION').reduce((a,l)=>a+l.amount,0);const uu=users.find(x=>x.id===u.id)||{};const settled=uu.settled_total||0;let realised=f.balance-cred+(uu.commission_total??comm)+settled,commV=(uu.commission_total??comm),unr=f.unrealised||0,netV=f.equity-cred+settled;
   /* the panel shows exactly what the user's row shows for the chosen period (before 17 Nov 2026 it worked the figures out its own way: on Daily, Monthly and an earlier week its Unrealised and Net P&L differed from the row) */
   if(uu.id!=null){const x=pdRow({...uu,balance:f.balance,unrealised:f.unrealised||0,equity:f.equity});realised=x.realised_all;commV=x.commission_total;unr=x.unrealised;netV=x.pnl;}

@@ -139,7 +139,7 @@ a{color:var(--acc)}
     <div class="stat"><span class="mut small">Users' Available Balance</span><b id="sAvail" class="num">—</b></div>
     <div class="stat"><span class="mut small">Margin Used</span><b id="sMargin" class="num">—</b></div>
     <div class="stat"><span class="mut small" title="Open positions at the price they could be closed at">Users' Unrealised</span><b id="sUnr" class="num">—</b></div>
-    <div class="stat"><span class="mut small" title="This week so far: book P&amp;L + brokerage, before the owner's share">Book Total This Week</span><b id="sWeek" class="num">—</b></div>
+    <div class="stat"><span class="mut small" title="This week so far: book P&amp;L + commission, before the owner's share">Book Total This Week</span><b id="sWeek" class="num">—</b></div>
   </div></div>
 
   <div class="card"><h2>Add user</h2>
@@ -165,16 +165,16 @@ a{color:var(--acc)}
   <div class="card"><div class="bar" style="justify-content:space-between"><div><h2 style="margin:0">Weekly Record <span class="pill" id="wPill"></span></h2><p class="small mut" id="wSub" style="margin:6px 0 0"></p></div>
     <select id="wSel" style="max-width:260px"></select></div>
     <div class="sharebox" style="margin-top:12px">
-      <div class="stat"><span class="mut small" title="The opposite of what your users made before brokerage">Book P&amp;L</span><b id="wRes" class="num">—</b></div>
-      <div class="stat"><span class="mut small" title="Brokerage your users paid in the week">Brokerage</span><b id="wCom" class="num">—</b></div>
-      <div class="stat"><span class="mut small" title="Book P&amp;L + Brokerage">Book Total</span><b id="wOurs" class="num">—</b></div>
+      <div class="stat"><span class="mut small" title="The opposite of what your users made before commission">Book P&amp;L</span><b id="wRes" class="num">—</b></div>
+      <div class="stat"><span class="mut small" title="Commission your users paid in the week">Commission</span><b id="wCom" class="num">—</b></div>
+      <div class="stat"><span class="mut small" title="Book P&amp;L + Commission">Book Total</span><b id="wOurs" class="num">—</b></div>
       <div class="stat"><span class="mut small" id="wPctL">Owner's Share</span><b id="wOwner" class="num">—</b></div>
       <div class="stat"><span class="mut small">Your Share</span><b id="wMine" class="num">—</b></div>
     </div></div>
-  <div class="card" style="padding:0;overflow:auto"><table id="wT"><thead><tr><th>User</th><th>Closed Trades</th><th>Open Positions Valued</th><th>Brokerage</th><th>Week Result</th><th>Allocated</th></tr></thead><tbody></tbody></table></div>
+  <div class="card" style="padding:0;overflow:auto"><table id="wT"><thead><tr><th>User</th><th>Closed Trades</th><th>Open Positions Valued</th><th>Commission</th><th>Week Result</th><th>Allocated</th></tr></thead><tbody></tbody></table></div>
   <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">All Weeks</h2></div>
-    <table id="aT"><thead><tr><th>Week</th><th>Book P&amp;L</th><th>Brokerage</th><th>Book Total</th><th>Owner's %</th><th>Owner's Share</th><th>Your Share</th></tr></thead><tbody></tbody></table></div>
-  <div class="card"><p class="small mut" style="margin:0;line-height:1.6"><b>How it works:</b> a week runs Monday to Sunday. At Sunday 11:59 pm every open position is valued, each user's result for the week is booked and his coins go back to the allocated amount. Your book is your users' P&amp;L turned round (when they lose, the book gains) plus the brokerage they paid. The owner takes his percentage of the book total, of the P&amp;L and of the brokerage alike; the rest is yours. Book P&amp;L + Brokerage = Book Total = Owner's Share + Your Share. A finished week is fixed.</p></div>
+    <table id="aT"><thead><tr><th>Week</th><th>Book P&amp;L</th><th>Commission</th><th>Book Total</th><th>Owner's %</th><th>Owner's Share</th><th>Your Share</th></tr></thead><tbody></tbody></table></div>
+  <div class="card"><p class="small mut" style="margin:0;line-height:1.6"><b>How it works:</b> a week runs Monday to Sunday. At Sunday 11:59 pm every open position is valued, each user's result for the week is booked and his coins go back to the allocated amount. Your book is your users' P&amp;L turned round (when they lose, the book gains) plus the commission they paid. The owner takes his percentage of the book total, of the P&amp;L and of the commission alike; the rest is yours. Book P&amp;L + Commission = Book Total = Owner's Share + Your Share. A finished week is fixed.</p></div>
   </section>
 
   <section id="nav-coins" class="hidden">
@@ -233,11 +233,11 @@ async function refreshDetail(){if(!detail)return;let d;try{d=await api(`/master/
 function paintDetail(){const d=dData;if(!d)return;const T=$('#dT');let h='',b='';
   if(dTab==='positions'){h='<th>Contract</th><th>Lots</th><th>Avg Price</th><th>Price Now</th><th>Unrealised</th><th>Margin</th>';b=d.positions.map(x=>`<tr><td>${esc(x.symbol)}</td><td class="num ${x.qty>0?'up':'dn'}">${x.qty>0?'+':''}${x.lots}</td><td class="num">${px(x.avg_price)}</td><td class="num">${px(x.mark!=null?x.mark:x.ltp)}</td><td class="num">${sg(Math.round(x.unrealised||0))}</td><td class="num">${fmt(x.margin)}</td></tr>`).join('');}
   if(dTab==='orders'){h='<th>When</th><th>Contract</th><th>Side</th><th>Type</th><th>Lots</th><th>Price</th><th>Status</th>';b=d.orders.map(o=>`<tr><td>${when(o.created_at)}</td><td>${esc(o.symbol)}</td><td class="${o.side==='BUY'?'up':'dn'}">${o.side}</td><td>${esc(o.order_type)}</td><td class="num">${o.lots}</td><td class="num">${px(o.fill_price!=null?o.fill_price:(o.limit_price!=null?o.limit_price:o.trigger_price))}</td><td><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td></tr>`).join('');}
-  if(dTab==='trades'){h='<th>When</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th><th>Brokerage</th>';b=d.trades.map(t=>`<tr><td>${when(t.created_at)}</td><td>${esc(t.symbol)}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${fmt(t.qty)}</td><td class="num">${px(t.price)}</td><td class="num">${sg(Math.round(t.realised_pnl||0))}</td><td class="num">${fmt(t.commission,2)}</td></tr>`).join('');}
+  if(dTab==='trades'){h='<th>When</th><th>Contract</th><th>Side</th><th>Qty</th><th>Price</th><th>Realised</th><th>Commission</th>';b=d.trades.map(t=>`<tr><td>${when(t.created_at)}</td><td>${esc(t.symbol)}</td><td class="${t.side==='BUY'?'up':'dn'}">${t.side}</td><td class="num">${fmt(t.qty)}</td><td class="num">${px(t.price)}</td><td class="num">${sg(Math.round(t.realised_pnl||0))}</td><td class="num">${fmt(t.commission,2)}</td></tr>`).join('');}
   if(dTab==='ledger'){h='<th>When</th><th>What</th><th>Coins</th><th>Balance After</th>';b=d.ledger.map(l=>`<tr><td>${when(l.created_at)}</td><td>${esc(KIND[l.kind]||l.kind)}${l.note?' <span class="small mut">'+esc(l.note)+'</span>':''}</td><td class="num">${sg(l.amount)}</td><td class="num">${fmt(l.balance_after,2)}</td></tr>`).join('');}
   T.querySelector('thead').innerHTML='<tr>'+h+'</tr>';T.querySelector('tbody').innerHTML=b||'<tr><td colspan="8" class="mut" style="text-align:center;padding:16px">Nothing here.</td></tr>';
   T.querySelectorAll('th,td').forEach((c,i)=>{c.style.textAlign=c.cellIndex?'right':'left';});}
-const KIND={ADMIN_CREDIT:'Deposit',ADMIN_DEBIT:'Withdrawal',REALISED_PNL:'Closed trade',COMMISSION:'Brokerage',EXPIRY_SETTLEMENT:'Expiry settlement',WEEKLY_VALUATION:'Week-close valuation',WEEKLY_SETTLEMENT:'Weekly settlement',STOCK_IN:'Received from the owner',STOCK_OUT:'Returned to the owner',TO_USER:'Given to a user',FROM_USER:'Taken back from a user'};
+const KIND={ADMIN_CREDIT:'Deposit',ADMIN_DEBIT:'Withdrawal',REALISED_PNL:'Closed trade',COMMISSION:'Commission',EXPIRY_SETTLEMENT:'Expiry settlement',WEEKLY_VALUATION:'Week-close valuation',WEEKLY_SETTLEMENT:'Weekly settlement',STOCK_IN:'Received from the owner',STOCK_OUT:'Returned to the owner',TO_USER:'Given to a user',FROM_USER:'Taken back from a user'};
 $$('#detail .tabs button').forEach(b=>b.onclick=()=>{dTab=b.dataset.dt;$$('#detail .tabs button').forEach(x=>x.classList.toggle('active',x===b));paintDetail();});
 async function coins(sign){const a=Math.abs(+$('#dAmt').value||0);if(!a){toast('Enter an amount',1);return;}const u=dData.user;
   if(!confirm(`${sign>0?'Deposit':'Withdraw'} ${fmt(a)} coins ${sign>0?'to':'from'} ${u.username}?`))return;

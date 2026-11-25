@@ -201,7 +201,7 @@ a{color:var(--acc)}
   <section id="nav-masters" class="hidden">
   <div class="card">
     <h2>Create a master</h2>
-    <p class="small mut" style="margin-bottom:10px">A master logs in on this same page and sees only his own users. He creates users and deposits and withdraws coins for them from the coins you give him. He cannot open settings, brokerage, leverage, the price connections, the Shadow Book or backups, and he never sees your users. His book is his users' P&amp;L turned round plus the brokerage they pay; you take your percentage of both, the rest is his.</p>
+    <p class="small mut" style="margin-bottom:10px">A master logs in on this same page and sees only his own users. He creates users and deposits and withdraws coins for them from the coins you give him. He cannot open settings, commission, leverage, the price connections, the Shadow Book or backups, and he never sees your users. His book is his users' P&amp;L turned round plus the commission they pay; you take your percentage of both, the rest is his.</p>
     <div class="row">
       <div><label class="small mut">Name (shown on his tab)</label><input id="mName"></div>
       <div><label class="small mut">Username</label><input id="mUser" autocapitalize="none"></div>
@@ -213,7 +213,7 @@ a{color:var(--acc)}
   </div>
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Masters <span class="small mut" id="mCount"></span></h2><span class="small mut">This week so far · click a master to open his tab</span></div>
-    <table id="mTbl"><thead><tr><th>Master</th><th>Status</th><th>Users</th><th title="Coins he holds and has not handed out">Coins With Him</th><th title="Coins he has handed to his users">Coins With His Users</th><th title="The opposite of what his users made before brokerage">Book P&amp;L</th><th title="Brokerage his users paid">Brokerage</th><th title="Book P&amp;L + Brokerage">Book Total</th><th>Your %</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
+    <table id="mTbl"><thead><tr><th>Master</th><th>Status</th><th>Users</th><th title="Coins he holds and has not handed out">Coins With Him</th><th title="Coins he has handed to his users">Coins With His Users</th><th title="The opposite of what his users made before commission">Book P&amp;L</th><th title="Commission his users paid">Commission</th><th title="Book P&amp;L + Commission">Book Total</th><th>Your %</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
   </div>
   <div class="tabs" id="mTabs"></div>
   <div id="mOne" class="hidden">
@@ -224,8 +224,8 @@ a{color:var(--acc)}
       <p class="small mut" style="margin-top:10px">His users are shown here for you to look at. Only he deposits, withdraws, squares off, deletes or changes them.</p>
     </div>
     <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Week By Week <span class="small mut">his book, and your percentage of it</span></h2></div>
-      <table id="moWk"><thead><tr><th>Week</th><th>Users</th><th title="What his users made before brokerage">Users' P&amp;L</th><th title="The opposite of the users' P&amp;L">Book P&amp;L</th><th title="Brokerage his users paid">Brokerage</th><th title="Book P&amp;L + Brokerage">Book Total</th><th>Your %</th><th title="Your percentage of the book P&amp;L">Yours From P&amp;L</th><th title="Your percentage of the brokerage">Yours From Brokerage</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
-      <p class="small mut" style="padding:8px 12px;margin:0">Book P&amp;L + Brokerage = Book Total = Your Share + His Share. A plus Your Share is due to you from him; a minus is due from you to him. A finished week is fixed: changing the percentage or deleting a user later does not alter it.</p></div>
+      <table id="moWk"><thead><tr><th>Week</th><th>Users</th><th title="What his users made before commission">Users' P&amp;L</th><th title="The opposite of the users' P&amp;L">Book P&amp;L</th><th title="Commission his users paid">Commission</th><th title="Book P&amp;L + Commission">Book Total</th><th>Your %</th><th title="Your percentage of the book P&amp;L">Yours From P&amp;L</th><th title="Your percentage of the commission">Yours From Commission</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
+      <p class="small mut" style="padding:8px 12px;margin:0">Book P&amp;L + Commission = Book Total = Your Share + His Share. A plus Your Share is due to you from him; a minus is due from you to him. A finished week is fixed: changing the percentage or deleting a user later does not alter it.</p></div>
     <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users <span class="small mut" id="moUc"></span></h2></div>
       <table id="moU"><thead><tr><th>User</th><th>Status</th><th>Allocated</th><th>Available Balance</th><th>Margin Used</th><th>Unrealised</th><th>Net Balance</th><th>Open Pos</th><th>Trades</th></tr></thead><tbody></tbody></table></div>
     <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users' Live Positions <span class="small mut" id="moPc"></span></h2></div>
@@ -614,7 +614,7 @@ async function mStock(sign){const v=prompt(sign>0?'How many coins to give him?':
   try{await api(`/admin/masters/${mSel}/stock`,{method:'POST',body:{amount:sign*a}});toast(sign>0?'Coins given':'Coins taken back');loadMasters();}catch(e){toast(e.message,1)}}
 async function mPatch(body,msg){try{await api(`/admin/masters/${mSel}`,{method:'PATCH',body});toast(msg);loadMasters();}catch(e){toast(e.message,1)}}
 $('#moGive').onclick=()=>mStock(1);$('#moTake').onclick=()=>mStock(-1);
-$('#moPct').onclick=()=>{const v=prompt('Your share of his book in percent (0 to 100): what you take of his P&L and of his brokerage. It applies from the week now running; finished weeks keep the percentage they had.');if(v===null||v==='')return;mPatch({share_pct:+v},'Share changed');};
+$('#moPct').onclick=()=>{const v=prompt('Your share of his book in percent (0 to 100): what you take of his P&L and of his commission. It applies from the week now running; finished weeks keep the percentage they had.');if(v===null||v==='')return;mPatch({share_pct:+v},'Share changed');};
 $('#moPw').onclick=()=>{const v=prompt('New password for this master (at least 6 characters). He will be asked to choose his own at the next login.');if(!v)return;mPatch({password:v},'Password reset');};
 $('#mo2fa').onclick=()=>{if(confirm('Clear his two-step login? He sets it up again at his next login.'))mPatch({reset_2fa:true},'Two-step login cleared');};
 $('#moPause').onclick=()=>{const on=$('#moPause').textContent==='Pause';if(confirm(on?'Pause this master? He cannot log in. His users keep trading.':'Let this master log in again?'))mPatch({is_active:!on},on?'Paused':'Resumed');};

@@ -56,12 +56,6 @@ code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-
 .mchip.down{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.5);color:#fecaca}.mchip.down small{color:#f87171}.mchip.down:before{box-shadow:0 0 0 3px rgba(239,68,68,.25)}
 .feedbar{border-radius:10px;margin:0 0 12px;display:flex;align-items:center;gap:9px;padding:7px 12px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.45);color:#fca5a5;font-size:12px;line-height:1.3}.feedbar b{color:#fecaca}.feedbar:before{content:"";width:8px;height:8px;border-radius:50%;background:#ef4444;flex:0 0 auto;animation:fbp 1.4s infinite}@keyframes fbp{0%{box-shadow:0 0 0 0 rgba(239,68,68,.6)}100%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
 
-.kite{padding:12px 14px;border-radius:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0;border-left:4px solid var(--line)}
-.kite b{font-size:14px;display:flex;align-items:center;gap:8px}.kite b:before{content:'';width:9px;height:9px;border-radius:50%;background:var(--mut);flex:0 0 auto}
-.kite.ok{border-left-color:var(--up)}.kite.ok b:before{background:var(--up);box-shadow:0 0 8px var(--up)}
-.kite.bad{border-left-color:var(--dn)}.kite.bad b:before{background:var(--dn)}
-.kite .small{color:var(--mut)}.kite .bar button{padding:6px 12px;font-size:12px}
-.kite .bar{margin-left:auto}
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}@media(max-width:900px){.grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
 #uTbl th,#uTbl td{text-align:center}#uTbl th:first-child,#uTbl td:first-child{text-align:left}
 /* Users, Live Positions and Performance tables fit their box at laptop width (they were wider, so the last column needed a sideways scroll): a long column title or name may take two lines, cells stand a little closer */

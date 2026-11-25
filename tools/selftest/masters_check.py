@@ -51,6 +51,10 @@ m1 = login(m1n, "first123", "mine12345"); m2 = login(m2n, "first123", "mine12345
 pg = m1.get("/admin").text
 ok("a master's page is his own small page, never the owner's", "nav-coins" in pg and "nav-shadow" not in pg and "/api/admin/" not in pg and "kiteBox" not in pg)
 ok("the owner still gets the owner's page", "nav-shadow" in own.get("/admin").text)
+# (26 Nov 2026) the page's own text held six unused style rules named after a price-feed provider's product, copied
+# from the owner's page: anyone reading the page source saw the name. No provider name anywhere in what a master is sent.
+named = sorted({x.group(0).lower() for x in re.finditer(r"zerodha|kite|c-?trader|ic ?markets|spotware|delta|telegram", pg, re.I)})
+ok("no price-feed provider is named anywhere in the page a master is sent (styles and script included)", not named, ", ".join(named))
 
 # ---- every owner call is closed to a master ----
 src = (ROOT / "app" / "main.py").read_text()

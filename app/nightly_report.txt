@@ -1,31 +1,31 @@
-limefx officers' nightly audit, 25 Nov 2026 (IST): FAULT FOUND AND FIXED. The new peak-margin recorder of the Shadow Book could make everybody's orders wait for seconds; fixed, live with ten other faults. No free-coins hole is live; SIX FIXES WAIT FOR YOU. (No audit ran 22 to 24 Nov; this covers all since 21 Nov.)
+limefx officers' nightly audit, 26 Nov 2026 (IST): LOOPHOLE FOUND AND FIXED. In the new Masters feature a master could give the same coins to two users at the same instant: coins from nothing. Closed, with 7 smaller faults. THREE FIXES WAIT FOR YOU.
 
-Technology: found. While the recorder asked the broker's margin calculator, every order waited (9 seconds in a test). It no longer holds anything up and is now a watched job. Reconnect crypto pressed twice could leave two connections that Disconnect did not close; now always one. Clean start, 9 jobs running, domain alarm fires, a forced restart lost none of 2,919 orders, restore drill and old-database test passed. 100 users: screens 28 ms, orders 50 ms. Double the last figures, but the old code is as slow on tonight's test machine: it is the machine, not the site.
+Technology: found. Every movement of coins now waits its turn like an order. Clean start, jobs running, alarm fires, a forced restart lost none of 2,351 orders, backup and restore bring back masters too. 100 users: screens 73 ms, orders 152 ms; double last night's, but so is yesterday's code on tonight's test machine: not the site. Caution: once a master exists, never go back to a version before 25 Nov; it treats him as an owner.
 
-Security: found. A deleted account's Peak Margin showed on the next account created; an impossible date crashed a report. Both fixed. Your rule "closing price until the first price" gives a user nothing. All 7 markets attacked, 38 sweep rows, no-login sweep clean, same 3 old software reports, no secrets.
+Security: found. Also closed: deleting a user as his order filled could leave a shut account holding a trade. Nobody can reach another account. Masters' walls, access switches, login and all 7 markets (NSE, BSE, MCX, Currency, Forex, Global, Crypto) attacked: clean. 22 sweep rows, no-login sweep clean. Same 3 old software reports, no secrets.
 
-Accounts: found. 9 accounts, 6,500 comparisons, 40 commissions by hand, coins in whole paise: all agree. Just after an opening the position card, running week and Shadow Book did not yet follow the closing-price rule; Peak Margin could show below Margin Now. Corrected.
+Accounts: found. Two masters, five users, a real Sunday cut-off: stock plus users' coins equals what you gave, the share adds up to the paisa, a finished week never changes. The screens and Excel files compared agreed. 60 commissions by hand, incl. MCX: correct. A deleted account was listed differently in places (one Excel said "frozen"); now the same everywhere. No total was wrong.
 
-Price: found. All 7 markets: fills only at the live price, nothing while shut or before the first price. A contract leaving the crypto list could kill crypto prices until a restart; corrected. Possibly the cause on 23 Nov; that night's server log would show.
+Price: clean. Expiry proved in NSE, BSE and MCX; a silent connection refuses orders in Crypto and Forex.
 
-UI: found. Your changes of 21 to 24 Nov all work on phone and computer and now have checks. Corrected: Pulse showing the previous market's list; messages swallowing taps on Back / Options / Other expiries; an empty option chain now says "No options are listed for X right now".
+UI: found. Master and user pages and the new Masters pages studied on phone, tablet and computer. Corrected: Freeze and Reset password on a master's user said nothing when refused; a long ledger note cut the balance; the phone home screen cut the top gainer's price.
 
-Risk: found. 230 hard moves; warning, shortfall, only the lots needed, one charge all held. After a 10% gap 10 lakh coins end about 30 lakh below zero in Crypto, Forex and Global, 17 lakh below in Currency; NSE, BSE, MCX stay above zero. Unchanged; no new limit.
+Risk: found. Square off said "closed" with lots still open; now it says how many are left. 144 hard moves held. After a 10% gap 10 lakh coins still end about 30 lakh below zero in Crypto, Forex and Global, 17 lakh in Currency. New: a master's three users on 30 lakh coins won or lost 1.2 crore on a 10% move; nothing ties their positions to his coins. Suggested limit: their margin together within his coins.
 
-User experience: clean. New user: 55 taps, each under 1 second. All refusals read: plain.
+User experience: clean. New user, new master, a master's user: no dead end, each step under 2 seconds.
 
-Compliance (not a legal opinion): clean but for the deleted account's figure. Two-step login cannot be skipped, passwords appear nowhere, new buttons leave a record. Whether the business is within the law is for your lawyer and accountant.
+Compliance (not a legal opinion): found. The master's page source named a price provider in unused styling; removed. Two-step login cannot be skipped. Deleted users' data is now kept without time limit: how long, and whether the business is within the law, is for your lawyer and accountant.
 
-Release: independent reviewer approved all but two changes; those went to the branch. Final self-test 0 failed.
+Release: independent reviewer approved after one correction; one change moved to the branch. Final self-test: 0 failed.
 
-Checks added: 3 on the live site, 17 in the browser.
+No master existed on live while this was open: nobody gained. Coins you added at the exact instant of a user's fill could, rarely, have lost one entry; the live ledgers would tell.
 
-Waiting for you: open Claude and say "put security-fix/2026-11-25 live" (or name the numbers):
-1. Weekly figure in an opening's first seconds uses the closing price.
-2. A stop-loss meeting too few buyers keeps resting for the rest (now the rest loses its stop).
-3. A hedged account is not squared off because one side's first price came seconds earlier.
-4. A crypto option whose buyers left could be sold at an old price (shown in a test only; the daily check now counts it).
-5. After a part square-off, the user's stop or target is cut to the lots left (now the stop is refused, a target leaves the account short).
-6. Plainer words for "price outside the exchange band".
+Checks added: 21 Masters, 30 simulation, 7 browser.
 
-Not tested: 300-user load; the real calculator.
+Waiting for you: open Claude and say "put security-fix/2026-11-26 live":
+1. Stop-loss and target on one position: if one fills in part, cut the other to the lots left (now the account can end short).
+2. Square off cancels a user's stop only once the position is really closed.
+3. Your panel for a master's user shows no buttons that cannot work.
+Also: the Stop-loss sheet starts at the current price and can close the position at once. Start it empty?
+
+Not tested: 300-user load; MCX options; real exchange messages.

@@ -271,6 +271,38 @@ led = own.get(f"/api/admin/users/{o2}/detail").json()
 ok("coins at once: twenty gifts of 10 coins from the owner at the same instant all arrive (ledger and coins agree)",
    r == [200] * 20 and led["user"]["balance"] == 1200.0 and round(sum(l["amount"] for l in led["ledger"]), 2) == 1200.0, f"{r} {led['user']['balance']}")
 
+# The same between a movement of coins and a fill of that user's own order: the coin call wrote the balance it had
+# read before the fill, so the fill's profit, loss or commission never reached the balance (ledger line written,
+# coins unchanged): 20 of 300 owner's gifts and 49 of 300 master's gifts made during non-stop trading went wrong.
+
+
+def gifts_during_fills(trader, give, uid):
+    stop, fills = [False], [0]
+
+    def trade():
+        k = 0
+        while not stop[0]:
+            k += 1
+            fills[0] += trader.post("/api/orders", json={"token": tok, "side": "BUY" if k % 2 else "SELL", "lots": 1}).status_code == 200
+    t = threading.Thread(target=trade); t.start(); time.sleep(0.5)
+    codes = {give().status_code for _ in range(120)}
+    stop[0] = True; t.join(); time.sleep(0.5)
+    d = own.get(f"/api/admin/users/{uid}/detail").json()
+    led = d["ledger"]                     # newest first
+    broken = [(led[i]["kind"], led[i]["amount"]) for i in range(len(led) - 1) if abs(led[i + 1]["balance_after"] + led[i]["amount"] - led[i]["balance_after"]) > 0.011]
+    return codes == {200} and fills[0] >= 5 and not broken and abs(led[0]["balance_after"] - d["user"]["balance"]) < 0.011, f"answers {codes}, fills {fills[0]}, lines that do not follow from the one before: {broken[:3]}"
+
+
+t1 = own.post("/api/admin/users", json={"username": f"ut1{tag}", "password": "first123", "initial_coins": 3000000}).json()["id"]
+own.post(f"/api/admin/masters/{M3}/stock", json={"amount": 3100000})
+t2 = m3.post("/api/master/users", json={"username": f"ut2{tag}", "password": "first123", "initial_coins": 3000000}).json()["id"]
+ok("coins at once: 120 gifts from the owner while that user's orders fill: every ledger line follows from the one before, coins = last line",
+   *gifts_during_fills(login(f"ut1{tag}", "first123", "mine12345"), lambda: own.post(f"/api/admin/users/{t1}/coins", json={"amount": 1}), t1))
+ok("coins at once: 120 gifts from a master while that user's orders fill: the same",
+   *gifts_during_fills(login(f"ut2{tag}", "first123", "mine12345"), lambda: m3.post(f"/api/master/users/{t2}/coins", json={"amount": 1}), t2))
+s3_, w3_, g3_ = books()
+ok("coins at once: the master's books still add up after it", abs(s3_ + w3_ - g3_) < 0.01, f"{s3_} {w3_} {g3_}")
+
 # A deleted account's name is marked with its number; cut at the end, a name of 57 letters or more lost the number:
 # a 64-letter name was not freed, and the second account of a 60-letter name could never be deleted (an error).
 for n_ in (64, 60, 57):

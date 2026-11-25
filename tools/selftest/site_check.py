@@ -1283,6 +1283,15 @@ def main():
         mrow = next((x for x in rows if x.get("username") == "sitecheck"), {}) if isinstance(rows, list) else {}
         ok("Figures: the user's balance on his screen equals the Master's row", near(f.get("balance"), mrow.get("balance"), 0.02), f"{f.get('balance')} vs {mrow.get('balance')}")
         ok("Figures: the server log has no error", True)
+        # Leave the copy as it was found (26 Nov 2026): the Master's two-step login was turned on at the start of this
+        # run. Left on, the masters check that run.sh starts next could not log in as the Master at all ("FAIL | owner
+        # creates a master | Not logged in") and the click-through of the masters pages timed out.
+        try:
+            off = A.post(f"{B}/api/admin/2fa/disable", data={"code": pyotp.TOTP(secret).now()})
+            if off.status != 200 or A.post(f"{B}/api/login", data={"username": "admin", "password": "admin123"}).json().get("needs_2fa"):
+                print("NOTE site | the Master's two-step login could not be turned off again:", off.status, off.text()[:120])
+        except Exception as e:
+            print("NOTE site | the Master's two-step login could not be turned off again:", e)
         br.close()
     print(f"\nSITE {passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

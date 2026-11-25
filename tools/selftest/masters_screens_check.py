@@ -72,11 +72,10 @@ async def main():
         ok("owner: his user is NOT in the owner's own Users list", "Test User" not in await o.inner_text("#uTbl tbody"))
         await o.click("[data-nav=masters]"); await o.wait_for_timeout(1500); await o.click("#moU tr[data-vu]"); await o.wait_for_timeout(2500)
         ok("owner: can open his user's details to look", await o.is_visible("#detail") or await o.locator(".modal:not(.hidden)").count()>0)
-        # 26 Nov 2026: for a master's user the server refuses Freeze, Reset password and Reset 2FA (only his master changes him),
-        # and the page said nothing at all (a script error it hid). It now shows the server's sentence. (Hiding the buttons waits for the owner.)
-        await o.click("#detail #dFreeze"); await o.wait_for_timeout(1500)
-        said=await o.evaluate("() => [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')")
-        ok("owner: Freeze pressed on a master's user says why it is refused (it said nothing: a script error the page hid)", "only he changes" in said, said)
+        # 26 Nov 2026: the panel offered Square off, Freeze, Reset password, Delete and the trading-access switches for a master's user;
+        # every one is refused by the server, and Freeze and Reset password said nothing at all (a script error the page hid)
+        shown=await o.evaluate("() => ['#dSquare','#dFreeze','#dPass','#d2fa','#dDelete','#dAccWrap','#dLook'].filter(s => { const e=document.querySelector('#detail '+s); return e && e.getClientRects().length>0; })")
+        ok("owner: his user's panel offers no button that would change him, and says that only his master does", shown==['#dLook'] and "only his master" in await o.inner_text("#dLook"), shown)
         FITS="() => { const box=document.querySelector('#detail .box').getBoundingClientRect(); const rows=[...document.querySelectorAll('#detail table')].filter(t=>t.getClientRects().length&&t.tHead&&/Balance after/i.test(t.tHead.innerText)).flatMap(t=>[...t.tBodies[0].rows]); return [rows.length, Math.max(...rows.map(r=>r.cells[r.cells.length-1].getBoundingClientRect().right)) <= box.right+0.5]; }"
         await o.click("#detail [data-dt=ledger]"); await o.wait_for_timeout(1200); fit=await o.evaluate(FITS)
         ok("owner: his user's coin ledger shows every balance in full on a computer screen (a long note wraps)", fit[0]>=3 and fit[1], fit)

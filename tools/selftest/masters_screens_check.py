@@ -72,6 +72,10 @@ async def main():
         ok("owner: his user is NOT in the owner's own Users list", "Test User" not in await o.inner_text("#uTbl tbody"))
         await o.click("[data-nav=masters]"); await o.wait_for_timeout(1500); await o.click("#moU tr[data-vu]"); await o.wait_for_timeout(2500)
         ok("owner: can open his user's details to look", await o.is_visible("#detail") or await o.locator(".modal:not(.hidden)").count()>0)
+        # 26 Nov 2026: the panel offered Square off, Freeze, Reset password, Delete and the trading-access switches for a master's user;
+        # every one is refused by the server, and Freeze and Reset password said nothing at all (a script error the page hid)
+        shown=await o.evaluate("() => ['#dSquare','#dFreeze','#dPass','#d2fa','#dDelete','#dAccWrap','#dLook'].filter(s => { const e=document.querySelector('#detail '+s); return e && e.getClientRects().length>0; })")
+        ok("owner: his user's panel offers no button that would change him, and says that only his master does", shown==['#dLook'] and "only his master" in await o.inner_text("#dLook"), shown)
         # ---- master deletes ----
         await m.click("[data-nav=users]"); await m.wait_for_timeout(800); await m.click("#uT tr[data-u]"); await m.wait_for_timeout(1500); await m.click("#dDel"); await m.wait_for_timeout(3000)
         ok("master: the flat user is deleted, coins all back (1,00,000), user greyed 'deleted'", num(await m.inner_text("#sStock"))==1000000 and num(await m.inner_text("#sWith"))==0 and "deleted" in await m.inner_text("#uT tbody"), await m.inner_text("#uT tbody"))

@@ -275,6 +275,19 @@ def _book_users(db, master: Optional[int] = None):
     return q.filter(User.master_id == int(master)) if master else q.filter(User.master_id.is_(None))
 
 
+def _listed(db, users: list) -> list:
+    """The accounts a list, a report or an Excel file shows. An account deleted before it ever traded has nothing
+    to show and is left out everywhere, exactly as the Users list leaves it out (its coin lines stay in the
+    database). Until 26 Nov 2026 Performance and the Excel files still listed it, and counted it as a user."""
+    return [u for u in users if not u.deleted_at or db.query(Trade.id).filter_by(user_id=u.id).first()]
+
+
+def _plain_name(username) -> str:
+    """A deleted account's username without the mark that frees the name for a new account."""
+    import re
+    return re.sub(r"~deleted\d+$", "", str(username or ""))
+
+
 def _owners_user(db, uid: int) -> User:
     """For every change the owner makes to a user: a user of a master under him can be looked at, never changed."""
     u = db.get(User, uid)
@@ -3134,7 +3147,7 @@ def master_report(from_: Optional[str] = Query(None, alias="from"), to: Optional
     q = _book_users(db, me.id)
     if user_id:
         q = q.filter_by(id=user_id)
-    return build_report(db, q.order_by(User.id).all(), from_, to)
+    return build_report(db, _listed(db, q.order_by(User.id).all()), from_, to)
 
 
 @app.get("/api/admin/settings")
@@ -3225,7 +3238,7 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
 @app.get("/api/admin/leaderboard")
 def leaderboard(master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     rows = []
-    for u in _book_users(db, master).all():
+    for u in _listed(db, _book_users(db, master).all()):
         f = engine.funds(db, u)
         credited = sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                        .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
@@ -3301,7 +3314,7 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
         out["users"].append({
             "total_pnl": total, "open_pnl": round(total - pnl, 2),
             "valuation": valuation, "settled_total": settled, "week_pnl": round(funds["equity"] - credited, 2),
-            "id": u.id, "username": u.username, "display_name": u.display_name,
+            "id": u.id, "username": u.username, "display_name": u.display_name, "deleted": bool(u.deleted_at),
             "trades": len(trades), "closing_trades": len(closing), "wins": len(wins), "losses": len(losses),
             "win_rate": round(len(wins) / len(closing) * 100, 1) if closing else None,
             "gross_profit": round(sum(wins), 2), "gross_loss": round(sum(losses), 2), "commission": comm_total, "net_pnl": pnl,
@@ -3322,7 +3335,7 @@ def admin_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[
     q = _book_users(db, master)
     if user_id:
         q = q.filter_by(id=user_id)
-    return build_report(db, q.order_by(User.id).all(), from_, to)
+    return build_report(db, _listed(db, q.order_by(User.id).all()), from_, to)
 
 
 @app.get("/api/report")
@@ -3341,11 +3354,14 @@ def _weekly_rows(db, users, start=None, end=None) -> list:
         cut = _weekly.cutoff_utc(date.fromisoformat(r.week_end))      # the week's own Sunday, even if it was closed late
         if (start is not None and cut < start) or (end is not None and cut >= end):
             continue
-        out.append((r.week_end, True, _weekly.row_dict(db, r, ids[r.user_id])))
+        row = _weekly.row_dict(db, r, ids[r.user_id])
+        if _weekly.shown(row):          # a deleted account: only the weeks it did something in, as on the Weekly Settlement tab
+            out.append((r.week_end, True, row))
     if end is None or end > datetime.utcnow():
         for u in users:
             row = _weekly.running_row(engine, db, u)
-            out.append((row["week_end"], False, row))
+            if _weekly.shown(row):
+                out.append((row["week_end"], False, row))
     return out
 
 
@@ -3382,7 +3398,7 @@ def _weekly_sheet(wb, db, users, start, end, many: bool):
         note = ("" if final else "week in progress: open positions valued right now") + ("" if r["exact"] else "cut-off ran late") \
             + (f"{' · ' if not final or not r['exact'] else ''}{r['unpriced']} position(s) had no price and were left as they were" if r["unpriced"] else "") \
             + (f" · other {r['other']:+,.2f}" if r["other"] else "")
-        ws.append([_weekly.week_label(date.fromisoformat(we)), "FINAL" if final else "PROVISIONAL"] + ([r["display_name"]] if many else [])
+        ws.append([_weekly.week_label(date.fromisoformat(we)), "FINAL" if final else "PROVISIONAL"] + ([r["display_name"] + (" (deleted)" if r.get("deleted") else "")] if many else [])
                   + [r["closed"], r["valuation"], -r["commission"], r["result"], crypto, round(r["result"] - crypto, 2),
                      r["allocated"], r["carried"], note])
     if many and cur is not None:
@@ -3518,7 +3534,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         sheet("Summary", ["User", "Username", "Realised", "Unrealised (Open Positions)", "Commission", "Net P&L (Settlement)", "Net P&L (Closed Trades)",
                           "Trades", "Closing Trades", "Wins", "Losses", "Win Rate %",
                           "Best Trade", "Worst Trade", "Avg Win", "Avg Loss", "Profit Factor", "Allocated", "Net Balance", "Net P&L (This Week)", "Net P&L (All Time)"],
-              [[u["display_name"], u["username"], round(u["gross_profit"] + u["gross_loss"], 2), u["open_pnl"], -u["commission"], u["total_pnl"], u["net_pnl"],
+              [[u["display_name"] + (" (deleted)" if u.get("deleted") else ""), _plain_name(u["username"]), round(u["gross_profit"] + u["gross_loss"], 2), u["open_pnl"], -u["commission"], u["total_pnl"], u["net_pnl"],
                 u["trades"], u["closing_trades"],
                 u["wins"], u["losses"], u["win_rate"], u["best"], u["worst"], u["avg_win"], u["avg_loss"], u["profit_factor"],
                 u["allocated"], u["equity"], u["week_pnl"], u["overall_pnl"]] for u in rep["users"]],
@@ -3600,7 +3616,7 @@ def _xlsx_response(data: bytes, name: str):
 def _admin_rows(db):
     """One row per user with the reconciliation columns the master table shows."""
     rows = []
-    for u in _book_users(db).order_by(User.id).all():
+    for u in _listed(db, _book_users(db).order_by(User.id).all()):
         f = engine.funds(db, u)
         led = db.query(Ledger).filter_by(user_id=u.id).all()
         alloc = sum(l.amount for l in led if l.kind in ("ADMIN_CREDIT", "ADMIN_DEBIT"))
@@ -3608,7 +3624,7 @@ def _admin_rows(db):
         cut = _weekly.last_cutoff(db, u)
         comm = round(sum(t.commission or 0.0 for t in db.query(Trade).filter(Trade.user_id == u.id).filter(*([Trade.created_at > cut] if cut else []))), 2)
         realised = round(f["balance"] - alloc + comm, 2) + 0.0     # to the paisa; "+ 0.0" so no closed trades reads 0, never -0.00
-        rows.append({"name": u.display_name, "username": u.username, "status": "active" if u.is_active else "frozen",
+        rows.append({"name": u.display_name, "username": _plain_name(u.username), "status": "deleted" if u.deleted_at else "active" if u.is_active else "frozen",
                      "settled_total": _weekly.settled_total(db, u),
                      "allocated": alloc, "exposure": f["used_margin"], "available": f["available"], "unrealised": f["unrealised"],
                      "realised": realised, "commission": comm, "net_balance": f["equity"], "net_pnl": f["equity"] - alloc,
@@ -3640,8 +3656,10 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
 
     ws["A1"] = "limefx — Master Summary"; ws["A1"].font = Font(bold=True, size=14, color="365314")
     wk_end = _weekly.week_end_of(now.date())
-    ws["A2"] = (f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   This Week ({_weekly.week_label(wk_end)}, running)   ·   {len(rows)} Users"
-                "   ·   Earlier weeks are on the Weekly Settlement sheet"); ws["A2"].font = Font(color="6B7280")
+    n_gone = len([r for r in rows if r["status"] == "deleted"])
+    ws["A2"] = (f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   This Week ({_weekly.week_label(wk_end)}, running)   ·   {len(rows) - n_gone} Users"
+                + (f" ({n_gone} deleted, records kept)" if n_gone else "")
+                + "   ·   Earlier weeks are on the Weekly Settlement sheet"); ws["A2"].font = Font(color="6B7280")
     DASH_H, DASH_V, USERS_T, USERS_H = 4, 5, 7, 8
     first = USERS_H + 1; n = len(rows); last = first + n - 1; tot = last + 1
     # ---- users (their side) ----
@@ -3718,8 +3736,8 @@ def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[
     q = _book_users(db, master)
     if user_id:
         q = q.filter_by(id=user_id)
-    users = q.order_by(User.id).all()
-    rep_name = f"limefx_{(users[0].username if user_id and users else 'all')}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
+    users = _listed(db, q.order_by(User.id).all())
+    rep_name = f"limefx_{(_plain_name(users[0].username) if user_id and users else 'all')}_{_stmt_tag(sheets)}_{from_ or 'start'}_to_{to or 'today'}.xlsx"
     return _xlsx_response(build_xlsx(db, users, from_, to, sheets), rep_name)
 
 

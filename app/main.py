@@ -2806,7 +2806,6 @@ async def _squareoff(db, u: User):
         db.expire_all()   # objects loaded before we got the lock may be stale (concurrent orders)
         for p in db.query(Position).filter_by(user_id=uid, is_closed=False).all():
             try:
-                engine.cancel_pending_for(db, u, p.token)
                 ins_ = feed.instruments.get(p.token)
                 side_, left = ("SELL" if p.qty > 0 else "BUY"), abs(p.qty) // p.lot_size
                 from .config import FREEZE_QTY
@@ -2826,6 +2825,10 @@ async def _squareoff(db, u: User):
                     _why = (o.reason or "the order was not filled") if o.status != "FILLED" else f"too few {'buyers' if side_ == 'SELL' else 'sellers'} right now"
                     errors.append(f"{p.symbol}: {_still} lot{'s are' if _still != 1 else ' is'} still open ({_why}). Press Square off again in a moment")
                 else:
+                    # The user's waiting orders on the contract are cancelled only once the position is really closed,
+                    # as Exit does. They used to be cancelled first: when nothing (or only part) could be closed, the
+                    # position stayed open and had lost its stop-loss (26 Nov 2026).
+                    engine.cancel_pending_for(db, u, p.token)
                     done += 1
             except EngineError as e:
                 errors.append(f"{p.symbol}: {e}")

@@ -2697,6 +2697,11 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     if not u or u.is_admin:
         raise HTTPException(404)
     _owners_user(db, uid)
+    return _delete_user(db, u)
+
+
+def _delete_user(db, u: User):
+    uid = u.id
     _note(f"Deleted user {u.username} ({u.display_name}); balance at that moment {u.balance or 0.0:,.2f}")
     # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
     # blocked the next trade on the site, which is given the same number (19 Nov 2026)
@@ -2739,7 +2744,11 @@ def _user_detail(db, u: User) -> dict:
 
 @app.post("/api/admin/users/{uid}/squareoff")
 async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    u = _owners_user(db, uid)
+    return await _squareoff(db, _owners_user(db, uid))
+
+
+async def _squareoff(db, u: User):
+    uid = u.id
     done, errors = 0, []
     db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
@@ -2821,40 +2830,59 @@ def _his_user(db, uid: int, me: User) -> User:
     return u
 
 
-def _share_of_week(db, m: User, week_end: str) -> float:
-    """The share that applied to a finished week: the one in force when that week was closed."""
-    v = get_setting(db, f"mshare_{m.id}_{week_end}")
+def _week_kept(db, m: User, week_end: str) -> Optional[dict]:
+    """What was written down for a master's book when that week was closed. A finished week is read from here and
+    never worked out again, so deleting a user or changing the percentage later cannot rewrite it."""
     try:
-        return float(v) if v not in (None, "") else float(m.share_pct or 0.0)
+        v = json.loads(get_setting(db, f"mweek_{m.id}_{week_end}") or "null")
+        return v if isinstance(v, dict) else None
     except ValueError:
-        return float(m.share_pct or 0.0)
+        return None
 
 
 def _remember_shares(db, week_end: str):
-    """At a weekly cut-off: keep each master's share of that week, so changing the percentage later never rewrites a finished week."""
+    """At a weekly cut-off: write down each master's book of that week and the percentage in force."""
     for m in db.query(User).filter_by(is_sub=True).all():
-        if get_setting(db, f"mshare_{m.id}_{week_end}") in (None, ""):
-            set_setting(db, f"mshare_{m.id}_{week_end}", str(float(m.share_pct or 0.0)))
+        if _week_kept(db, m, week_end) is None:
+            rep = _weekly.report(engine, db, week_end, user_ids=[u.id for u in _book_users(db, m.id)])
+            set_setting(db, f"mweek_{m.id}_{week_end}", json.dumps({"pct": float(m.share_pct or 0.0), "users": len(rep["rows"]),
+                                                                  "result": rep["total"]["result"], "commission": rep["total"]["commission"]}))
     db.commit()
 
 
-def _share_line(rep: dict, pct: float) -> dict:
-    """One week of a master's book. The users' result already has their brokerage taken off; our side is the opposite."""
-    t = rep["total"]
-    ours = round(-t["result"], 2) + 0.0
-    his = round(ours * pct / 100.0, 2) + 0.0
-    return {"week_end": rep["week_end"], "label": rep["label"], "final": rep["final"], "users": len(rep["rows"]),
-            "users_result": t["result"], "commission": t["commission"], "our_side": ours,
-            "share_pct": pct, "master_share": his, "owner_share": round(ours - his, 2) + 0.0}
+def _share_calc(week_end: str, label: str, final: bool, users: int, result: float, commission: float, pct: float) -> dict:
+    """One week of a master's book (owner's decision, 25 Nov 2026). The book is the master's: his users' P&L turned
+    round, plus the brokerage they paid. The owner takes his percentage of both alike; the rest is the master's.
+    Every line adds up to the paisa: book P&L + brokerage = book total = owner's share + master's share."""
+    result, commission = round(result, 2), round(commission, 2)
+    users_pnl = round(result + commission, 2) + 0.0          # what his users made before brokerage
+    book_pnl = round(-users_pnl, 2) + 0.0
+    total = round(book_pnl + commission, 2) + 0.0             # = minus the users' result
+    owner = round(total * pct / 100.0, 2) + 0.0
+    owner_brok = round(commission * pct / 100.0, 2) + 0.0
+    return {"week_end": week_end, "label": label, "final": final, "users": users,
+            "users_result": result, "users_pnl": users_pnl, "book_pnl": book_pnl, "commission": commission, "our_side": total,
+            "share_pct": pct, "owner_share": owner, "owner_from_pnl": round(owner - owner_brok, 2) + 0.0, "owner_from_brokerage": owner_brok,
+            "master_share": round(total - owner, 2) + 0.0}
+
+
+def _share_line(db, m: User, rep: dict) -> dict:
+    kept = _week_kept(db, m, rep["week_end"]) if rep["final"] else None
+    if kept:
+        return _share_calc(rep["week_end"], rep["label"], True, int(kept.get("users") or 0), float(kept.get("result") or 0.0),
+                           float(kept.get("commission") or 0.0), float(kept.get("pct") or 0.0))
+    return _share_calc(rep["week_end"], rep["label"], rep["final"], len(rep["rows"]), rep["total"]["result"], rep["total"]["commission"],
+                       float(m.share_pct or 0.0))
 
 
 def _master_weeks(db, m: User, limit: int = 26) -> list:
     ids = [u.id for u in _book_users(db, m.id)]
-    out = [_share_line(_weekly.report(engine, db, None, user_ids=ids), float(m.share_pct or 0.0))]
+    out = [_share_line(db, m, _weekly.report(engine, db, None, user_ids=ids))]
     for we in _weekly.weeks_available(db)[:limit]:
         rep = _weekly.report(engine, db, we, user_ids=ids)
-        if rep["rows"]:
-            out.append(_share_line(rep, _share_of_week(db, m, we)))
+        line = _share_line(db, m, rep)
+        if line["users"] or rep["rows"]:
+            out.append(line)
     return out
 
 
@@ -2882,7 +2910,7 @@ def masters_list(admin: User = Depends(current_admin), db: Session = Depends(get
     for m in db.query(User).filter_by(is_sub=True).order_by(User.id).all():
         d = _master_dict(db, m)
         ids = [u.id for u in _book_users(db, m.id)]
-        d["this_week"] = _share_line(_weekly.report(engine, db, None, user_ids=ids), d["share_pct"])
+        d["this_week"] = _share_line(db, m, _weekly.report(engine, db, None, user_ids=ids))
         out.append(d)
     return out
 
@@ -2904,7 +2932,7 @@ def masters_add(body: MasterIn, admin: User = Depends(current_admin), db: Sessio
     if stock:
         engine._ledger(db, m, stock, STOCK_IN, "first coins from the owner")
     db.commit()
-    _note(f"Created master {uname} ({m.display_name}): share {pct:g}%, {stock:,.2f} coins to hand to his users")
+    _note(f"Created master {uname} ({m.display_name}): the owner takes {pct:g}% of his book, {stock:,.2f} coins to hand to his users")
     return _master_dict(db, m)
 
 
@@ -2937,7 +2965,7 @@ def masters_patch(mid: int, body: MasterPatch, admin: User = Depends(current_adm
     if body.share_pct is not None:
         pct = _pct(body.share_pct)
         if pct != float(m.share_pct or 0.0):
-            _note(f"Master {m.username}: share {float(m.share_pct or 0.0):g}% → {pct:g}% (from the week now running; finished weeks keep theirs)")
+            _note(f"Master {m.username}: the owner's percentage {float(m.share_pct or 0.0):g}% → {pct:g}% (from the week now running; finished weeks keep theirs)")
         m.share_pct = pct
     if body.is_active is not None and bool(body.is_active) != bool(m.is_active):
         _note(f"Master {m.username}: {'paused → active' if body.is_active else 'active → paused (he cannot log in; his users trade on)'}")
@@ -2969,6 +2997,8 @@ def masters_remove(mid: int, admin: User = Depends(current_admin), db: Session =
     _note(f"Removed master {m.username} ({m.display_name}); he held {m.balance or 0.0:,.2f} coins at that moment")
     db.query(Ledger).filter_by(user_id=m.id).delete()
     db.query(Watch).filter_by(user_id=m.id).delete()
+    from .db import Setting as _S
+    db.query(_S).filter(_S.key.like(f"mweek\\_{m.id}\\_%", escape="\\")).delete(synchronize_session=False)
     _forget_number(db, m.id)
     db.delete(m); db.commit()
     return {"ok": True}
@@ -3040,6 +3070,33 @@ def master_patch_user(uid: int, body: UserPatch, me: User = Depends(current_mast
     return _patch_user(db, _his_user(db, uid, me), body)
 
 
+@app.post("/api/master/users/{uid}/squareoff")
+async def master_squareoff(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    _note(f"Master {me.username}:")
+    return await _squareoff(db, _his_user(db, uid, me))
+
+
+@app.delete("/api/master/users/{uid}")
+def master_delete_user(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    """A master deletes one of his users. Only an account that is flat and has done nothing in the week now running:
+    otherwise that week's result would vanish from the books. His coins go back to the master."""
+    u = _his_user(db, uid, me)
+    if db.query(Position).filter_by(user_id=u.id, is_closed=False).filter(Position.qty != 0).count():
+        raise HTTPException(400, f"{u.username} has open positions. Square him off first")
+    if db.query(Order).filter_by(user_id=u.id, status="OPEN").count():
+        raise HTTPException(400, f"{u.username} has orders waiting. Cancel them first (Square off also cancels them)")
+    row = _weekly.running_row(engine, db, u)
+    if abs(row["result"]) >= 0.005 or abs(row["commission"]) >= 0.005 or abs(row["closed"]) >= 0.005:
+        raise HTTPException(400, f"{u.username} has traded this week ({row['result']:+,.2f} so far). He can be deleted after the weekly settlement on Sunday night; freeze him until then")
+    back = _weekly.allocated(db, u)
+    _s = me.balance or 0.0
+    if abs(back) >= 0.005:
+        engine._ledger(db, me, back, FROM_USER, f"from {u.username}: account deleted")
+    _note(f"Master {me.username}: {back:,.2f} coins of {u.username} back to his stock ({_s:,.2f} → {me.balance or 0.0:,.2f})")
+    _delete_user(db, u)
+    return {"ok": True, "stock": round(me.balance or 0.0, 2)}
+
+
 @app.get("/api/master/users/{uid}/detail")
 def master_user_detail(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
     return _user_detail(db, _his_user(db, uid, me))
@@ -3056,7 +3113,7 @@ def master_weekly(week_end: Optional[str] = None, me: User = Depends(current_mas
         rep = _weekly.report(engine, db, week_end, user_ids=[u.id for u in _book_users(db, me.id)])
     except (ValueError, OverflowError):
         raise HTTPException(400, "week_end must look like 2026-11-15")
-    rep["share"] = _share_line(rep, _share_of_week(db, me, rep["week_end"]) if rep["final"] else float(me.share_pct or 0.0))
+    rep["share"] = _share_line(db, me, rep)
     return rep
 
 

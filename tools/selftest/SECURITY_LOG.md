@@ -2318,5 +2318,10 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   stock + coins with his users = coins the owner gave; the weekly cut-off never touches a master's stock
   (weekly.accounts leaves is_sub out); a master cannot trade; a finished week keeps the share % it was closed with
   (setting mshare_<master>_<week>); a paused master cannot log in while his users trade on.
-- Share: book result = minus his users' weekly result (their brokerage is already inside); his share = share % of it.
-- Not built (say so if asked): a master deleting a user or squaring a user off; per-master brokerage or leverage.
+- Share (owner's words, 13:38): the book and its brokerage are the MASTER's; the percentage is what the OWNER takes,
+  of the P&L and of the brokerage alike. Book P&L (users' P&L before brokerage, turned round) + brokerage = book
+  total = owner's share + master's share, to the paisa. A finished week is written down at the cut-off
+  (setting mweek_<master>_<week>) and never worked out again: a later percentage or a deleted user cannot alter it.
+- The master (not the owner) squares off and deletes his users. Delete only when flat, no waiting orders and nothing
+  done in the running week; the user's allocated coins return to the master's stock.
+- Not built (say so if asked): per-master brokerage or leverage; moving a user between masters.

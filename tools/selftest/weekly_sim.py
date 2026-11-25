@@ -1097,8 +1097,9 @@ if True:
             continue
         _n += 1
         _src = _insp.getsource(_r.endpoint)
-        if "_patch_user(" in _src:        # the owner's and a master's "change a user" share one body, which writes the lines
-            _src += _insp.getsource(M._patch_user)
+        for _h in ("_patch_user", "_delete_user", "_squareoff"):      # the owner's and a master's calls share these bodies, which write the lines
+            if _h + "(" in _src:
+                _src += _insp.getsource(getattr(M, _h))
         if "_note(" not in _src:
             _silent.append(f"{sorted(_meth)[0]} {_path}")
     ok("activity record: every Master address that changes something says what it did", _n >= 30 and not _silent, f"{_n} addresses; silent: {_silent[:6]}")

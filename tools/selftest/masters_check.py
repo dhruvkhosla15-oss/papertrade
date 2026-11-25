@@ -113,18 +113,29 @@ r = m1.post("/api/orders", json={"token": tok, "side": "BUY", "lots": 1})
 ok("a master cannot trade with his stock", r.status_code >= 400 or r.json().get("status") == "REJECTED", r.text[:120])
 ok("... and holds no position", m1.get("/api/master/me").json()["stock"] == 250000)
 
-# ---- his user trades; the week, the share ----
+# ---- his user trades; the week, the share (the percentage is what the OWNER takes of the master's book) ----
+def adds_up(w, pct):
+    return (abs(w["book_pnl"] + w["users_pnl"]) < 0.006 and abs(w["users_pnl"] - (w["users_result"] + w["commission"])) < 0.006
+            and abs(w["book_pnl"] + w["commission"] - w["our_side"]) < 0.006 and abs(w["our_side"] + w["users_result"]) < 0.006
+            and abs(w["owner_share"] - round(w["our_side"] * pct / 100, 2)) < 0.006 and abs(w["owner_share"] + w["master_share"] - w["our_side"]) < 0.006
+            and abs(w["owner_from_pnl"] + w["owner_from_brokerage"] - w["owner_share"]) < 0.006
+            and abs(w["owner_from_brokerage"] - round(w["commission"] * pct / 100, 2)) < 0.006 and w["share_pct"] == pct)
+
+
 a1 = login(a1n, "first123", "mine12345")
 r = a1.post("/api/orders", json={"token": tok, "side": "BUY", "lots": 1}); time.sleep(1)
-r2 = a1.post("/api/orders", json={"token": tok, "side": "SELL", "lots": 1}); time.sleep(1)
-ok("the master's user trades like any user", r.status_code == 200 and r2.status_code == 200, r.text[:160] + r2.text[:160])
+ok("the master's user trades like any user", r.status_code == 200 and r.json()["order"]["status"] == "FILLED", r.text[:200])
 wk = m1.get("/api/master/weeks").json()[0]
-ok("running week: book result is the opposite of the users' result, his share is his percentage",
-   wk["users_result"] != 0 and abs(wk["our_side"] + wk["users_result"]) < 0.01 and abs(wk["master_share"] - round(wk["our_side"] * 0.40, 2)) < 0.011
-   and abs(wk["master_share"] + wk["owner_share"] - wk["our_side"]) < 0.011, str(wk))
+ok("running week: book P&L + brokerage = book total = owner's share + master's share; the owner takes his % of P&L and brokerage alike",
+   wk["users_result"] != 0 and wk["commission"] > 0 and adds_up(wk, 40), str(wk))
 ok("the owner's weekly table holds only his own users", a1n not in [x["username"] for x in own.get("/api/admin/weekly").json()["rows"]])
-ok("the owner's Masters list shows the same week", abs(next(m for m in own.get("/api/admin/masters").json() if m["id"] == M1)["this_week"]["users_result"] - wk["users_result"]) < 0.01)
+ok("the owner's Masters list shows the same week to the paisa", abs(next(m for m in own.get("/api/admin/masters").json() if m["id"] == M1)["this_week"]["commission"] - wk["commission"]) < 0.006)
+ok("a user who traded this week cannot be deleted", m1.delete(f"/api/master/users/{A1}").status_code == 400)
+r = m1.post(f"/api/master/users/{A1}/squareoff")
+ok("a master squares his own user off", r.status_code == 200 and r.json()["closed"] == 1 and not m1.get(f"/api/master/users/{A1}/detail").json()["positions"], r.text[:160])
+ok("a master cannot square off or delete anybody else's user", [m1.post(f"/api/master/users/{u}/squareoff").status_code for u in (O1, B1)] + [m1.delete(f"/api/master/users/{u}").status_code for u in (O1, B1, M2)] == [404] * 5)
 before = m1.get("/api/master/me").json()
+wk = m1.get("/api/master/weeks").json()[0]
 r = own.post("/api/admin/weekly/test-close")
 if r.status_code == 200:
     time.sleep(2)
@@ -132,10 +143,18 @@ if r.status_code == 200:
     ok("the weekly cut-off leaves a master's stock alone", after["stock"] == before["stock"] and after["given"] == before["given"], f"{before} -> {after}")
     ok("... and his user's coins go back to the allocated amount", m1.get(f"/api/master/users/{A1}/detail").json()["funds"]["balance"] == 250000)
     weeks = m1.get("/api/master/weeks").json(); fin = [w for w in weeks if w["final"]][0]
-    ok("the finished week is booked with the share of that week", fin["share_pct"] == 40 and abs(fin["users_result"] - wk["users_result"]) < 0.01, str(fin))
+    ok("the finished week is booked as it stood, and adds up", adds_up(fin, 40) and abs(fin["users_result"] - wk["users_result"]) < 0.006 and abs(fin["commission"] - wk["commission"]) < 0.006, str(fin))
     own.patch(f"/api/admin/masters/{M1}", json={"share_pct": 55})
     weeks = own.get(f"/api/admin/masters/{M1}").json()["weeks"]
-    ok("changing the share later does not rewrite a finished week", [w for w in weeks if w["final"]][0]["share_pct"] == 40 and weeks[0]["share_pct"] == 55, str(weeks[:2]))
+    ok("changing the percentage later does not rewrite a finished week", [w for w in weeks if w["final"]][0] == fin and weeks[0]["share_pct"] == 55, str(weeks[:2]))
+    r = m1.delete(f"/api/master/users/{A1}")
+    me = m1.get("/api/master/me").json()
+    ok("a flat user is deleted after the settlement and his coins return to the master", r.status_code == 200 and me["stock"] == 500000 and me["with_users"] == 0 and me["users"] == 0, r.text[:120] + str(me))
+    ok("stock + coins with users = coins the owner gave, after the delete too", abs(me["stock"] + me["with_users"] - me["given"]) < 0.01)
+    weeks = own.get(f"/api/admin/masters/{M1}").json()["weeks"]
+    ok("deleting the user does not rewrite the finished week", [w for w in weeks if w["final"]] and [w for w in weeks if w["final"]][0] == fin, str(weeks[:2]))
+    A1 = m1.post("/api/master/users", json={"username": a1n, "password": "first123", "display_name": "User A", "initial_coins": 1000}).json()["id"]
+    a1 = login(a1n, "first123", "mine12345")
 else:
     ok("weekly test switch available on the private copy", False, r.text[:100])
 

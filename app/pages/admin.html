@@ -201,30 +201,31 @@ a{color:var(--acc)}
   <section id="nav-masters" class="hidden">
   <div class="card">
     <h2>Create a master</h2>
-    <p class="small mut" style="margin-bottom:10px">A master logs in on this same page and sees only his own users. He creates users and deposits and withdraws coins for them from the coins you give him. He cannot open settings, brokerage, leverage, the price connections, the Shadow Book or backups, and he never sees your users.</p>
+    <p class="small mut" style="margin-bottom:10px">A master logs in on this same page and sees only his own users. He creates users and deposits and withdraws coins for them from the coins you give him. He cannot open settings, brokerage, leverage, the price connections, the Shadow Book or backups, and he never sees your users. His book is his users' P&amp;L turned round plus the brokerage they pay; you take your percentage of both, the rest is his.</p>
     <div class="row">
       <div><label class="small mut">Name (shown on his tab)</label><input id="mName"></div>
       <div><label class="small mut">Username</label><input id="mUser" autocapitalize="none"></div>
       <div><label class="small mut">Password (he changes it at first login)</label><input id="mPass"></div>
-      <div><label class="small mut">His share %</label><input id="mPct" type="number" min="0" max="100" value="0"></div>
+      <div><label class="small mut">Your share % (what you take)</label><input id="mPct" type="number" min="0" max="100" value="0"></div>
       <div><label class="small mut">Coins to start with</label><input id="mStock" type="number" min="0" value="0"></div>
       <button id="mBtn" style="flex:0 0 auto">Create master</button>
     </div>
   </div>
   <div class="card" style="padding:0;overflow:auto">
     <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Masters <span class="small mut" id="mCount"></span></h2><span class="small mut">This week so far · click a master to open his tab</span></div>
-    <table id="mTbl"><thead><tr><th>Master</th><th>Status</th><th>Users</th><th title="Coins he holds and has not handed out">Coins With Him</th><th title="Coins he has handed to his users">Coins With His Users</th><th title="His users together this week, brokerage taken off">Users' Result</th><th title="The opposite of his users' result">Book Result</th><th>Share</th><th>His Share</th><th>Your Share</th></tr></thead><tbody></tbody></table>
+    <table id="mTbl"><thead><tr><th>Master</th><th>Status</th><th>Users</th><th title="Coins he holds and has not handed out">Coins With Him</th><th title="Coins he has handed to his users">Coins With His Users</th><th title="The opposite of what his users made before brokerage">Book P&amp;L</th><th title="Brokerage his users paid">Brokerage</th><th title="Book P&amp;L + Brokerage">Book Total</th><th>Your %</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
   </div>
   <div class="tabs" id="mTabs"></div>
   <div id="mOne" class="hidden">
     <div class="card">
       <div class="bar" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0" id="moName"></h2>
-        <div class="bar"><button class="ok small" id="moGive">Give coins</button><button class="ghost small" id="moTake">Take back coins</button><button class="ghost small" id="moPct">Change share</button><button class="ghost small" id="moPw">Reset password</button><button class="ghost small" id="mo2fa">Clear two-step login</button><button class="ghost small" id="moPause"></button><button class="danger small" id="moDel">Remove</button></div></div>
+        <div class="bar"><button class="ok small" id="moGive">Give coins</button><button class="ghost small" id="moTake">Take back coins</button><button class="ghost small" id="moPct">Change your %</button><button class="ghost small" id="moPw">Reset password</button><button class="ghost small" id="mo2fa">Clear two-step login</button><button class="ghost small" id="moPause"></button><button class="danger small" id="moDel">Remove</button></div></div>
       <div class="grid" id="moStats"></div>
-      <p class="small mut" style="margin-top:10px">His users are shown here for you to look at. Only he deposits, withdraws or changes them.</p>
+      <p class="small mut" style="margin-top:10px">His users are shown here for you to look at. Only he deposits, withdraws, squares off, deletes or changes them.</p>
     </div>
-    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Week By Week <span class="small mut">his users together, with the share</span></h2></div>
-      <table id="moWk"><thead><tr><th>Week</th><th>Users</th><th>Users' Result</th><th title="Brokerage his users paid: already inside the result">Brokerage Inside</th><th>Book Result</th><th>Share</th><th>His Share</th><th>Your Share</th></tr></thead><tbody></tbody></table></div>
+    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Week By Week <span class="small mut">his book, and your percentage of it</span></h2></div>
+      <table id="moWk"><thead><tr><th>Week</th><th>Users</th><th title="What his users made before brokerage">Users' P&amp;L</th><th title="The opposite of the users' P&amp;L">Book P&amp;L</th><th title="Brokerage his users paid">Brokerage</th><th title="Book P&amp;L + Brokerage">Book Total</th><th>Your %</th><th title="Your percentage of the book P&amp;L">Yours From P&amp;L</th><th title="Your percentage of the brokerage">Yours From Brokerage</th><th>Your Share</th><th>His Share</th></tr></thead><tbody></tbody></table>
+      <p class="small mut" style="padding:8px 12px;margin:0">Book P&amp;L + Brokerage = Book Total = Your Share + His Share. A plus Your Share is due to you from him; a minus is due from you to him. A finished week is fixed: changing the percentage or deleting a user later does not alter it.</p></div>
     <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users <span class="small mut" id="moUc"></span></h2></div>
       <table id="moU"><thead><tr><th>User</th><th>Status</th><th>Allocated</th><th>Available Balance</th><th>Margin Used</th><th>Unrealised</th><th>Net Balance</th><th>Open Pos</th><th>Trades</th></tr></thead><tbody></tbody></table></div>
     <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users' Live Positions <span class="small mut" id="moPc"></span></h2></div>
@@ -588,7 +589,7 @@ let mSel=0;const MK={STOCK_IN:'Given by you',STOCK_OUT:'Taken back by you',TO_US
 const mSg=v=>`<span class="${cls(Math.round(v||0))}">${sgn(v||0)}</span>`;
 async function loadMasters(){let l;try{l=await api('/admin/masters');}catch(e){return;}
   $('#mCount').textContent=l.length?`(${l.length})`:'';
-  $('#mTbl tbody').innerHTML=l.length?l.map(m=>{const w=m.this_week;return `<tr class="clickable" data-m="${m.id}"><td><b>${esc(m.display_name)}</b> <span class="small mut">${esc(m.username)}</span></td><td><span class="pill ${m.is_active?'active':'frozen'}">${m.is_active?'active':'paused'}</span></td><td>${m.users}</td><td class="num">${fmt(m.stock,0)}</td><td class="num">${fmt(m.with_users,0)}</td><td class="num">${mSg(w.users_result)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num">${mSg(w.master_share)}</td><td class="num"><b>${mSg(w.owner_share)}</b></td></tr>`}).join(''):'<tr><td colspan="10" class="mut" style="text-align:center;padding:18px">No masters yet. Create the first one above.</td></tr>';
+  $('#mTbl tbody').innerHTML=l.length?l.map(m=>{const w=m.this_week;return `<tr class="clickable" data-m="${m.id}"><td><b>${esc(m.display_name)}</b> <span class="small mut">${esc(m.username)}</span></td><td><span class="pill ${m.is_active?'active':'frozen'}">${m.is_active?'active':'paused'}</span></td><td>${m.users}</td><td class="num">${fmt(m.stock,0)}</td><td class="num">${fmt(m.with_users,0)}</td><td class="num">${mSg(w.book_pnl)}</td><td class="num">${fmt(w.commission,0)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num"><b>${mSg(w.owner_share)}</b></td><td class="num">${mSg(w.master_share)}</td></tr>`}).join(''):'<tr><td colspan="11" class="mut" style="text-align:center;padding:18px">No masters yet. Create the first one above.</td></tr>';
   $$('#mTbl tr[data-m]').forEach(r=>r.onclick=()=>openMaster(+r.dataset.m));
   $('#mTabs').innerHTML=l.map(m=>`<button data-mt="${m.id}" class="${m.id===mSel?'active':''}">${esc(m.display_name)}</button>`).join('');
   $$('#mTabs [data-mt]').forEach(b=>b.onclick=()=>openMaster(+b.dataset.mt));
@@ -598,8 +599,8 @@ function openMaster(id){mSel=id;$$('#mTabs [data-mt]').forEach(b=>b.classList.to
 async function loadMasterOne(scroll){if(!mSel)return;const id=mSel;let m,us,ps;try{[m,us,ps]=await Promise.all([api('/admin/masters/'+id),api('/admin/users?master='+id),api('/admin/positions?master='+id)]);}catch(e){toast(e.message,1);return;}if(id!==mSel)return;
   $('#moName').innerHTML=`${esc(m.display_name)} <span class="small mut">${esc(m.username)}</span> <span class="pill ${m.is_active?'active':'frozen'}">${m.is_active?'active':'paused'}</span> <span class="pill ${m.twofa?'active':''}">two-step ${m.twofa?'ON':'not set up yet'}</span>`;
   $('#moPause').textContent=m.is_active?'Pause':'Resume';$('#mo2fa').classList.toggle('hidden',!m.twofa);
-  $('#moStats').innerHTML=[['Coins With Him',fmt(m.stock,0)],['Coins With His Users',fmt(m.with_users,0)],['Coins You Gave Him',fmt(m.given,0)],['His Share',m.share_pct+'%'],['Users',m.users]].map(([a,b])=>`<div class="stat"><span class="mut small">${a}</span><b class="num">${b}</b></div>`).join('');
-  $('#moWk tbody').innerHTML=m.weeks.map(w=>`<tr><td>${esc(w.label)} ${w.final?'':'<span class="pill OPEN">running</span>'}</td><td>${w.users}</td><td class="num">${mSg(w.users_result)}</td><td class="num">${fmt(w.commission,0)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num">${mSg(w.master_share)}</td><td class="num"><b>${mSg(w.owner_share)}</b></td></tr>`).join('');
+  $('#moStats').innerHTML=[['Coins With Him',fmt(m.stock,0)],['Coins With His Users',fmt(m.with_users,0)],['Coins You Gave Him',fmt(m.given,0)],['Your Share Of His Book',m.share_pct+'%'],['Users',m.users]].map(([a,b])=>`<div class="stat"><span class="mut small">${a}</span><b class="num">${b}</b></div>`).join('');
+  $('#moWk tbody').innerHTML=m.weeks.map(w=>`<tr><td>${esc(w.label)} ${w.final?'':'<span class="pill OPEN">running</span>'}</td><td>${w.users}</td><td class="num">${mSg(w.users_pnl)}</td><td class="num">${mSg(w.book_pnl)}</td><td class="num">${fmt(w.commission,0)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num">${mSg(w.owner_from_pnl)}</td><td class="num">${mSg(w.owner_from_brokerage)}</td><td class="num"><b>${mSg(w.owner_share)}</b></td><td class="num">${mSg(w.master_share)}</td></tr>`).join('');
   $('#moUc').textContent=us.length?`(${us.length})`:'';
   $('#moU tbody').innerHTML=us.length?us.map(x=>`<tr class="clickable" data-vu="${x.id}"><td><b>${esc(x.display_name)}</b> <span class="small mut">${esc(x.username)}</span></td><td><span class="pill ${x.is_active?'active':'frozen'}">${x.is_active?'active':'frozen'}</span></td><td class="num">${fmt(x.total_credited,0)}</td><td class="num">${fmt(x.available,0)}</td><td class="num">${fmt(x.used_margin,0)}</td><td class="num">${mSg(x.unrealised)}</td><td class="num">${fmt(x.equity,0)}</td><td>${x.open_positions}</td><td>${x.trades}</td></tr>`).join(''):'<tr><td colspan="9" class="mut" style="text-align:center;padding:16px">He has not created a user yet.</td></tr>';
   $$('#moU tr[data-vu]').forEach(r=>r.onclick=()=>openDetail(+r.dataset.vu));
@@ -613,7 +614,7 @@ async function mStock(sign){const v=prompt(sign>0?'How many coins to give him?':
   try{await api(`/admin/masters/${mSel}/stock`,{method:'POST',body:{amount:sign*a}});toast(sign>0?'Coins given':'Coins taken back');loadMasters();}catch(e){toast(e.message,1)}}
 async function mPatch(body,msg){try{await api(`/admin/masters/${mSel}`,{method:'PATCH',body});toast(msg);loadMasters();}catch(e){toast(e.message,1)}}
 $('#moGive').onclick=()=>mStock(1);$('#moTake').onclick=()=>mStock(-1);
-$('#moPct').onclick=()=>{const v=prompt('His share in percent (0 to 100). It applies from the week now running; finished weeks keep the share they had.');if(v===null||v==='')return;mPatch({share_pct:+v},'Share changed');};
+$('#moPct').onclick=()=>{const v=prompt('Your share of his book in percent (0 to 100): what you take of his P&L and of his brokerage. It applies from the week now running; finished weeks keep the percentage they had.');if(v===null||v==='')return;mPatch({share_pct:+v},'Share changed');};
 $('#moPw').onclick=()=>{const v=prompt('New password for this master (at least 6 characters). He will be asked to choose his own at the next login.');if(!v)return;mPatch({password:v},'Password reset');};
 $('#mo2fa').onclick=()=>{if(confirm('Clear his two-step login? He sets it up again at his next login.'))mPatch({reset_2fa:true},'Two-step login cleared');};
 $('#moPause').onclick=()=>{const on=$('#moPause').textContent==='Pause';if(confirm(on?'Pause this master? He cannot log in. His users keep trading.':'Let this master log in again?'))mPatch({is_active:!on},on?'Paused':'Resumed');};

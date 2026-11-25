@@ -394,6 +394,11 @@ def running_row(engine, db, user: User) -> dict:
             "allocated": alloc, "coins_after": alloc, "carried": carried, "unpriced": unpriced}
 
 
+def shown(r: dict) -> bool:
+    """A deleted account stays in every week it did something in, and in no other (the screens and the Excel files alike)."""
+    return not r.get("deleted") or abs(r["result"]) >= 0.005 or abs(r["commission"]) >= 0.005 or abs(r["closed"]) >= 0.005
+
+
 def weeks_available(db) -> list:
     return [w for (w,) in db.query(WeekSettlement.week_end).distinct().order_by(WeekSettlement.week_end.desc()).all()]
 
@@ -410,8 +415,7 @@ def report(engine, db, week_end: Optional[str] = None, user_ids: Optional[list] 
         d = week_end_of((datetime.utcnow() + IST).date())
         rows = [running_row(engine, db, u) for u in us]
         final = False
-    # a deleted account stays in every week it did something in, and in no other
-    rows = [r for r in rows if not r.get("deleted") or abs(r["result"]) >= 0.005 or abs(r["commission"]) >= 0.005 or abs(r["closed"]) >= 0.005]
+    rows = [r for r in rows if shown(r)]
     keys = ("closed", "valuation", "commission", "other", "result", "closed_crypto", "valuation_crypto", "commission_crypto", "allocated", "carried", "unpriced")
     tot = {k: round(sum(r[k] for r in rows), 2) for k in keys}
     return {"week_end": d.isoformat(), "week_start": (d - timedelta(days=6)).isoformat(), "label": week_label(d), "final": final,

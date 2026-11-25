@@ -59,6 +59,9 @@ class DeltaCrypto:
         self._last_fresh = 0.0           # when the connection was last rebuilt from scratch
         self._fresh_busy = False         # a rebuild from scratch is under way
         self._opt_msgs = self._opt_noq = self._opt_one = 0   # option price messages: all / without quotes / with one side missing (counted only)
+        # perpetuals, counted only (26 Nov 2026): price messages that came while an order book was in memory / of those,
+        # how many found that book wholly on the wrong side of the message's own best bid and offer / the furthest, in %
+        self._bk_msgs = self._bk_cross = 0; self._bk_far = 0.0
         self._runs = 0                   # connection loops alive right now: one, never more (the daily check reads it)
         # --- wire into the primary feed ---
         self._orig_load = feed.load_instruments
@@ -567,6 +570,20 @@ class DeltaCrypto:
             elif q.get("best_bid") is not None and q.get("best_ask") is not None:
                 bb, ba = float(q["best_bid"]), float(q["best_ask"])
                 bs, as_ = int(float(q.get("bid_size") or 0)), int(float(q.get("ask_size") or 0))
+                if ins is not None and ins.instrument_type == "FUT" and d.get("bids") and d.get("asks"):
+                    # Counted only, nothing is changed by it (26 Nov 2026). The book and the price come in separate
+                    # messages; orders and stops are filled against the book. When the price message arrives first
+                    # after a jump, the book in memory is the one from before it: in the test a stop for 5,500 lots
+                    # was sold 0.8% above the market that had triggered it. The daily check prints how often, and
+                    # how far, the real exchange's book is on the wrong side of the price message's own quote.
+                    try:
+                        self._bk_msgs += 1
+                        _ka, _kb = d["asks"][0][0], d["bids"][0][0]
+                        if bb > 0 and ba > 0 and (_ka < bb or _kb > ba):
+                            self._bk_cross += 1
+                            self._bk_far = max(self._bk_far, round((bb - _ka if _ka < bb else _kb - ba) / bb * 100, 3))
+                    except Exception:
+                        pass
                 if ins and ins.instrument_type != "FUT":
                     # options: top of book only (sizes in contracts)
                     d["bids"] = [(bb, bs, 0)] if bs else []

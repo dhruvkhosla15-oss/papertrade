@@ -188,6 +188,45 @@ ok("... his trades can still be read, he cannot log in, and he cannot be changed
    and own.patch(f"/api/admin/users/{O1}", json={"is_active": True}).status_code == 400)
 ok("... and his name is free for a new account with a number of its own", own.post("/api/admin/users", json={"username": o1n, "password": "first123"}).json().get("id") not in (None, O1))
 
+# ---- a deleted account is treated the same on every list and in every Excel file (Accounts officer, 26 Nov 2026) ----
+# Found 26 Nov 2026: the Users list left out an account deleted before it ever traded, while Performance, the
+# Master summary Excel and the all-users Excel still listed it (and counted it as a user); the summary Excel called
+# a deleted account "frozen"; and the Weekly Settlement sheet of both files gave a deleted account a line of zeros
+# in every later week, which the Weekly Settlement tab leaves out.
+import io
+from openpyxl import load_workbook
+zn = f"uz{tag}"
+OZ = own.post("/api/admin/users", json={"username": zn, "password": "first123", "display_name": "Never traded", "initial_coins": 5000}).json()["id"]
+own.delete(f"/api/admin/users/{OZ}")
+ids = lambda rows: sorted(x["id"] for x in rows)
+users_l = own.get("/api/admin/users").json(); perf = own.get("/api/admin/report").json()["users"]
+ok("deleted accounts: Users and Performance list the same accounts (one that never traded is in neither)",
+   ids(users_l) == ids(perf) and OZ not in ids(perf) and O1 in ids(perf), f"{ids(users_l)} / {ids(perf)}")
+ok("... and Performance says which rows are deleted accounts", [x["deleted"] for x in perf if x["id"] == O1] == [True] and all(x["deleted"] == ("~deleted" in x["username"]) for x in perf))
+wbk = load_workbook(io.BytesIO(own.get("/api/admin/summary.xlsx").content))
+ms = [r for r in wbk["Master Summary"].iter_rows(values_only=True)]
+urows = [r for r in ms[8:] if r[1] and r[0] != "TOTAL"]
+ok("Master summary Excel: the same accounts as the Users list, a deleted one marked deleted (not frozen) under its plain name",
+   sorted(r[1] for r in urows) == sorted(re.sub(r"~deleted\d+$", "", u["username"]) for u in users_l)
+   and [r[2] for r in urows if r[1] == o1n] and all(r[2] == "deleted" for r in urows if r[0] == "Owner user" and r[13] == 2)
+   and "~deleted" not in str(ms) and f"{len([u for u in users_l if u['deleted']])} deleted" in str(ms[1][0])
+   and f"{len([u for u in users_l if not u['deleted']])} Users" in str(ms[1][0]), str([(r[1], r[2]) for r in urows]) + str(ms[1][0]))
+def sheet_weeks(wb_):
+    rows = [r for r in wb_["Weekly Settlement"].iter_rows(values_only=True)][4:]
+    return sorted((r[1], str(r[2])) for r in rows if r[1] in ("FINAL", "PROVISIONAL"))
+tab = []
+for we in [None] + own.get("/api/admin/weekly").json()["weeks"]:
+    rep = own.get("/api/admin/weekly", params={"week_end": we} if we else {}).json()
+    tab += [("FINAL" if rep["final"] else "PROVISIONAL", x["display_name"] + (" (deleted)" if x["deleted"] else "")) for x in rep["rows"]]
+ok("Excel Weekly Settlement sheet (summary file): the same lines as the Weekly Settlement tab, week by week; a deleted account only in weeks it did something in",
+   sheet_weeks(wbk) == sorted(tab) and ("PROVISIONAL", "Owner user (deleted)") in tab and not any("Never traded" in t[1] for t in tab), f"{sheet_weeks(wbk)} / {sorted(tab)}")
+wbe = load_workbook(io.BytesIO(own.get("/api/admin/export.xlsx").content))
+ok("Excel for all users: the same Weekly Settlement lines, and its Summary lists the accounts of the Users list",
+   sheet_weeks(wbe) == sorted(tab) and "Never traded" not in str([r for r in wbe["Summary"].iter_rows(values_only=True)])
+   and "~deleted" not in str([r for r in wbe["Summary"].iter_rows(values_only=True)]), str(sheet_weeks(wbe)))
+ok("a master's Performance figures leave out an account deleted before it traded, as his Users list does",
+   ids(m2.get("/api/master/users").json()) == ids(m2.get("/api/master/report").json()["users"]))
+
 # ---- the record, pause, removal ----
 aud = " ".join(x["detail"] for x in own.get("/api/admin/audit").json())
 ok("the master's deposits and withdrawals are in the owner's activity record", f"Master {m1n} gave" in aud and f"Master {m1n} took back" in aud and f"Created master {m1n}" in aud)

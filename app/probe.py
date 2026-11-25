@@ -2215,6 +2215,12 @@ class Probe:
         if hasattr(cry, "_opt_msgs"):
             self.note("crypto option price messages since the restart",
                       f"{cry._opt_msgs} in all · {cry._opt_one} with one side of the quotes missing · {cry._opt_noq} with no quotes at all")
+        # a note only (26 Nov 2026): the order book against the price message's own quote. It decides whether a rule
+        # is needed for "a stop or an order filled against the book from before a jump" (open idea of 25 Nov).
+        for who, f in (("crypto perpetuals", cry), ("forex / global", getattr(self.feed, "forex", None))):
+            if f is not None and getattr(f, "_bk_msgs", 0):
+                self.note(f"{who}: order book against the newer price message since the restart",
+                          f"{f._bk_msgs} price messages with a book in memory · {getattr(f, '_bk_cross', 0)} found the book wholly on the wrong side of their own quote · furthest {getattr(f, '_bk_far', 0.0):g}%")
 
     async def _edge_dates(self, ua):
         """A date at the very edge of the calendar in a statement address. Found 24 Nov 2026: 0001-01-01 or

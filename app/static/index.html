@@ -138,6 +138,7 @@ td:first-child,th:first-child{text-align:left}
 @media(max-width:480px){.pctl{grid-template-columns:1fr}.selwrap{justify-self:stretch}}
 .hero3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}.hero3 .hs{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
 .hero3 .k{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .v{font-size:15px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero3 .s{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:560px){.hero3 .s{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}}/* on a phone the price beside the percentage was cut ("+3.26% · 52,3…"): it now takes a second line */
 .pgrid{columns:2;column-gap:12px}.pgrid .pcard{break-inside:avoid;margin-bottom:12px;display:inline-block;width:100%}@media(max-width:700px){.pgrid{columns:1}}
 .pcard{padding:0;overflow:hidden}.pcard h3{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;padding:12px 14px 6px;margin:0;display:flex;justify-content:space-between}.pcard h3 span{color:var(--txt);font-weight:600;text-transform:none;letter-spacing:0}
 .prow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer}.prow:hover{background:var(--strike)}

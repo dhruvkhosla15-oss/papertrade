@@ -512,6 +512,17 @@ def ui_block_26nov(br, actx, uctx, ok, near):
            "MCX futures" in lab and near(shown, was, 1e-9) and near(now.get("commission_pct_mcx"), 0.015, 1e-9) and near(back.get("commission_pct_mcx"), was, 1e-9)
            and all(near(now.get(k), back.get(k), 1e-9) for k in ("commission_pct", "commission_pct_options", "commission_flat")) and not errs,
            f"label {lab!r} shown {shown} server {was} after save {now.get('commission_pct_mcx')} restored {back.get('commission_pct_mcx')} errors {errs[:2]}")
+        # Pulse on a phone: the price in the Top gainer / Top loser cards was cut with "…" ("+3.26% · 52,3…")
+        for w in (412, 360):
+            c2 = br.new_context(viewport={"width": w, "height": 800}, service_workers="block"); c2.add_cookies(uctx.cookies()); p2 = c2.new_page(); p2.goto(f"{B}/")
+            try:
+                p2.wait_for_function("() => [...document.querySelectorAll('#pHero .hs .s')].filter(e => e.textContent.trim()).length >= 2", timeout=15000)
+            except Exception:
+                pass
+            h = p2.evaluate("() => { const W = window.innerWidth; return [...document.querySelectorAll('#pHero .hs .s')].filter(e => e.getClientRects().length && e.textContent.trim()).map(e => [e.textContent, e.scrollWidth > e.clientWidth + 1, e.getBoundingClientRect().right <= e.closest('.hs').getBoundingClientRect().right + 0.5, e.closest('.hs').getBoundingClientRect().right <= W]); }")
+            ok(f"User Pulse ({w} wide): the figures in the Top gainer / Top loser / Most traded cards are shown in full, inside their card",
+               len(h) >= 2 and all(not x[1] and x[2] and x[3] for x in h), h)
+            c2.close()
     except Exception as e:
         ok("UI block 26 Nov ran to its end", False, repr(e)[:300])
     ctx.close()

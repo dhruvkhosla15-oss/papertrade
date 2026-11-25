@@ -2077,6 +2077,27 @@ try:
     ok("price band: a limit price inside the band is taken", refused("bander", F_BTC, "BUY", 1, order_type="LIMIT", limit_price=88000.0) is None)
 finally:
     feed.instruments[F_BTC].price_band_pct = _band0
+# ---- the Master's Square off on a book with too few buyers (found 26 Nov 2026) ------------------------------------
+# 10 crude lots, buyers for 4: the answer was "1 position closed", nothing failed, with 6 lots still open.
+at(day(W31 + timedelta(days=7), 3, 11)); engine._consumed.clear(); px(crude=6000)
+mk_user("sq_thin", 3_000_000)
+trade("sq_thin", F_CRUDE, "BUY", 10)
+
+
+def _square(n):
+    _box = []; M._audit_notes.set(_box); engine._consumed.clear()
+    _r = asyncio.get_event_loop().run_until_complete(M._squareoff(db, users[n])); stamp(); db.expire_all()
+    return _r, " ".join(_box)
+
+
+_thin(F_CRUDE, 5999.0, 5998.0, 4)
+_r, _nt = _square("sq_thin")
+ok("Master's square-off, buyers for 4 of 10 lots: the 4 are sold and the answer says 6 lots are still open (it does not say the position is closed)",
+   _rq("sq_thin", F_CRUDE) == 600 and _r["closed"] == 0 and len(_r["errors"]) == 1 and "6 lots are still open" in _r["errors"][0] and "too few buyers" in _r["errors"][0], str(_r))
+ok("Master's square-off, buyers for 4 of 10 lots: the activity record says it could not be closed", "0 positions closed, 1 could not be closed" in _nt, _nt)
+px(crude=5990)
+_r, _nt = _square("sq_thin")
+ok("Master's square-off: pressed again with buyers there, the rest is closed and counted", _rq("sq_thin", F_CRUDE) == 0 and _r == {"closed": 1, "errors": []} and "1 position closed" in _nt, f"{_r} {_nt}")
 # ==== end of the Risk officer's block, 26 Nov 2026 ==================================================================
 
 if __name__ == "__main__":

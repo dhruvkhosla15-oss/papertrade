@@ -2817,7 +2817,16 @@ async def _squareoff(db, u: User):
                     if o.status != "FILLED" or (o.qty // p.lot_size) < n:
                         break
                     left -= n
-                done += 1
+                if left > 0:
+                    # Part of the position (or all of it) is still open: too few buyers (sellers), or the order was
+                    # refused. It used to be counted as closed all the same ("1 position closed", nothing failed)
+                    # with 6 of 10 lots still open (26 Nov 2026). The Master is told what is still open.
+                    db.refresh(p)
+                    _still = abs(p.qty) // p.lot_size
+                    _why = (o.reason or "the order was not filled") if o.status != "FILLED" else f"too few {'buyers' if side_ == 'SELL' else 'sellers'} right now"
+                    errors.append(f"{p.symbol}: {_still} lot{'s are' if _still != 1 else ' is'} still open ({_why}). Press Square off again in a moment")
+                else:
+                    done += 1
             except EngineError as e:
                 errors.append(f"{p.symbol}: {e}")
     _note(f"Square off pressed for {u.username}: {done} position{'s' if done != 1 else ''} closed" + (f", {len(errors)} could not be closed" if errors else ""))

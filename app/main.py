@@ -24,7 +24,7 @@ from sqlalchemy import text
 
 from . import config
 from .db import init_db, SessionLocal, User, Order, Position, Trade, Ledger, Watch, get_setting, set_setting
-from .auth import (make_pre_token, optional_user, get_db, current_user, current_admin, hash_password, verify_password, make_token,
+from .auth import (make_pre_token, optional_user, get_db, current_user, current_admin, current_master, hash_password, verify_password, make_token,
                    decode_token, COOKIE)
 from .auth import session_current as _session_current
 from .engine import Engine, EngineError
@@ -268,6 +268,26 @@ def _note(text: str):
         box.append(str(text)[:400])
 
 
+def _book_users(db, master: Optional[int] = None):
+    """The real users of one book: the owner's own (no master), or those of one master under him. The owner's
+    lists show his own users; a master's users are shown under that master's name (owner's decision, 25 Nov 2026)."""
+    q = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE))
+    return q.filter(User.master_id == int(master)) if master else q.filter(User.master_id.is_(None))
+
+
+def _owners_user(db, uid: int) -> User:
+    """For every change the owner makes to a user: a user of a master under him can be looked at, never changed."""
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404)
+    if u.is_sub:
+        raise HTTPException(400, "This is a master's own account: change it on the Masters page")
+    if u.master_id:
+        m = db.get(User, u.master_id)
+        raise HTTPException(403, f"{u.username} is a user of master {(m.display_name or m.username) if m else ''}: you can look, only he changes his users")
+    return u
+
+
 def _diff(before: dict, after: dict, names: dict = None) -> str:
     out = []
     for k in sorted(set(before) | set(after)):
@@ -286,7 +306,7 @@ async def _admin_audit(request: Request, call_next):
     resp = await call_next(request)
     try:
         path = request.url.path
-        if request.method != "GET" and path.startswith("/api/admin/") and resp.status_code < 400:
+        if request.method != "GET" and path.startswith(("/api/admin/", "/api/master/")) and resp.status_code < 400:
             from .auth import decode_token as _dt
             from .db import AdminLog
             data = _dt(request.cookies.get(COOKIE) or request.headers.get("authorization", "").replace("Bearer ", "") or "")
@@ -499,10 +519,20 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
     names of anything behind the site."""
     try:
         u = current_user(request, db)
-    except HTTPException:
+    except HTTPException as e:
         u = None
+        if e.status_code == 403:
+            # A master under the owner at his first login (or after a password reset) must choose his own
+            # password before anything else answers him. He still has to be sent his page, which asks for it.
+            from .auth import decode_token as _dt
+            data = _dt(request.cookies.get(COOKIE) or "") or {}
+            cand = db.get(User, data["uid"]) if "uid" in data and not data.get("pre2fa") else None
+            if cand is not None and cand.is_sub and cand.is_active and _session_current(data, cand):
+                return FileResponse(STATIC.parent / "pages" / "master.html", headers=_NOCACHE)
     if u is None or not u.is_admin:
         return FileResponse(STATIC / "admin_login.html", headers=_NOCACHE)
+    if u.is_sub:      # a master under the owner gets his own small page; the owner's page is never sent to him
+        return FileResponse(STATIC.parent / "pages" / "master.html", headers=_NOCACHE)
     return FileResponse(STATIC.parent / "pages" / "admin.html", headers=_NOCACHE)   # kept outside /static, which is open to everybody
 
 
@@ -528,7 +558,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
         _throttle_fail(*keys)
         raise HTTPException(401, "Wrong username or password")
     _throttle_ok(keys[0])
-    if not u.is_active and not u.is_admin:
+    if not u.is_active and (not u.is_admin or u.is_sub):
         raise HTTPException(403, "Account frozen — contact your trainer")
     if u.totp_enabled:
         return {"ok": False, "needs_2fa": True, "pre_token": make_pre_token(u), "is_admin": u.is_admin}
@@ -560,7 +590,7 @@ def login_2fa(body: TwoFaIn, request: Request, response: Response, db: Session =
         _throttle_fail(key)
         raise HTTPException(401, "Wrong authenticator code")
     _throttle_ok(key)
-    if not u.is_active and not u.is_admin:
+    if not u.is_active and (not u.is_admin or u.is_sub):
         raise HTTPException(403, "Account frozen — contact your trainer")
     tok = make_token(u)
     _set_login_cookie(request, response, tok, u.username)
@@ -619,7 +649,7 @@ class AdminIn(BaseModel):
 def admins_list(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     return [{"id": u.id, "username": u.username, "display_name": u.display_name, "twofa": bool(u.totp_enabled),
              "is_active": u.is_active, "me": u.id == admin.id, "created_at": u.created_at.isoformat() + "Z"}
-            for u in db.query(User).filter_by(is_admin=True).order_by(User.id).all()]
+            for u in db.query(User).filter_by(is_admin=True).filter(User.is_sub.isnot(True)).order_by(User.id).all()]
 
 
 @app.post("/api/admin/admins")
@@ -639,11 +669,11 @@ def admins_add(body: AdminIn, admin: User = Depends(current_admin), db: Session 
 @app.delete("/api/admin/admins/{uid}")
 def admins_remove(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     u = db.get(User, uid)
-    if not u or not u.is_admin:
+    if not u or not u.is_admin or u.is_sub:
         raise HTTPException(404, "No such master account")
     if u.id == admin.id:
         raise HTTPException(400, "You can't remove your own master access — ask another master to do it")
-    if db.query(User).filter_by(is_admin=True).count() <= 1:
+    if db.query(User).filter_by(is_admin=True).filter(User.is_sub.isnot(True)).count() <= 1:
         raise HTTPException(400, "There must be at least one master")
     _note(f"Removed Master login {u.username}")
     db.delete(u); db.commit()
@@ -654,7 +684,7 @@ def admins_remove(uid: int, admin: User = Depends(current_admin), db: Session = 
 def admins_reset_2fa(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     """Another master can clear a colleague's 2FA if they lose their phone."""
     u = db.get(User, uid)
-    if not u or not u.is_admin:
+    if not u or not u.is_admin or u.is_sub:
         raise HTTPException(404, "No such master account")
     u.totp_enabled = False; u.totp_secret = ""; db.commit()
     _note(f"Two-step login cleared for Master login {u.username}")
@@ -668,7 +698,7 @@ class AdminPwIn(BaseModel):
 @app.post("/api/admin/admins/{uid}/password")
 def admins_password(uid: int, body: AdminPwIn, request: Request, response: Response, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     u = db.get(User, uid)
-    if not u or not u.is_admin:
+    if not u or not u.is_admin or u.is_sub:
         raise HTTPException(404, "No such master account")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
@@ -719,7 +749,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     except Exception:
         log.exception("week warning")
     return {"access": {"rows": [{"name": n, "fut": f, "opt": o} for n, f, o in _access.ROWS], "on": _access.effective(db, user)},
-            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status() if user.is_admin else _feed_public(),
+            "week_warning": week_warning, "user": _user_dict(user), "funds": funds, "feed": _feed_status() if (user.is_admin and not user.is_sub) else _feed_public(),
             "market_open": {ex: engine.market_open(ex) for ex in config.MARKET_HOURS}, "market_hours": config.MARKET_HOURS,
             "market_status": _market_status(), "usdinr": getattr(feed, "usdinr", lambda: None)(),
             "liquidity": {"on": on, "max_spread_pct": spread}, "alerts": _user_alerts(db, user)}
@@ -801,6 +831,7 @@ def admin_user_access(uid: int, body: AccessIn, admin: User = Depends(current_ad
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404, "User not found")
+    _owners_user(db, uid)
     _b = dict(_access.effective(db, u))
     _access.set_user(db, uid, body.values)
     _note(f"Trading access of {u.username}: " + (("back to the default; " if body.values is None else "") + _diff(_b, dict(_access.effective(db, u)), _access.LABEL) or "nothing changed"))
@@ -820,6 +851,7 @@ def admin_user_alert(uid: int, body: AlertIn, admin: User = Depends(current_admi
     u = db.get(User, uid)
     if not u or not body.text.strip():
         raise HTTPException(400, "Unknown user or empty message")
+    _owners_user(db, uid)
     engine._user_alert(db, u, (body.title.strip() or "Notice")[:60], body.text.strip()[:1200])
     _note(f"Message left for {u.username}, titled: {(body.title.strip() or 'Notice')[:60]}")     # the title only: the text is between the Master and the user
     return {"ok": True, "pending": len(_user_alerts(db, u))}
@@ -830,7 +862,7 @@ def admin_alerts_waiting(admin: User = Depends(current_admin), db: Session = Dep
     """Read-only: the pop-ups every user has not pressed OK on yet, oldest first, with how long each has
     been waiting. Nothing is changed or cleared by looking."""
     out, now = [], time.time()
-    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
+    for u in _book_users(db).order_by(User.id).all():
         for a in _user_alerts(db, u):
             try:
                 secs = max(0.0, now - int(a.get("id")) / 1000)
@@ -897,7 +929,7 @@ def change_password(body: PasswordIn, request: Request, response: Response, user
 
 
 def _user_dict(u: User):
-    return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin,
+    return {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin, "is_sub": bool(u.is_sub), "master_id": u.master_id,
             "is_active": u.is_active, "balance": round(u.balance, 2), "twofa": bool(u.totp_enabled),
             "must_change_password": bool(u.must_change_password)}
 
@@ -1403,7 +1435,7 @@ async def ws_endpoint(ws: WebSocket):
             _u = None if data.get("pre2fa") else _db.get(User, data.get("uid"))
         finally:
             _db.close()
-        if not _u or not (_u.is_active or _u.is_admin) or not _session_current(data, _u):
+        if not _u or not (_u.is_active or (_u.is_admin and not _u.is_sub)) or not _session_current(data, _u):
             data = None
     guest = not data
     await ws.accept()
@@ -1478,9 +1510,13 @@ class UserIn(BaseModel):
 
 
 @app.get("/api/admin/users")
-def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def admin_users(master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return _users_rows(db, master)
+
+
+def _users_rows(db, master: Optional[int] = None) -> list:
     out = []
-    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
+    for u in _book_users(db, master).order_by(User.id).all():
         f = engine.funds(db, u)
         out.append({**_user_dict(u), **f,
                     "open_positions": db.query(Position).filter_by(user_id=u.id, is_closed=False).count(),
@@ -1495,9 +1531,9 @@ def admin_users(admin: User = Depends(current_admin), db: Session = Depends(get_
 
 
 def _book_totals(db) -> tuple:
-    """(coins allocated, users' net balance) across all real users, right now."""
+    """(coins allocated, users' net balance) across the owner's own users, right now."""
     alloc = equity = 0.0
-    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all():
+    for u in _book_users(db).all():
         alloc += sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id).filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
         equity += engine.funds(db, u)["equity"]
     return round(alloc, 2), round(equity, 2)
@@ -1541,6 +1577,10 @@ async def weekly_loop():
                             d = date.fromisoformat(closed) + timedelta(days=7)
                             while d <= target:
                                 results.append(_weekly.close_week(engine, db, d, exact=not late, stamp=datetime.utcnow() if late else None))
+                                try:
+                                    _remember_shares(db, d.isoformat())
+                                except Exception:
+                                    log.exception("keeping the masters' shares of the week failed")
                                 d += timedelta(days=7)
                             try:                      # the new day starts from the settled books
                                 alloc, equity = _book_totals(db)
@@ -1769,10 +1809,10 @@ async def daystart_loop():
 
 
 @app.get("/api/admin/weekly")
-def admin_weekly(week_end: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    """Weekly settlement table for all users. No week_end = the week in progress (provisional)."""
+def admin_weekly(week_end: Optional[str] = None, master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Weekly settlement table for the owner's users (or one master's). No week_end = the week in progress (provisional)."""
     try:
-        return _weekly.report(engine, db, week_end)
+        return _weekly.report(engine, db, week_end, user_ids=[u.id for u in _book_users(db, master)])
     except (ValueError, OverflowError):
         raise HTTPException(400, "week_end must look like 2026-11-15")
 
@@ -1784,6 +1824,7 @@ if os.getenv("PT_WEEK_TEST") == "1":          # private test copy only: never se
         async with engine._lock:
             we = _weekly.week_end_of((datetime.utcnow() + IST).date())
             out = _weekly.close_week(engine, db, we)
+            _remember_shares(db, we.isoformat())
             now = datetime.utcnow()                    # the real cut-off is stamped Sunday 23:59:59; here that is still ahead
             for l in db.query(Ledger).filter(Ledger.kind.in_(_weekly.WEEK_KINDS), Ledger.created_at > now).all():
                 l.created_at = now
@@ -1817,9 +1858,13 @@ def admin_daystart(admin: User = Depends(current_admin), db: Session = Depends(g
 
 
 @app.get("/api/admin/positions")
-def admin_positions(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    """Every open position across all users, marked at the live exit price."""
-    users = {u.id: u for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all()}
+def admin_positions(master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Every open position of the owner's users (or one master's), marked at the live exit price."""
+    return _positions_rows(db, master)
+
+
+def _positions_rows(db, master: Optional[int] = None) -> list:
+    users = {u.id: u for u in _book_users(db, master).all()}
     out = []
     for p in db.query(Position).filter_by(is_closed=False).all():
         u = users.get(p.user_id)
@@ -2600,9 +2645,7 @@ class CoinsIn(BaseModel):
 
 @app.post("/api/admin/users/{uid}/coins")
 def admin_coins(uid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404)
+    u = _owners_user(db, uid)
     body.amount = round(float(body.amount), 2)      # whole paise only (owner's decision, 21 Nov 2026): 250000.335 was booked as .33 in the ledger and .34 on the balance
     _b = u.balance or 0.0
     engine._ledger(db, u, body.amount, "ADMIN_CREDIT" if body.amount >= 0 else "ADMIN_DEBIT", body.note)
@@ -2622,9 +2665,10 @@ class UserPatch(BaseModel):
 
 @app.patch("/api/admin/users/{uid}")
 def admin_patch_user(uid: int, body: UserPatch, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404)
+    return _patch_user(db, _owners_user(db, uid), body)
+
+
+def _patch_user(db, u: User, body: UserPatch):
     if body.is_active is not None:
         if bool(u.is_active) != bool(body.is_active):
             _note(f"{u.username}: {'frozen → active' if body.is_active else 'active → frozen'}")
@@ -2652,6 +2696,7 @@ def admin_delete_user(uid: int, admin: User = Depends(current_admin), db: Sessio
     u = db.get(User, uid)
     if not u or u.is_admin:
         raise HTTPException(404)
+    _owners_user(db, uid)
     _note(f"Deleted user {u.username} ({u.display_name}); balance at that moment {u.balance or 0.0:,.2f}")
     # the Shadow Book lines of this account's trades go first: left behind, the line of its newest trade
     # blocked the next trade on the site, which is given the same number (19 Nov 2026)
@@ -2676,6 +2721,11 @@ def admin_user_detail(uid: int, admin: User = Depends(current_admin), db: Sessio
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404)
+    return _user_detail(db, u)
+
+
+def _user_detail(db, u: User) -> dict:
+    uid = u.id
     return {"user": _user_dict(u), "funds": engine.funds(db, u),
             "positions": [engine.position_dict(p) for p in db.query(Position).filter_by(user_id=uid, is_closed=False)],
             "orders": [engine.order_dict(o) for o in db.query(Order).filter_by(user_id=uid).order_by(Order.id.desc()).limit(100)],
@@ -2689,9 +2739,7 @@ def admin_user_detail(uid: int, admin: User = Depends(current_admin), db: Sessio
 
 @app.post("/api/admin/users/{uid}/squareoff")
 async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404)
+    u = _owners_user(db, uid)
     done, errors = 0, []
     db.rollback()      # no database connection is held while waiting for its turn
     async with engine._lock:
@@ -2714,6 +2762,321 @@ async def admin_squareoff(uid: int, admin: User = Depends(current_admin), db: Se
                 errors.append(f"{p.symbol}: {e}")
     _note(f"Square off pressed for {u.username}: {done} position{'s' if done != 1 else ''} closed" + (f", {len(errors)} could not be closed" if errors else ""))
     return {"closed": done, "errors": errors}
+
+
+# ---- masters under the owner (owner's decision, 25 Nov 2026) -------------------------------------------------
+# The owner creates a master, gives him a stock of coins and a share in percent. The master creates his own
+# users and hands them coins from that stock only; coins he takes back from a user return to it. He sees and
+# changes nobody but his own users. The owner sees a master's users (he cannot change them) and the weekly
+# result of that master's book with the share worked out. Brokerage, leverage, trading access, the price
+# connections, the Shadow Book, backups and every setting stay with the owner alone.
+#   stock (the master's balance) + coins allocated to his users = coins the owner gave him, always.
+STOCK_IN, STOCK_OUT, TO_USER, FROM_USER = "STOCK_IN", "STOCK_OUT", "TO_USER", "FROM_USER"
+
+
+class MasterIn(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+    share_pct: float = 0
+    stock: float = 0
+
+
+class MasterPatch(BaseModel):
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+    display_name: Optional[str] = None
+    share_pct: Optional[float] = None
+    reset_2fa: Optional[bool] = None
+
+
+def _pct(v) -> float:
+    import math
+    v = float(v)
+    if not math.isfinite(v) or v < 0 or v > 100:
+        raise HTTPException(400, "The share must be between 0 and 100 percent")
+    return round(v, 2)
+
+
+def _coins_amount(v) -> float:
+    import math
+    v = float(v)
+    if not math.isfinite(v) or abs(v) > 1e12:
+        raise HTTPException(400, "That is not an amount of coins")
+    return round(v, 2)
+
+
+def _the_master(db, mid: int) -> User:
+    m = db.get(User, mid)
+    if not m or not m.is_sub:
+        raise HTTPException(404, "No such master")
+    return m
+
+
+def _his_user(db, uid: int, me: User) -> User:
+    """A master's own user, or the same 'no such user' whether the number belongs to nobody or to somebody else."""
+    u = db.get(User, uid)
+    if not u or u.is_admin or u.master_id != me.id:
+        raise HTTPException(404, "No such user")
+    return u
+
+
+def _share_of_week(db, m: User, week_end: str) -> float:
+    """The share that applied to a finished week: the one in force when that week was closed."""
+    v = get_setting(db, f"mshare_{m.id}_{week_end}")
+    try:
+        return float(v) if v not in (None, "") else float(m.share_pct or 0.0)
+    except ValueError:
+        return float(m.share_pct or 0.0)
+
+
+def _remember_shares(db, week_end: str):
+    """At a weekly cut-off: keep each master's share of that week, so changing the percentage later never rewrites a finished week."""
+    for m in db.query(User).filter_by(is_sub=True).all():
+        if get_setting(db, f"mshare_{m.id}_{week_end}") in (None, ""):
+            set_setting(db, f"mshare_{m.id}_{week_end}", str(float(m.share_pct or 0.0)))
+    db.commit()
+
+
+def _share_line(rep: dict, pct: float) -> dict:
+    """One week of a master's book. The users' result already has their brokerage taken off; our side is the opposite."""
+    t = rep["total"]
+    ours = round(-t["result"], 2) + 0.0
+    his = round(ours * pct / 100.0, 2) + 0.0
+    return {"week_end": rep["week_end"], "label": rep["label"], "final": rep["final"], "users": len(rep["rows"]),
+            "users_result": t["result"], "commission": t["commission"], "our_side": ours,
+            "share_pct": pct, "master_share": his, "owner_share": round(ours - his, 2) + 0.0}
+
+
+def _master_weeks(db, m: User, limit: int = 26) -> list:
+    ids = [u.id for u in _book_users(db, m.id)]
+    out = [_share_line(_weekly.report(engine, db, None, user_ids=ids), float(m.share_pct or 0.0))]
+    for we in _weekly.weeks_available(db)[:limit]:
+        rep = _weekly.report(engine, db, we, user_ids=ids)
+        if rep["rows"]:
+            out.append(_share_line(rep, _share_of_week(db, m, we)))
+    return out
+
+
+def _master_dict(db, m: User, weeks: bool = False) -> dict:
+    us = _book_users(db, m.id).all()
+    alloc = round(sum(_weekly.allocated(db, u) for u in us), 2)
+    given = round(sum(l.amount for l in db.query(Ledger).filter(Ledger.user_id == m.id, Ledger.kind.in_([STOCK_IN, STOCK_OUT]))), 2)
+    d = {"id": m.id, "username": m.username, "display_name": m.display_name or m.username, "is_active": bool(m.is_active),
+         "twofa": bool(m.totp_enabled), "share_pct": float(m.share_pct or 0.0), "stock": round(m.balance or 0.0, 2),
+         "with_users": alloc, "given": given, "users": len(us), "created_at": m.created_at.isoformat() + "Z"}
+    if weeks:
+        d["weeks"] = _master_weeks(db, m)
+    return d
+
+
+def _stock_ledger(db, m: User) -> list:
+    return [{"amount": l.amount, "balance_after": l.balance_after, "kind": l.kind, "note": l.note, "created_at": l.created_at.isoformat() + "Z"}
+            for l in db.query(Ledger).filter_by(user_id=m.id).order_by(Ledger.id.desc()).limit(300)]
+
+
+# -- the owner's side --
+@app.get("/api/admin/masters")
+def masters_list(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    out = []
+    for m in db.query(User).filter_by(is_sub=True).order_by(User.id).all():
+        d = _master_dict(db, m)
+        ids = [u.id for u in _book_users(db, m.id)]
+        d["this_week"] = _share_line(_weekly.report(engine, db, None, user_ids=ids), d["share_pct"])
+        out.append(d)
+    return out
+
+
+@app.post("/api/admin/masters")
+def masters_add(body: MasterIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    uname = body.username.strip().lower()
+    if not uname or len(uname) > 64 or len(body.password) < 6:
+        raise HTTPException(400, "A username and a password of at least 6 characters are needed")
+    if db.query(User).filter_by(username=uname).first():
+        raise HTTPException(400, "Username already exists")
+    pct, stock = _pct(body.share_pct), _coins_amount(body.stock)
+    if stock < 0:
+        raise HTTPException(400, "The starting coins cannot be below zero")
+    m = User(username=uname, display_name=body.display_name.strip() or uname, password_hash=hash_password(body.password),
+             is_admin=True, is_sub=True, is_active=True, balance=0.0, share_pct=pct, must_change_password=True)
+    db.add(m); db.flush()
+    _forget_number(db, m.id)
+    if stock:
+        engine._ledger(db, m, stock, STOCK_IN, "first coins from the owner")
+    db.commit()
+    _note(f"Created master {uname} ({m.display_name}): share {pct:g}%, {stock:,.2f} coins to hand to his users")
+    return _master_dict(db, m)
+
+
+@app.get("/api/admin/masters/{mid}")
+def masters_one(mid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    m = _the_master(db, mid)
+    return {**_master_dict(db, m, weeks=True), "ledger": _stock_ledger(db, m)}
+
+
+@app.post("/api/admin/masters/{mid}/stock")
+def masters_stock(mid: int, body: CoinsIn, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """Give a master more coins to hand out (+), or take back coins he has not handed out (-)."""
+    m = _the_master(db, mid)
+    amt = _coins_amount(body.amount)
+    if not amt:
+        raise HTTPException(400, "Enter an amount")
+    _b = m.balance or 0.0
+    if amt < 0 and -amt > _b + 1e-9:
+        raise HTTPException(400, f"He holds only {_b:,.2f} coins that are not with his users. Coins that are with his users he has to take back from them first")
+    engine._ledger(db, m, amt, STOCK_IN if amt > 0 else STOCK_OUT, (body.note or "")[:200])
+    db.commit()
+    _note(f"{'Gave' if amt > 0 else 'Took back'} {abs(amt):,.2f} coins {'to' if amt > 0 else 'from'} master {m.username}: his stock {_b:,.2f} → {m.balance or 0.0:,.2f}"
+          + (f"; note: {body.note}" if body.note else ""))
+    return _master_dict(db, m)
+
+
+@app.patch("/api/admin/masters/{mid}")
+def masters_patch(mid: int, body: MasterPatch, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    m = _the_master(db, mid)
+    if body.share_pct is not None:
+        pct = _pct(body.share_pct)
+        if pct != float(m.share_pct or 0.0):
+            _note(f"Master {m.username}: share {float(m.share_pct or 0.0):g}% → {pct:g}% (from the week now running; finished weeks keep theirs)")
+        m.share_pct = pct
+    if body.is_active is not None and bool(body.is_active) != bool(m.is_active):
+        _note(f"Master {m.username}: {'paused → active' if body.is_active else 'active → paused (he cannot log in; his users trade on)'}")
+        m.is_active = bool(body.is_active)
+    if body.display_name is not None and body.display_name.strip() and body.display_name.strip() != (m.display_name or ""):
+        _note(f"Master {m.username}: name {m.display_name} → {body.display_name.strip()}")
+        m.display_name = body.display_name.strip()[:128]
+    if body.password:
+        if len(body.password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+        _note(f"Master {m.username}: password reset (he must choose a new one at next login)")
+        m.password_hash = hash_password(body.password); m.must_change_password = True
+        m.pw_changed_at = float(int(time.time()))
+    if body.reset_2fa:
+        _note(f"Master {m.username}: two-step login cleared (he sets it up again at next login)")
+        m.totp_enabled = False; m.totp_secret = ""
+    if not (_audit_notes.get() or []):
+        _note(f"Master {m.username}: saved, nothing changed")
+    db.commit()
+    return _master_dict(db, m)
+
+
+@app.delete("/api/admin/masters/{mid}")
+def masters_remove(mid: int, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    m = _the_master(db, mid)
+    n = db.query(User).filter_by(master_id=m.id).count()
+    if n:
+        raise HTTPException(400, f"He still has {n} user{'s' if n != 1 else ''}. Pause him instead: a master can be removed only when he has no users")
+    _note(f"Removed master {m.username} ({m.display_name}); he held {m.balance or 0.0:,.2f} coins at that moment")
+    db.query(Ledger).filter_by(user_id=m.id).delete()
+    db.query(Watch).filter_by(user_id=m.id).delete()
+    _forget_number(db, m.id)
+    db.delete(m); db.commit()
+    return {"ok": True}
+
+
+# -- the master's side: every call looks at nothing but his own users --
+@app.get("/api/master/me")
+def master_me(me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _master_dict(db, me)
+
+
+@app.get("/api/master/users")
+def master_users(me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _users_rows(db, me.id)
+
+
+@app.post("/api/master/users")
+def master_create_user(body: UserIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    uname = body.username.strip().lower()
+    if not uname or len(uname) > 64 or db.query(User).filter_by(username=uname).first():
+        raise HTTPException(400, "Username empty or already exists")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    coins = _coins_amount(body.initial_coins or 0)
+    if coins < 0:
+        raise HTTPException(400, "The first coins cannot be below zero")
+    if coins > (me.balance or 0.0) + 1e-9:
+        raise HTTPException(400, f"You hold {me.balance or 0.0:,.2f} coins. Ask for more before giving {coins:,.2f}")
+    u = User(username=uname, display_name=(body.display_name or uname)[:128], password_hash=hash_password(body.password),
+             must_change_password=True, master_id=me.id)
+    db.add(u); db.flush()
+    _forget_number(db, u.id)
+    if coins:
+        engine._ledger(db, me, -coins, TO_USER, f"to {uname}: first coins")
+        engine._ledger(db, u, coins, "ADMIN_CREDIT", "initial allocation")
+    db.commit()
+    _note(f"Master {me.username} created user {uname} ({u.display_name}) with {coins:,.2f} coins; his stock is now {me.balance or 0.0:,.2f}")
+    return _user_dict(u)
+
+
+@app.post("/api/master/users/{uid}/coins")
+def master_coins(uid: int, body: CoinsIn, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    """Deposit to a user from the master's stock (+), or withdraw from a user back into it (-)."""
+    u = _his_user(db, uid, me)
+    amt = _coins_amount(body.amount)
+    if not amt:
+        raise HTTPException(400, "Enter an amount")
+    _b, _s = u.balance or 0.0, me.balance or 0.0
+    if amt > 0 and amt > _s + 1e-9:
+        raise HTTPException(400, f"You hold {_s:,.2f} coins. Ask for more before giving {amt:,.2f}")
+    if amt < 0:
+        can = max(0.0, min(engine.funds(db, u)["available"], _weekly.allocated(db, u)))
+        if -amt > can + 1e-9:
+            raise HTTPException(400, f"At most {can:,.2f} coins can be taken back from {u.username} right now (his free balance, and never more than he was given)")
+    note = (body.note or "")[:200]
+    engine._ledger(db, me, -amt, TO_USER if amt > 0 else FROM_USER, f"{'to' if amt > 0 else 'from'} {u.username}" + (f": {note}" if note else ""))
+    engine._ledger(db, u, amt, "ADMIN_CREDIT" if amt > 0 else "ADMIN_DEBIT", note)
+    db.commit()
+    _note(f"Master {me.username} {'gave' if amt > 0 else 'took back'} {abs(amt):,.2f} coins {'to' if amt > 0 else 'from'} {u.username}: "
+          f"user {_b:,.2f} → {u.balance or 0.0:,.2f}, his stock {_s:,.2f} → {me.balance or 0.0:,.2f}" + (f"; note: {note}" if note else ""))
+    _emit(u.id, {"type": "refresh", "message": f"Master {'added' if amt > 0 else 'removed'} ₹{abs(amt):,.0f} coins"})
+    return {"user": _user_dict(u), "stock": round(me.balance or 0.0, 2)}
+
+
+@app.patch("/api/master/users/{uid}")
+def master_patch_user(uid: int, body: UserPatch, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    if body.password and len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    return _patch_user(db, _his_user(db, uid, me), body)
+
+
+@app.get("/api/master/users/{uid}/detail")
+def master_user_detail(uid: int, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _user_detail(db, _his_user(db, uid, me))
+
+
+@app.get("/api/master/positions")
+def master_positions(me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _positions_rows(db, me.id)
+
+
+@app.get("/api/master/weekly")
+def master_weekly(week_end: Optional[str] = None, me: User = Depends(current_master), db: Session = Depends(get_db)):
+    try:
+        rep = _weekly.report(engine, db, week_end, user_ids=[u.id for u in _book_users(db, me.id)])
+    except (ValueError, OverflowError):
+        raise HTTPException(400, "week_end must look like 2026-11-15")
+    rep["share"] = _share_line(rep, _share_of_week(db, me, rep["week_end"]) if rep["final"] else float(me.share_pct or 0.0))
+    return rep
+
+
+@app.get("/api/master/weeks")
+def master_weeks(me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _master_weeks(db, me)
+
+
+@app.get("/api/master/stock")
+def master_stock(me: User = Depends(current_master), db: Session = Depends(get_db)):
+    return _stock_ledger(db, me)
+
+
+@app.get("/api/master/report")
+def master_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
+                  me: User = Depends(current_master), db: Session = Depends(get_db)):
+    q = _book_users(db, me.id)
+    if user_id:
+        q = q.filter_by(id=user_id)
+    return build_report(db, q.order_by(User.id).all(), from_, to)
 
 
 @app.get("/api/admin/settings")
@@ -2798,9 +3161,9 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
 
 
 @app.get("/api/admin/leaderboard")
-def leaderboard(admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+def leaderboard(master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
     rows = []
-    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).all():
+    for u in _book_users(db, master).all():
         f = engine.funds(db, u)
         credited = sum(l.amount for l in db.query(Ledger).filter_by(user_id=u.id)
                        .filter(Ledger.kind.in_(["ADMIN_CREDIT", "ADMIN_DEBIT"])))
@@ -2893,8 +3256,8 @@ def build_report(db: Session, users: List[User], from_: Optional[str], to: Optio
 
 @app.get("/api/admin/report")
 def admin_report(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
-                 admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    q = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE))
+                 master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    q = _book_users(db, master)
     if user_id:
         q = q.filter_by(id=user_id)
     return build_report(db, q.order_by(User.id).all(), from_, to)
@@ -3175,7 +3538,7 @@ def _xlsx_response(data: bytes, name: str):
 def _admin_rows(db):
     """One row per user with the reconciliation columns the master table shows."""
     rows = []
-    for u in db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE)).order_by(User.id).all():
+    for u in _book_users(db).order_by(User.id).all():
         f = engine.funds(db, u)
         led = db.query(Ledger).filter_by(user_id=u.id).all()
         alloc = sum(l.amount for l in led if l.kind in ("ADMIN_CREDIT", "ADMIN_DEBIT"))
@@ -3282,15 +3645,15 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     for i in range(3, 16):
         w2.cell(i, 1).font = Font(bold=True)
     w2.column_dimensions["A"].width = 24; w2.column_dimensions["B"].width = 110
-    _weekly_sheet(wb, db, [u for u in _weekly.accounts(db) if not u.is_admin], None, None, many=True)
+    _weekly_sheet(wb, db, [u for u in _weekly.accounts(db) if not u.is_admin and not u.master_id], None, None, many=True)
     buf = io.BytesIO(); wb.save(buf)
     return _xlsx_response(buf.getvalue(), f"limefx_master_summary_{now.strftime('%Y-%m-%d')}.xlsx")
 
 
 @app.get("/api/admin/export.xlsx")
 def admin_export(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None, user_id: Optional[int] = None,
-                 sheets: Optional[str] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
-    q = db.query(User).filter_by(is_admin=False).filter(~User.username.startswith(_PROBE))
+                 sheets: Optional[str] = None, master: Optional[int] = None, admin: User = Depends(current_admin), db: Session = Depends(get_db)):
+    q = _book_users(db, master)
     if user_id:
         q = q.filter_by(id=user_id)
     users = q.order_by(User.id).all()
@@ -3493,7 +3856,7 @@ async def kite_callback(request: Request, request_token: str = "", status: str =
 
 @app.get("/api/feed/status")
 def feed_status(user: User = Depends(current_user)):
-    return _feed_status() if user.is_admin else _feed_public()
+    return _feed_status() if (user.is_admin and not user.is_sub) else _feed_public()
 
 
 def _feed_public():

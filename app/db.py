@@ -33,6 +33,11 @@ class User(Base):
     display_name = Column(String(128), default="")
     password_hash = Column(String(256), nullable=False)
     is_admin = Column(Boolean, default=False)
+    # A master under the owner (25 Nov 2026): is_admin AND is_sub. He manages only the users he created, from the
+    # coins the owner gave him (his balance is that stock). The owner's own pages and settings stay closed to him.
+    is_sub = Column(Boolean, default=False)
+    master_id = Column(Integer, index=True)          # the master this user belongs to; empty = the owner's own user
+    share_pct = Column(Float, default=0.0)           # a master's share of his users' weekly result, in percent
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)   # set on creation / admin reset; cleared when the user changes it
     totp_secret = Column(String(64), default="")   # master 2FA (TOTP); empty = not set up
@@ -232,6 +237,11 @@ def init_db():
             con.execute(text("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0"))
         if "pw_changed_at" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN pw_changed_at FLOAT DEFAULT 0"))
+        if "is_sub" not in ucols:
+            con.execute(text("ALTER TABLE users ADD COLUMN is_sub BOOLEAN DEFAULT 0"))
+            con.execute(text("ALTER TABLE users ADD COLUMN master_id INTEGER"))
+            con.execute(text("ALTER TABLE users ADD COLUMN share_pct FLOAT DEFAULT 0"))
+            con.execute(text("CREATE INDEX IF NOT EXISTS ix_users_master_id ON users (master_id)"))
         if "must_change_password" not in ucols:
             con.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
             # users created earlier who have never placed an order still get the first-login prompt

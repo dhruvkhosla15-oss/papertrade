@@ -2305,3 +2305,18 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
 ## Owner's decisions, 25 Nov 2026 (08:48 IST)
 - HELD 2, 3, 4, 5, 6 of security-fix/2026-11-25: approved and put live.
 - HELD 1 REFUSED: a trade or cut-off must never book at the closing price. The closing price is only the base for the day's change (and the mark shown until the first price); every execution uses the live price of the moment. Do not offer this again.
+
+## Masters under the owner, 25 Nov 2026 (owner's request and decisions)
+- The owner creates a master with a share % and a stock of coins. The master logs in at /admin, gets his own page
+  (app/pages/master.html) and only the /api/master/... calls. Two-step login compulsory; first login forces his own password.
+- Owner's decisions: a master deposits/withdraws only for his own users and only from his stock; the owner SEES a
+  master's users but cannot change them (no "move user" button); brokerage, leverage, access, price connections,
+  Shadow Book, backups, health, settings stay with the owner alone; his users' trades count in the Shadow Book;
+  the owner's own lists (Users, Positions, Weekly, Performance, Excel) hold only the owner's own users.
+- Rules that must hold (tools/selftest/masters_check.py, run by run.sh): every /api/admin call answers a master 403
+  (deny by default: current_admin refuses is_sub); a master's calls answer 404 for any user that is not his;
+  stock + coins with his users = coins the owner gave; the weekly cut-off never touches a master's stock
+  (weekly.accounts leaves is_sub out); a master cannot trade; a finished week keeps the share % it was closed with
+  (setting mshare_<master>_<week>); a paused master cannot log in while his users trade on.
+- Share: book result = minus his users' weekly result (their brokerage is already inside); his share = share % of it.
+- Not built (say so if asked): a master deleting a user or squaring a user off; per-master brokerage or leverage.

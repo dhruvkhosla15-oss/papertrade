@@ -159,7 +159,7 @@ a{color:var(--acc)}
   </div>
   </div>
 
-  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="weekly">Weekly Settlement</button><button data-nav="perf">Performance</button><button data-nav="shadow">Shadow Book</button><button data-nav="settings">Settings</button></div>
+  <div class="nav"><button data-nav="trainees" class="active">Users</button><button data-nav="masters">Masters</button><button data-nav="weekly">Weekly Settlement</button><button data-nav="perf">Performance</button><button data-nav="shadow">Shadow Book</button><button data-nav="settings">Settings</button></div>
 
   <!-- ===== Users ===== -->
   <section id="nav-trainees">
@@ -197,6 +197,43 @@ a{color:var(--acc)}
   </section>
 
   <!-- ===== Performance ===== -->
+  <!-- ===== Masters under the owner ===== -->
+  <section id="nav-masters" class="hidden">
+  <div class="card">
+    <h2>Create a master</h2>
+    <p class="small mut" style="margin-bottom:10px">A master logs in on this same page and sees only his own users. He creates users and deposits and withdraws coins for them from the coins you give him. He cannot open settings, brokerage, leverage, the price connections, the Shadow Book or backups, and he never sees your users.</p>
+    <div class="row">
+      <div><label class="small mut">Name (shown on his tab)</label><input id="mName"></div>
+      <div><label class="small mut">Username</label><input id="mUser" autocapitalize="none"></div>
+      <div><label class="small mut">Password (he changes it at first login)</label><input id="mPass"></div>
+      <div><label class="small mut">His share %</label><input id="mPct" type="number" min="0" max="100" value="0"></div>
+      <div><label class="small mut">Coins to start with</label><input id="mStock" type="number" min="0" value="0"></div>
+      <button id="mBtn" style="flex:0 0 auto">Create master</button>
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow:auto">
+    <div class="bar" style="padding:10px 12px;justify-content:space-between"><h2 style="margin:0">Masters <span class="small mut" id="mCount"></span></h2><span class="small mut">This week so far · click a master to open his tab</span></div>
+    <table id="mTbl"><thead><tr><th>Master</th><th>Status</th><th>Users</th><th title="Coins he holds and has not handed out">Coins With Him</th><th title="Coins he has handed to his users">Coins With His Users</th><th title="His users together this week, brokerage taken off">Users' Result</th><th title="The opposite of his users' result">Book Result</th><th>Share</th><th>His Share</th><th>Your Share</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="tabs" id="mTabs"></div>
+  <div id="mOne" class="hidden">
+    <div class="card">
+      <div class="bar" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0" id="moName"></h2>
+        <div class="bar"><button class="ok small" id="moGive">Give coins</button><button class="ghost small" id="moTake">Take back coins</button><button class="ghost small" id="moPct">Change share</button><button class="ghost small" id="moPw">Reset password</button><button class="ghost small" id="mo2fa">Clear two-step login</button><button class="ghost small" id="moPause"></button><button class="danger small" id="moDel">Remove</button></div></div>
+      <div class="grid" id="moStats"></div>
+      <p class="small mut" style="margin-top:10px">His users are shown here for you to look at. Only he deposits, withdraws or changes them.</p>
+    </div>
+    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">Week By Week <span class="small mut">his users together, with the share</span></h2></div>
+      <table id="moWk"><thead><tr><th>Week</th><th>Users</th><th>Users' Result</th><th title="Brokerage his users paid: already inside the result">Brokerage Inside</th><th>Book Result</th><th>Share</th><th>His Share</th><th>Your Share</th></tr></thead><tbody></tbody></table></div>
+    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users <span class="small mut" id="moUc"></span></h2></div>
+      <table id="moU"><thead><tr><th>User</th><th>Status</th><th>Allocated</th><th>Available Balance</th><th>Margin Used</th><th>Unrealised</th><th>Net Balance</th><th>Open Pos</th><th>Trades</th></tr></thead><tbody></tbody></table></div>
+    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Users' Live Positions <span class="small mut" id="moPc"></span></h2></div>
+      <table id="moP"><thead><tr><th>User</th><th>Contract</th><th>Lots</th><th>Avg Price</th><th>Price Now</th><th>Unrealised</th><th>Margin</th></tr></thead><tbody></tbody></table></div>
+    <div class="card" style="padding:0;overflow:auto"><div style="padding:10px 12px"><h2 style="margin:0">His Coins</h2></div>
+      <table id="moL"><thead><tr><th>When</th><th>What</th><th>Coins</th><th>With Him After</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  </section>
+
   <section id="nav-perf" class="hidden">
   <div class="card">
     <div class="bar" style="justify-content:space-between">
@@ -310,15 +347,15 @@ a{color:var(--acc)}
     <div class="bar" style="margin-top:14px"><button id="mSave">Save settings</button><span class="small mut" id="setInfo"></span></div>
   </div>
   <div class="card">
-    <h2>Master accounts</h2>
-    <p class="small mut" style="margin-bottom:10px">Everyone here has full master access: users, coins, settings, reports. Each master should turn on their own two-factor login.</p>
+    <h2>Full-control logins</h2>
+    <p class="small mut" style="margin-bottom:10px">Everyone here has the same full control as you: all users, coins, settings, reports. This is not for a master under you: create those on the Masters page.</p>
     <div style="overflow:auto"><table id="admTbl"><thead><tr><th>Master</th><th>2-factor</th><th>Since</th><th></th></tr></thead><tbody></tbody></table></div>
-    <h3 style="margin-top:14px">Add a master</h3>
+    <h3 style="margin-top:14px">Add a full-control login</h3>
     <div class="row">
       <div><label class="small mut">Username</label><input id="aUser" autocapitalize="none"></div>
       <div><label class="small mut">Name</label><input id="aName"></div>
       <div><label class="small mut">Password (min 6)</label><input id="aPass" type="password"></div>
-      <button id="aBtn" style="flex:0 0 auto">Add master</button>
+      <button id="aBtn" style="flex:0 0 auto">Add login</button>
     </div>
   </div>
   <div class="card">
@@ -436,7 +473,7 @@ $('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click(
 $('#logoutBtn').onclick=async()=>{await api('/logout',{method:'POST'});location.reload();};
 
 // nav
-$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function'){accFillUsers();loadHealth();loadAlerts();}if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
+$$('[data-nav]').forEach(b=>b.onclick=()=>{$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));['trainees','masters','weekly','perf','shadow','settings'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='masters')loadMasters();if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='settings'&&typeof accFillUsers==='function'){accFillUsers();loadHealth();loadAlerts();}if(b.dataset.nav==='perf')loadPerf();if(b.dataset.nav==='shadow')loadShadow();if(b.dataset.nav==='settings')loadAdmins();});
 
 async function boot(){
   let me;try{me=await api('/me');}catch(e){return;}
@@ -545,6 +582,43 @@ $('#aBtn').onclick=async()=>{try{await api('/admin/admins',{method:'POST',body:{
 $('#tfaStart').onclick=async()=>{try{const j=await api('/admin/2fa/setup',{method:'POST'});$('#tfaQr').innerHTML=`<img src="${j.qr_png}" alt="QR" style="width:240px;height:240px;display:block">`;$('#tfaSecret').textContent=j.secret;$('#tfaOpen').href=j.uri;$('#tfaCopy').onclick=async()=>{try{await navigator.clipboard.writeText(j.secret);toast('Key copied');}catch(e){toast('Select the key and copy it',1)}};$('#tfaSetup').classList.remove('hidden');$('#tfaCode').focus();}catch(e){toast(e.message,1)}};
 $('#tfaConfirm').onclick=async()=>{try{await api('/admin/2fa/confirm',{method:'POST',body:{code:$('#tfaCode').value}});toast('Two-factor login is on');$('#tfaSetup').classList.add('hidden');$('#tfaCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
 $('#tfaDisable').onclick=async()=>{try{await api('/admin/2fa/disable',{method:'POST',body:{code:$('#tfaOffCode').value}});toast('Two-factor login is off');$('#tfaOffCode').value='';loadAdmins();}catch(e){toast(e.message,1)}};
+
+// ----- masters under the owner -----
+let mSel=0;const MK={STOCK_IN:'Given by you',STOCK_OUT:'Taken back by you',TO_USER:'Given to a user',FROM_USER:'Taken back from a user'};
+const mSg=v=>`<span class="${cls(Math.round(v||0))}">${sgn(v||0)}</span>`;
+async function loadMasters(){let l;try{l=await api('/admin/masters');}catch(e){return;}
+  $('#mCount').textContent=l.length?`(${l.length})`:'';
+  $('#mTbl tbody').innerHTML=l.length?l.map(m=>{const w=m.this_week;return `<tr class="clickable" data-m="${m.id}"><td><b>${esc(m.display_name)}</b> <span class="small mut">${esc(m.username)}</span></td><td><span class="pill ${m.is_active?'active':'frozen'}">${m.is_active?'active':'paused'}</span></td><td>${m.users}</td><td class="num">${fmt(m.stock,0)}</td><td class="num">${fmt(m.with_users,0)}</td><td class="num">${mSg(w.users_result)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num">${mSg(w.master_share)}</td><td class="num"><b>${mSg(w.owner_share)}</b></td></tr>`}).join(''):'<tr><td colspan="10" class="mut" style="text-align:center;padding:18px">No masters yet. Create the first one above.</td></tr>';
+  $$('#mTbl tr[data-m]').forEach(r=>r.onclick=()=>openMaster(+r.dataset.m));
+  $('#mTabs').innerHTML=l.map(m=>`<button data-mt="${m.id}" class="${m.id===mSel?'active':''}">${esc(m.display_name)}</button>`).join('');
+  $$('#mTabs [data-mt]').forEach(b=>b.onclick=()=>openMaster(+b.dataset.mt));
+  if(mSel&&!l.find(m=>m.id===mSel)){mSel=0;$('#mOne').classList.add('hidden');}
+  if(mSel)loadMasterOne();}
+function openMaster(id){mSel=id;$$('#mTabs [data-mt]').forEach(b=>b.classList.toggle('active',+b.dataset.mt===id));$('#mOne').classList.remove('hidden');loadMasterOne(true);}
+async function loadMasterOne(scroll){if(!mSel)return;const id=mSel;let m,us,ps;try{[m,us,ps]=await Promise.all([api('/admin/masters/'+id),api('/admin/users?master='+id),api('/admin/positions?master='+id)]);}catch(e){toast(e.message,1);return;}if(id!==mSel)return;
+  $('#moName').innerHTML=`${esc(m.display_name)} <span class="small mut">${esc(m.username)}</span> <span class="pill ${m.is_active?'active':'frozen'}">${m.is_active?'active':'paused'}</span> <span class="pill ${m.twofa?'active':''}">two-step ${m.twofa?'ON':'not set up yet'}</span>`;
+  $('#moPause').textContent=m.is_active?'Pause':'Resume';$('#mo2fa').classList.toggle('hidden',!m.twofa);
+  $('#moStats').innerHTML=[['Coins With Him',fmt(m.stock,0)],['Coins With His Users',fmt(m.with_users,0)],['Coins You Gave Him',fmt(m.given,0)],['His Share',m.share_pct+'%'],['Users',m.users]].map(([a,b])=>`<div class="stat"><span class="mut small">${a}</span><b class="num">${b}</b></div>`).join('');
+  $('#moWk tbody').innerHTML=m.weeks.map(w=>`<tr><td>${esc(w.label)} ${w.final?'':'<span class="pill OPEN">running</span>'}</td><td>${w.users}</td><td class="num">${mSg(w.users_result)}</td><td class="num">${fmt(w.commission,0)}</td><td class="num">${mSg(w.our_side)}</td><td class="num">${w.share_pct}%</td><td class="num">${mSg(w.master_share)}</td><td class="num"><b>${mSg(w.owner_share)}</b></td></tr>`).join('');
+  $('#moUc').textContent=us.length?`(${us.length})`:'';
+  $('#moU tbody').innerHTML=us.length?us.map(x=>`<tr class="clickable" data-vu="${x.id}"><td><b>${esc(x.display_name)}</b> <span class="small mut">${esc(x.username)}</span></td><td><span class="pill ${x.is_active?'active':'frozen'}">${x.is_active?'active':'frozen'}</span></td><td class="num">${fmt(x.total_credited,0)}</td><td class="num">${fmt(x.available,0)}</td><td class="num">${fmt(x.used_margin,0)}</td><td class="num">${mSg(x.unrealised)}</td><td class="num">${fmt(x.equity,0)}</td><td>${x.open_positions}</td><td>${x.trades}</td></tr>`).join(''):'<tr><td colspan="9" class="mut" style="text-align:center;padding:16px">He has not created a user yet.</td></tr>';
+  $$('#moU tr[data-vu]').forEach(r=>r.onclick=()=>openDetail(+r.dataset.vu));
+  $('#moPc').textContent=ps.length?`(${ps.length})`:'';
+  $('#moP tbody').innerHTML=ps.length?ps.map(x=>`<tr><td>${esc(x.display_name)}</td><td>${esc(x.symbol)}</td><td class="num ${x.qty>0?'up':'dn'}">${x.qty>0?'+':''}${x.lots}</td><td class="num">${lpPx(x.avg_price)}</td><td class="num">${lpPx(x.mark!=null?x.mark:x.ltp)}</td><td class="num">${mSg(x.unrealised)}</td><td class="num">${fmt(x.margin,0)}</td></tr>`).join(''):'<tr><td colspan="7" class="mut" style="text-align:center;padding:16px">No open positions.</td></tr>';
+  $('#moL tbody').innerHTML=m.ledger.length?m.ledger.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('en-IN')}</td><td>${esc(MK[x.kind]||x.kind)}${x.note?' <span class="small mut">'+esc(x.note)+'</span>':''}</td><td class="num">${mSg(x.amount)}</td><td class="num">${fmt(x.balance_after,0)}</td></tr>`).join(''):'<tr><td colspan="4" class="mut" style="text-align:center;padding:16px">Nothing yet.</td></tr>';
+  $$('#moWk th,#moWk td,#moU th,#moU td,#moP th,#moP td,#moL th,#moL td,#mTbl th,#mTbl td').forEach(c=>c.style.textAlign=c.cellIndex?'right':'left');
+  if(scroll)$('#mOne').scrollIntoView({behavior:'smooth',block:'start'});}
+$('#mBtn').onclick=async()=>{try{await api('/admin/masters',{method:'POST',body:{display_name:$('#mName').value,username:$('#mUser').value,password:$('#mPass').value,share_pct:+$('#mPct').value||0,stock:+$('#mStock').value||0}});toast('Master created');$('#mName').value=$('#mUser').value=$('#mPass').value='';$('#mPct').value=0;$('#mStock').value=0;loadMasters();}catch(e){toast(e.message,1)}};
+async function mStock(sign){const v=prompt(sign>0?'How many coins to give him?':'How many coins to take back? (only coins he has not handed to users)');if(!v)return;const a=Math.abs(+String(v).replace(/,/g,''));if(!a){toast('That is not an amount',1);return;}
+  try{await api(`/admin/masters/${mSel}/stock`,{method:'POST',body:{amount:sign*a}});toast(sign>0?'Coins given':'Coins taken back');loadMasters();}catch(e){toast(e.message,1)}}
+async function mPatch(body,msg){try{await api(`/admin/masters/${mSel}`,{method:'PATCH',body});toast(msg);loadMasters();}catch(e){toast(e.message,1)}}
+$('#moGive').onclick=()=>mStock(1);$('#moTake').onclick=()=>mStock(-1);
+$('#moPct').onclick=()=>{const v=prompt('His share in percent (0 to 100). It applies from the week now running; finished weeks keep the share they had.');if(v===null||v==='')return;mPatch({share_pct:+v},'Share changed');};
+$('#moPw').onclick=()=>{const v=prompt('New password for this master (at least 6 characters). He will be asked to choose his own at the next login.');if(!v)return;mPatch({password:v},'Password reset');};
+$('#mo2fa').onclick=()=>{if(confirm('Clear his two-step login? He sets it up again at his next login.'))mPatch({reset_2fa:true},'Two-step login cleared');};
+$('#moPause').onclick=()=>{const on=$('#moPause').textContent==='Pause';if(confirm(on?'Pause this master? He cannot log in. His users keep trading.':'Let this master log in again?'))mPatch({is_active:!on},on?'Paused':'Resumed');};
+$('#moDel').onclick=async()=>{if(!confirm('Remove this master for good? Only possible when he has no users.'))return;try{await api(`/admin/masters/${mSel}`,{method:'DELETE'});toast('Master removed');mSel=0;$('#mOne').classList.add('hidden');loadMasters();}catch(e){toast(e.message,1)}};
+setInterval(()=>{if(!$('#nav-masters').classList.contains('hidden'))loadMasters();},8000);
 
 // ----- users table -----
 $('#uFilter').oninput=e=>{filterQ=e.target.value.toLowerCase();renderUsers();};

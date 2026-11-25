@@ -64,7 +64,8 @@ def week_label(week_end: date) -> str:
 # ---- small helpers ------------------------------------------------------------------------------------
 def accounts(db):
     """Every account the weekly settlement applies to (the hidden safety-check accounts are left out)."""
-    return [u for u in db.query(User).order_by(User.id).all() if not (u.username or "").startswith(PROBE)]
+    # a master under the owner holds a stock of coins, not a trading balance: the cut-off must never touch it
+    return [u for u in db.query(User).order_by(User.id).all() if not (u.username or "").startswith(PROBE) and not getattr(u, "is_sub", False)]
 
 
 def allocated(db, user) -> float:

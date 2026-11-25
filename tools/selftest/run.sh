@@ -36,6 +36,11 @@ if [ "${PT_SITE_CHECK:-1}" != "0" ] && python3 -c "import playwright, pyotp" 2>/
   if [ "${PT_SITE_CHECK:-1}" = "full" ]; then timeout 600 python3 "$HERE/site_check.py"; else timeout 600 python3 "$HERE/site_check.py" 2>&1 | grep -E "^FAIL|^SITE|Traceback|Error"; fi
   SRC=${PIPESTATUS[0]}; [ "$SRC" != "0" ] && { [ "$SRC" = "124" ] && echo "SITE check timed out"; RC=1; }
 fi
+# Masters under the owner: the walls between the books, the stock of coins, the weekly share (25 Nov 2026).
+if [ "${PT_MASTERS_CHECK:-1}" != "0" ]; then
+  timeout 300 python3 "$HERE/masters_check.py" 2>&1 | grep -E "^FAIL|^MASTERS|Traceback|Error"
+  [ "${PIPESTATUS[0]}" != "0" ] && RC=1
+fi
 grep -c "Traceback" "$DATA/server.log" | sed 's/^/server tracebacks: /'
 if [ "${1:-}" != "keep" ]; then pkill -f "uvicorn app.main:app --port 8001"; pkill -f fake_crypto_feed.py; pkill -f fake_forex_feed.py; fi
 exit $RC

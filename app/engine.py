@@ -624,6 +624,8 @@ class Engine:
             raise EngineError("This contract cannot be traded — it may have expired or been taken off the list. Choose another one in the Market tab")
         if not user.is_active:
             raise EngineError("Account is frozen")
+        if getattr(user, "is_sub", False):      # his balance is the stock of coins he hands to his users, never trading money
+            raise EngineError("A master account cannot trade")
         import math
         for _v in (limit_price, trigger_price, leverage):
             if _v is not None and not math.isfinite(_v):

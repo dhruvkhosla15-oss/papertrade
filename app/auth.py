@@ -179,7 +179,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     u = db.get(User, data["uid"])
     if not u:
         raise HTTPException(401, "Not logged in")
-    if not u.is_active and not u.is_admin:
+    if not u.is_active and (not u.is_admin or u.is_sub):      # the owner pauses a master under him the same way
         raise HTTPException(401, "Account frozen — contact your trainer")     # the same words as at the login
     if not session_current(data, u):
         raise HTTPException(401, "Password was changed — please log in again")
@@ -204,9 +204,19 @@ ADMIN_NO_2FA_ALLOWED = {"/api/admin/2fa/setup", "/api/admin/2fa/confirm"}
 
 
 def current_admin(request: Request, user: User = Depends(current_user)) -> User:
-    if not user.is_admin:
+    if not user.is_admin or user.is_sub:      # a master under the owner is never let in here: everything is closed to him unless written for him
         raise HTTPException(403, "Admin only")
     # the master panel controls every user's coins: a password alone is not enough
     if not user.totp_enabled and request.url.path not in ADMIN_NO_2FA_ALLOWED and os.getenv("PT_FEED", "mock") != "mock":   # local simulator is exempt
+        raise HTTPException(403, "2FA_REQUIRED")
+    return user
+
+
+def current_master(request: Request, user: User = Depends(current_user)) -> User:
+    """A master under the owner. Only the /api/master/... calls take him, and each of them looks at nothing
+    but his own users. Two-step login is compulsory, as it is for the owner."""
+    if not (user.is_admin and user.is_sub):
+        raise HTTPException(403, "Masters only")
+    if not user.totp_enabled and os.getenv("PT_FEED", "mock") != "mock":
         raise HTTPException(403, "2FA_REQUIRED")
     return user

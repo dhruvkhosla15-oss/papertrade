@@ -1093,10 +1093,13 @@ if True:
     _silent = []; _n = 0
     for _r in M.app.routes:
         _path, _meth = getattr(_r, "path", ""), (getattr(_r, "methods", None) or set())
-        if not _path.startswith("/api/admin") or not (_meth - {"GET", "HEAD", "OPTIONS"}):
+        if not _path.startswith(("/api/admin", "/api/master")) or not (_meth - {"GET", "HEAD", "OPTIONS"}):     # the calls of a master under the owner too (25 Nov 2026)
             continue
         _n += 1
-        if "_note(" not in _insp.getsource(_r.endpoint):
+        _src = _insp.getsource(_r.endpoint)
+        if "_patch_user(" in _src:        # the owner's and a master's "change a user" share one body, which writes the lines
+            _src += _insp.getsource(M._patch_user)
+        if "_note(" not in _src:
             _silent.append(f"{sorted(_meth)[0]} {_path}")
     ok("activity record: every Master address that changes something says what it did", _n >= 30 and not _silent, f"{_n} addresses; silent: {_silent[:6]}")
     _src = "\n".join(_l for _l in _insp.getsource(M).splitlines() if "_note(" in _l and "def _note" not in _l)

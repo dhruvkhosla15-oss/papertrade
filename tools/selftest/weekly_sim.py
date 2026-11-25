@@ -2098,6 +2098,26 @@ ok("Master's square-off, buyers for 4 of 10 lots: the activity record says it co
 px(crude=5990)
 _r, _nt = _square("sq_thin")
 ok("Master's square-off: pressed again with buyers there, the rest is closed and counted", _rq("sq_thin", F_CRUDE) == 0 and _r == {"closed": 1, "errors": []} and "1 position closed" in _nt, f"{_r} {_nt}")
+# ---- ... and the user's stop-loss is cancelled only when the position is really closed (HELD for the owner, 26 Nov) --
+# The square-off used to cancel the user's waiting orders first: with no buyer at all nothing was closed and the
+# position had lost its stop-loss; with buyers for part, the lots left had none.
+at(day(W31 + timedelta(days=7), 3, 12)); engine._consumed.clear(); px(crude=6000)
+mk_user("sq_stop", 3_000_000)
+trade("sq_stop", F_CRUDE, "BUY", 10)
+_ss = trade("sq_stop", F_CRUDE, "SELL", 10, order_type="SL", trigger_price=5800.0, validity="GTT")
+_thin(F_CRUDE, 5999.0, 5998.0, 0)
+_r, _nt = _square("sq_stop")
+ok("Master's square-off with no buyer at all: nothing is closed and the user's stop-loss is still there", _rq("sq_stop", F_CRUDE) == 1000 and _r["closed"] == 0 and len(_r["errors"]) == 1
+   and db.get(Order, _ss.id).status == "OPEN", f"{_r} stop {db.get(Order, _ss.id).status}")
+_thin(F_CRUDE, 5999.0, 5998.0, 4)
+_r, _nt = _square("sq_stop")
+ok("Master's square-off with buyers for part: the lots left keep the user's stop-loss", _rq("sq_stop", F_CRUDE) == 600 and db.get(Order, _ss.id).status == "OPEN", f"{_r} stop {db.get(Order, _ss.id).status}")
+px(crude=5990)
+_r, _nt = _square("sq_stop")
+ok("Master's square-off that closes the position cancels the user's waiting orders on it, as before", _rq("sq_stop", F_CRUDE) == 0 and _r == {"closed": 1, "errors": []}
+   and db.get(Order, _ss.id).status == "CANCELLED" and not _resting("sq_stop", F_CRUDE), f"{_r} stop {db.get(Order, _ss.id).status}")
+engine._consumed.clear(); px(crude=5700); _pend(F_CRUDE)
+ok("Master's square-off: nothing of the user's is left to open a short later", _rq("sq_stop", F_CRUDE) == 0 and engine.funds(db, users["sq_stop"])["used_margin"] == 0)
 # ==== end of the Risk officer's block, 26 Nov 2026 ==================================================================
 
 if __name__ == "__main__":

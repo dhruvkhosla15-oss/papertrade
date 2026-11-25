@@ -475,7 +475,8 @@ def ui_block_25nov(br, actx, uctx, ok, near):
 def ui_block_26nov(br, actx, uctx, ok, near):
     """UI / user experience officer, 26 Nov 2026. (1) The Master's user panel, Coin ledger: a long note (a week-close
     valuation, a long deposit note) pushed "Balance after" off the right edge of the panel on a computer screen, so
-    only its first digit could be read; the note now wraps. (The look-only panel for a master's user is in masters_screens_check.py.)"""
+    only its first digit could be read; the note now wraps. (2) The MCX futures commission field of 25 Nov on the
+    Settings page: shown, and Save stores it. (The look-only panel for a master's user is in masters_screens_check.py.)"""
     A = actx.request
     ctx = br.new_context(viewport={"width": 1440, "height": 900}); ctx.add_cookies(actx.cookies())
     page = ctx.new_page(); errs = []; page.on("pageerror", lambda e: errs.append(str(e)))
@@ -498,6 +499,19 @@ def ui_block_26nov(br, actx, uctx, ok, near):
             return {rows: rows.length, worst: Math.max(...last), box: box.right, head}; }""")
         ok("Master user panel (1440 wide): in the Coin ledger every 'Balance after' is on the screen in full (a long note wraps)",
            m["rows"] > 3 and "Balance after" in m["head"] and m["worst"] <= m["box"] + 0.5, m)
+        page.evaluate("() => { window._said = []; new MutationObserver(x => x.forEach(y => y.addedNodes.forEach(n => { if (n.classList && n.classList.contains('toast')) window._said.push(n.textContent); }))).observe(document.body, {childList: true}); }")
+        # the MCX futures commission field of 25 Nov 2026 (owner's decision 20:33): shown on Settings with the server's figure, and Save stores what was typed
+        page.click("#detail #dClose"); page.click("[data-nav=settings]"); until("document.querySelector('#commPctMcx') && document.querySelector('#commPctMcx').value !== ''")
+        was = A.get(f"{B}/api/admin/settings").json().get("commission_pct_mcx")
+        shown = page.input_value("#commPctMcx"); lab = page.evaluate("() => document.querySelector('#commPctMcx').parentElement.innerText")
+        page.fill("#commPctMcx", "0.015"); page.click("#mSave"); until("window._said.some(x => /saved/i.test(x))", 8000)
+        now = A.get(f"{B}/api/admin/settings").json()
+        page.fill("#commPctMcx", str(was)); page.click("#mSave"); page.wait_for_timeout(1500)
+        back = A.get(f"{B}/api/admin/settings").json()
+        ok("Master Settings: the MCX futures commission has its own field, shows the server's figure, and Save stores what is typed (other commission figures untouched)",
+           "MCX futures" in lab and near(shown, was, 1e-9) and near(now.get("commission_pct_mcx"), 0.015, 1e-9) and near(back.get("commission_pct_mcx"), was, 1e-9)
+           and all(near(now.get(k), back.get(k), 1e-9) for k in ("commission_pct", "commission_pct_options", "commission_flat")) and not errs,
+           f"label {lab!r} shown {shown} server {was} after save {now.get('commission_pct_mcx')} restored {back.get('commission_pct_mcx')} errors {errs[:2]}")
     except Exception as e:
         ok("UI block 26 Nov ran to its end", False, repr(e)[:300])
     ctx.close()

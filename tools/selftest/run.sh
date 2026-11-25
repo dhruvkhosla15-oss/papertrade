@@ -38,6 +38,10 @@ if [ "${PT_SITE_CHECK:-1}" != "0" ] && python3 -c "import playwright, pyotp" 2>/
 fi
 # Masters under the owner: the walls between the books, the stock of coins, the weekly share (25 Nov 2026).
 if [ "${PT_MASTERS_CHECK:-1}" != "0" ]; then
+  # The browser check above turns the Master's two-step login on, and this check logs in with the password alone:
+  # run after it, it stopped at its first line ("Not logged in") and tested nothing (found 26 Nov 2026). Two-step
+  # login is switched off again here, in the private copy's throw-away database only.
+  python3 -c "import sqlite3, sys; c = sqlite3.connect(sys.argv[1], timeout=30); c.execute(\"update users set totp_enabled = 0, totp_secret = '' where username = 'admin'\"); c.commit()" "$DATA/papertrade.db"
   timeout 300 python3 "$HERE/masters_check.py" 2>&1 | grep -E "^FAIL|^MASTERS|Traceback|Error"
   [ "${PIPESTATUS[0]}" != "0" ] && RC=1
 fi

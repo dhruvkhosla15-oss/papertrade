@@ -2330,3 +2330,7 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
 - Owner's decision 14:20: "records should always remain, deleted or not". Every delete (the owner's own users too)
   now shuts the account and keeps its trades, ledger and weeks; before, the owner's delete threw them away. A delete
   needs a flat account with no waiting orders. An account's number is therefore never handed out again.
+- 25 Nov, 17:45: FAULT ON LIVE, 35 minutes, nobody affected (no master existed yet): the master's own page showed
+  no name, coins or users. Cause: one line of its script assigned to a constant and the page hid the error. It was
+  added after the screenshots were taken and only server checks were run afterwards. Fixed; a click-through of both
+  pages (tools/selftest/masters_screens_check.py, 25 checks) now exists and must be run on any change to those pages.

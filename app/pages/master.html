@@ -213,14 +213,14 @@ $$('[data-logout]').forEach(b=>b.onclick=async()=>{try{await api('/logout',{meth
 $$('.nav button').forEach(b=>b.onclick=()=>{$$('.nav button').forEach(x=>x.classList.toggle('active',x===b));['users','weekly','coins'].forEach(n=>$('#nav-'+n).classList.toggle('hidden',n!==b.dataset.nav));if(b.dataset.nav==='weekly')loadWeekly();if(b.dataset.nav==='coins')loadCoins();});
 
 let users=[],detail=0,dTab='positions',dData=null;
-async function loadUsers(){try{const [m,u,p]=await Promise.all([api('/master/me'),api('/master/users'),api('/master/positions')]);users=u=[...u.filter(x=>!x.deleted),...u.filter(x=>x.deleted)];
+async function loadUsers(){try{const [m,u0,p]=await Promise.all([api('/master/me'),api('/master/users'),api('/master/positions')]);const u=[...u0.filter(x=>!x.deleted),...u0.filter(x=>x.deleted)];users=u;
   $('#meName').textContent=m.display_name;$('#sStock').textContent=fmt(m.stock);$('#sWith').textContent=fmt(m.with_users);$('#sGiven').textContent=fmt(m.given);$('#sUsers').textContent=m.users;
   const S=k=>u.reduce((a,x)=>a+(x[k]||0),0);$('#sAvail').textContent=fmt(S('available'));$('#sMargin').textContent=fmt(S('used_margin'));$('#sUnr').innerHTML=sg(Math.round(S('unrealised')));
   $('#uT tbody').innerHTML=u.length?u.map(x=>`<tr class="clickable" data-u="${x.id}"${x.deleted?' style="opacity:.6"':''}><td><b>${esc(x.display_name)}</b> <span class="small mut">${esc(un(x))}</span></td><td>${stP(x)}</td><td class="num">${fmt(x.total_credited)}</td><td class="num">${fmt(x.available)}</td><td class="num">${fmt(x.used_margin)}</td><td class="num">${sg(Math.round(x.unrealised||0))}</td><td class="num">${fmt(x.equity)}</td><td>${x.open_positions}</td><td>${x.trades}</td></tr>`).join(''):'<tr><td colspan="9" class="mut" style="text-align:center;padding:18px">No users yet. Add your first user above.</td></tr>';
   $$('#uT tr[data-u]').forEach(r=>r.onclick=()=>openDetail(+r.dataset.u));
   $('#pCount').textContent=p.length?`(${p.length})`:'';
   $('#pT tbody').innerHTML=p.length?p.map(x=>`<tr><td>${esc(x.display_name)}</td><td>${esc(x.symbol)}</td><td class="num ${x.qty>0?'up':'dn'}">${x.qty>0?'+':''}${x.lots}</td><td class="num">${px(x.avg_price)}</td><td class="num">${px(x.mark!=null?x.mark:x.ltp)}</td><td class="num">${sg(Math.round(x.unrealised||0))}</td><td class="num">${fmt(x.margin)}</td></tr>`).join(''):'<tr><td colspan="7" class="mut" style="text-align:center;padding:18px">No open positions.</td></tr>';
-  }catch(e){}}
+  }catch(e){console.error('loadUsers',e);}}
 async function loadWeekHead(){try{const w=await api('/master/weeks');if(w[0])$('#sWeek').innerHTML=sg(Math.round(w[0].our_side));}catch(e){}}
 $('#nBtn').onclick=async()=>{try{await api('/master/users',{method:'POST',body:{username:$('#nUser').value,display_name:$('#nName').value,password:$('#nPass').value,initial_coins:+$('#nCoins').value||0}});toast('User created');$('#nUser').value=$('#nName').value=$('#nPass').value='';$('#nCoins').value=0;loadUsers();}catch(e){toast(e.message,1)}};
 

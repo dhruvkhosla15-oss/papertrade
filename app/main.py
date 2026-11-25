@@ -3683,7 +3683,7 @@ def _admin_rows(db):
         cut = _weekly.last_cutoff(db, u)
         comm = round(sum(t.commission or 0.0 for t in db.query(Trade).filter(Trade.user_id == u.id).filter(*([Trade.created_at > cut] if cut else []))), 2)
         realised = round(f["balance"] - alloc + comm, 2) + 0.0     # to the paisa; "+ 0.0" so no closed trades reads 0, never -0.00
-        rows.append({"name": u.display_name, "username": _plain_name(u.username), "status": "deleted" if u.deleted_at else "active" if u.is_active else "frozen",
+        rows.append({"name": u.display_name, "username": u.username, "status": "deleted" if u.deleted_at else "active" if u.is_active else "frozen",
                      "settled_total": _weekly.settled_total(db, u),
                      "allocated": alloc, "exposure": f["used_margin"], "available": f["available"], "unrealised": f["unrealised"],
                      "realised": realised, "commission": comm, "net_balance": f["equity"], "net_pnl": f["equity"] - alloc,
@@ -3726,7 +3726,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     header(USERS_H)
     for k, r in enumerate(rows):
         i = first + k
-        for c, v in enumerate([r["name"], r["username"], r["status"], r["allocated"], r["available"], r["exposure"], r["unrealised"], r["realised"],
+        for c, v in enumerate([r["name"], _plain_name(r["username"]), r["status"], r["allocated"], r["available"], r["exposure"], r["unrealised"], r["realised"],
                                f"=G{i}+H{i}", -r["commission"], f"=I{i}+J{i}", r["net_balance"], r["open_positions"], r["trades"]], 1):
             ws.cell(i, c, v)
     ws.cell(tot, 1, "TOTAL")

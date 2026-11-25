@@ -1056,7 +1056,7 @@ class Engine:
                         o.status = "CANCELLED"; o.margin_blocked = 0.0; o.reason = "Cancelled — order had no valid price"
                         db.commit()
                         continue
-                    fill_at = None; note = ""
+                    fill_at = None; note = ""; part = False
                     if o.order_type == "LIMIT":
                         if on:
                             # real matching: a buy fills only when someone is offering at/below our price,
@@ -1082,6 +1082,7 @@ class Engine:
                                     o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)
                                     o.qty = _f; o.lots = _f // ins.lot_size
                                     note += f"; partial: {_f // ins.lot_size} lots filled, {rest // ins.lot_size} still open"
+                                    part = True
                         elif (o.side == "BUY" and ltp <= o.limit_price) or (o.side == "SELL" and ltp >= o.limit_price):
                             if not self._still_allowed(db, o, ins):
                                 continue
@@ -1108,6 +1109,7 @@ class Engine:
                                     o.margin_blocked = round((o.margin_blocked or 0) * _f / o.qty, 2)
                                     o.qty = _f; o.lots = _f // ins.lot_size
                                     note = f"partial: {_f // ins.lot_size} lots filled, {rest // ins.lot_size} still open"
+                                    part = True
                             except EngineError as err:
                                 o.status = "REJECTED"; o.reason = f"Stop-loss triggered but {err}"; o.margin_blocked = 0.0
                                 db.commit()
@@ -1116,7 +1118,17 @@ class Engine:
                     if fill_at is None:
                         continue
                     user = db.get(User, o.user_id)
+                    _p0 = self._position(db, o.user_id, o.token) if part else None
+                    _held0 = abs(_p0.qty) if _p0 is not None else 0
                     self._fill(db, user, o, fill_at)
+                    if part and o.status == "FILLED" and _p0 is not None:
+                        # A stop-loss (or target) has closed only PART of the position because too few buyers were
+                        # there. The user's OTHER exit order for that position still asked for all the lots: with a
+                        # stop and a target for 7 lots, the stop sold 2, the target then sold 7 and left the account
+                        # 2 lots SHORT, and the rest of the stop (5 lots) was still resting and sold 5 more on the
+                        # way down: 7 lots short (found 26 Nov 2026). The other exit is cut down to the lots left,
+                        # as after a partial auto square-off.
+                        self._trim_exits(db, user, _p0, _held0, why="part of the position was closed by your other exit order")
                     if note and o.status == "FILLED":
                         o.reason = note
                     db.commit()
@@ -1555,7 +1567,8 @@ class Engine:
         else:
             db.commit()
 
-    def _trim_exits(self, db: Session, user: User, p: Position, held: int):
+    def _trim_exits(self, db: Session, user: User, p: Position, held: int,
+                    why: str = "part of the position was squared off (margin shortfall)"):
         """The auto square-off has just closed PART of a position (held = its size before). A stop-loss or
         target the user had resting for that position is now bigger than what is left of it. Left as it
         was, the stop was refused at the very moment its price was reached ("Insufficient coins": selling
@@ -1574,7 +1587,7 @@ class Engine:
         for o in db.query(Order).filter_by(user_id=user.id, token=p.token, status="OPEN", side=exit_side).all():
             if left < (o.qty or 0) <= held and not (o.margin_blocked or 0):
                 o.qty = left; o.lots = left // lot
-                o.reason = f"Reduced to {o.lots} lot{'s' if o.lots != 1 else ''} — part of the position was squared off (margin shortfall)"
+                o.reason = f"Reduced to {o.lots} lot{'s' if o.lots != 1 else ''} — {why}"
                 self._emit(user.id, {"type": "order", "order": self.order_dict(o)})
 
     def _liquidate(self, db: Session, user: User, f: dict):

@@ -2118,6 +2118,35 @@ ok("Master's square-off that closes the position cancels the user's waiting orde
    and db.get(Order, _ss.id).status == "CANCELLED" and not _resting("sq_stop", F_CRUDE), f"{_r} stop {db.get(Order, _ss.id).status}")
 engine._consumed.clear(); px(crude=5700); _pend(F_CRUDE)
 ok("Master's square-off: nothing of the user's is left to open a short later", _rq("sq_stop", F_CRUDE) == 0 and engine.funds(db, users["sq_stop"])["used_margin"] == 0)
+# ---- a stop-loss AND a target on one position; one of them closes only part of it (HELD for the owner, 26 Nov) ----
+# 7 crude lots, stop-loss for 7 and target for 7. The stop met 2 lots of buyers: 5 lots left, the rest of the stop
+# (5) resting, the target still asking for 7. At the target's price 7 were sold: 2 lots SHORT, and the rest of the
+# stop, still resting, sold 5 more on the way down: 7 lots short. The other exit is now cut down to the lots left.
+at(day(W31 + timedelta(days=7), 4, 11)); engine._consumed.clear(); px(crude=6000)
+mk_user("two_exits", 5_000_000)
+trade("two_exits", F_CRUDE, "BUY", 7)
+_te = {n: (trade(n, F_CRUDE, "SELL", 7, order_type="SL", trigger_price=5900.0, validity="GTT"), trade(n, F_CRUDE, "SELL", 7, order_type="LIMIT", limit_price=6100.0, validity="GTT")) for n in ("two_exits",)}
+engine._consumed.clear(); _thin(F_CRUDE, 5890.0, 5889.0, 2); _pend(F_CRUDE)
+_tg = db.get(Order, _te["two_exits"][1].id)
+ok("stop and target, the stop sells 2 of 7 lots: the target is cut down to the 5 lots left, with a sentence saying why",
+   _rq("two_exits", F_CRUDE) == 500 and _tg.status == "OPEN" and _tg.qty == 500 and _tg.lots == 5 and (_tg.reason or "") == "Reduced to 5 lots — part of the position was closed by your other exit order",
+   f"left {_rq('two_exits', F_CRUDE)}; target {_tg.status} {_tg.qty} {_tg.reason}")
+ok("stop and target, the stop sells 2 of 7 lots: the rest of the stop (5 lots) goes on resting", [(o.order_type, o.qty) for o in _resting("two_exits", F_CRUDE)] == [("LIMIT", 500), ("SL", 500)],
+   str([(o.order_type, o.qty) for o in _resting("two_exits", F_CRUDE)]))
+feed.prices[F_CRUDE] = {"token": F_CRUDE, "ltp": 6110.0, "bid": 6109.0, "ask": 6111.0, "ts": time.time(), "ltt": time.time(), "bids": [[6109.0, 300, 1]], "asks": [[6111.0, 10 ** 8, 1]]}
+engine._consumed.clear(); _pend(F_CRUDE)                    # the target's price, with buyers for 3 lots only
+_tg = db.get(Order, _te["two_exits"][1].id)
+ok("stop and target: at its price the target sells what has buyers (3 of its 5 lots) and the account is not short", _tg.status == "FILLED" and _tg.qty == 300 and _rq("two_exits", F_CRUDE) == 200, f"{_tg.status} {_tg.qty} left {_rq('two_exits', F_CRUDE)}")
+ok("stop and target: the target sold only part too, so the rest of the STOP is cut down in its turn: every exit still resting is for the 2 lots left", sorted((o.order_type, o.qty) for o in _resting("two_exits", F_CRUDE)) == [("LIMIT", 200), ("SL", 200)],
+   str([(o.order_type, o.qty, o.reason) for o in _resting("two_exits", F_CRUDE)]))
+engine._consumed.clear(); px(crude=6110); _pend(F_CRUDE)    # buyers for everything now
+ok("stop and target: the rest of the target closes the position, the rest of the stop is cancelled with it", _rq("two_exits", F_CRUDE) == 0 and not _resting("two_exits", F_CRUDE), str(_rq("two_exits", F_CRUDE)))
+engine._consumed.clear(); px(crude=5400); _pend(F_CRUDE)    # and the market falls through the stop's price
+ok("stop and target: a later fall through the stop's price sells nothing: the account is not left short",
+   _rq("two_exits", F_CRUDE) == 0 and engine.funds(db, users["two_exits"])["used_margin"] == 0, str(_rq("two_exits", F_CRUDE)))
+for _n in ("two_exits",):
+    _ll = db.query(Ledger).filter_by(user_id=users[_n].id).order_by(Ledger.id.desc()).first()
+    ok(f"stop and target: {_n}'s coins equal the last ledger line", near(users[_n].balance, _ll.balance_after, 0.011), f"{users[_n].balance} vs {_ll.balance_after}")
 # ==== end of the Risk officer's block, 26 Nov 2026 ==================================================================
 
 if __name__ == "__main__":

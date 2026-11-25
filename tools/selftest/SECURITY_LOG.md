@@ -734,6 +734,11 @@ feature, "records always remain", the MCX futures commission. The log's "Waiting
 - Not tested: the 300-user load test; MCX options over the API; a silent NSE / MCX feed; real exchange messages;
   whether any real account already met the stop-and-target fault or the coins-at-a-fill coincidence (needs live
   data); rows 29, 49, 55, 56 by hand; market-shut and too-many-orders refusals through the screens.
+- Final gates, twice in a row on the code pushed (02:01 and 02:38 IST, Global open by the real clock): safety check
+  325 / 0, browser check 322 / 0, Masters check 92 / 0, no server error, both times; weekly simulation 6872 / 0 both
+  times. Only the log and the report (text) were written between the two runs, and this line after the second.
+  The log and the report were read for provider names and secrets by the coordinator only (the reviewer saw the
+  code diff, not these two texts).
 
 ### 2026-11-25 (officers' nightly audit, night of 24 → 25 Nov; the first since 21 Nov) — no free-coins loophole on main; eleven faults in the code released since 21 Nov fixed and live; six changes wait on `security-fix/2026-11-25`
 Self-test at the start (main 034f88b): safety check 316 / 0, browser check 301 / 0, weekly simulation 6762 / 0, no

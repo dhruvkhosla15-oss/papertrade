@@ -1895,6 +1895,24 @@ ok("expiry: the ledger line of a settled option gives its value as a plain numbe
    _il is not None and _il.note.endswith("settled @ 42.35") and near(_il.amount, (26142.35 - 26100 - 45.05) * 75, 0.011), str(_il.note if _il else None))
 # ==== end of the Risk officer's block, 25 Nov 2026 ==================================================================
 
+# ==== MCX futures have their own commission percentage (owner's decision, 25 Nov 2026) ==============================
+# A real MCX trade costs about a third of an equity one, so the owner set MCX futures at 0.01% + the flat fee:
+# buying and selling a contract worth 10 lakh costs 240 coins on MCX, 640 on NSE at 0.03% + 20.
+from types import SimpleNamespace as _NS                  # noqa: E402
+_ck = {k: D.get_setting(db, k) for k in ("commission_pct", "commission_flat", "commission_pct_MCX", "commission_pct_options")}
+D.set_setting(db, "commission_pct", "0.03"); D.set_setting(db, "commission_flat", "20"); D.set_setting(db, "commission_pct_MCX", ""); D.set_setting(db, "commission_pct_options", "0.1"); db.commit()
+_c = lambda ex, typ: 2 * engine.commission(db, _NS(exchange=ex, instrument_type=typ, token=0, lot_size=1, name="X", symbol="X"), 1_000_000.0, 1)
+ok("commission: an MCX future bought and sold at 10 lakh costs 240 (0.01% + 20 an order), an NSE / BSE / Currency one 640",
+   near(_c("MCX", "FUT"), 240, 0.01) and near(_c("NFO", "FUT"), 640, 0.01) and near(_c("BFO", "FUT"), 640, 0.01) and near(_c("CDS", "FUT"), 640, 0.01),
+   f"MCX {_c('MCX', 'FUT')} NFO {_c('NFO', 'FUT')} BFO {_c('BFO', 'FUT')} CDS {_c('CDS', 'FUT')}")
+ok("commission: MCX options keep the options percentage on premium (the MCX futures rate is for futures only)",
+   near(_c("MCX", "CE"), 2 * (1000 + 20), 0.01) and near(_c("NFO", "PE"), 2 * (1000 + 20), 0.01), f"{_c('MCX', 'CE')} {_c('NFO', 'PE')}")
+D.set_setting(db, "commission_pct_MCX", "0.02"); db.commit()
+ok("commission: the Master's own MCX figure from Settings is used", near(_c("MCX", "FUT"), 2 * (200 + 20), 0.01) and near(_c("NFO", "FUT"), 640, 0.01), str(_c("MCX", "FUT")))
+for _k, _v in _ck.items():
+    D.set_setting(db, _k, _v or "")
+db.commit()
+
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")
     sys.exit(1 if checks["fail"] else 0)

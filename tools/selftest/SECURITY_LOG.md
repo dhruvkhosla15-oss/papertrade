@@ -2334,3 +2334,6 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   no name, coins or users. Cause: one line of its script assigned to a constant and the page hid the error. It was
   added after the screenshots were taken and only server checks were run afterwards. Fixed; a click-through of both
   pages (tools/selftest/masters_screens_check.py, 25 checks) now exists and must be run on any change to those pages.
+- Owner's decision 25 Nov 20:33: MCX futures commission is its own figure, 0.01% of value + the flat fee per order
+  (a 10 lakh contract bought and sold: 240 on MCX, 640 on NSE / BSE / Currency). Setting commission_pct_MCX, on the
+  Settings page; MCX options keep the options percentage. Applies to fills from the release on, never to past trades.

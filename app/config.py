@@ -50,6 +50,9 @@ ALLOW_STOCK_FNO = os.getenv("PT_STOCK_FNO", "1").strip().lower() not in ("0", "f
 # Approximate margin % of contract notional for futures / short options
 DEFAULT_COMMISSION_PCT = 0.02   # % of traded value charged on every fill (buy and sell)
 # Forex: IC Markets Raw charges USD 3.5 per 100,000 lot per side = 0.0035 % of notional
+# MCX futures (owner's decision, 25 Nov 2026): a real MCX trade costs about a third of an equity one (the sell-side
+# tax is 0.01% there against 0.05%), so MCX futures get their own, lower percentage. The flat fee per order stays.
+DEFAULT_COMMISSION_PCT_MCX = 0.01
 DEFAULT_COMMISSION_PCT_FOREX = 0.0035
 DEFAULT_MARGIN_PCT = {"NFO": 12.0, "BFO": 12.0, "MCX": 10.0, "STK": 20.0, "CDS": 3.0, "CRYPTO": 0.5, "FOREX": 1.0,
                       # MCX per-commodity groups (roughly SPAN + exposure as Zerodha shows them, Nov 2026)

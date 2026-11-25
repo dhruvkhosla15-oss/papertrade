@@ -147,6 +147,13 @@ class Engine:
                     pct = max(0.0, float(v))
                 except ValueError:
                     pass
+        if ex == "MCX" and ins.instrument_type not in ("CE", "PE"):      # MCX futures: their own percentage
+            from .config import DEFAULT_COMMISSION_PCT_MCX
+            v = get_setting(db, "commission_pct_MCX")
+            try:
+                pct = max(0.0, float(v)) if v not in (None, "") else DEFAULT_COMMISSION_PCT_MCX
+            except ValueError:
+                pct = DEFAULT_COMMISSION_PCT_MCX
         if ex in ("NFO", "BFO", "MCX", "CDS"):
             try:
                 flat = max(0.0, float(get_setting(db, "commission_flat") or 0))

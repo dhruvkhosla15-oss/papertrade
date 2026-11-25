@@ -1060,7 +1060,7 @@ def main():
         rec("a user's two-step login cleared says so", f"PATCH /api/admin/users/{rid}", r"recuser: two-step login cleared")
         # settings: every figure the Master can save, one at a time, then everything back as it was
         st0 = aget("/api/admin/settings")
-        skeys = ("commission_pct", "commission_pct_forex", "commission_pct_options", "commission_flat", "liq_charge_flat", "liq_charge_pct_crypto",
+        skeys = ("commission_pct", "commission_pct_mcx", "commission_pct_forex", "commission_pct_options", "commission_flat", "liq_charge_flat", "liq_charge_pct_crypto",
                  "commission_pct_crypto", "mcx_option_factor", "liquidity_check", "max_spread_pct", "stale_minutes")
         sbase = {"margin_pct": dict(st0["margin_pct"]), **{k: st0[k] for k in skeys}}
         silent = []

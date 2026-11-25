@@ -3149,6 +3149,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
             "commission_pct": engine.commission_pct(db), "commission_pct_forex": engine.commission_pct(db, "FOREX"),
             "commission_pct_options": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_options")),
             "commission_flat": float(get_setting(db, "commission_flat") or 0),
+            "commission_pct_mcx": (lambda v: float(v) if v not in (None, "") else config.DEFAULT_COMMISSION_PCT_MCX)(get_setting(db, "commission_pct_MCX")),
             "liq_charge_flat": engine.liq_charge_terms(db)[0], "liq_charge_pct_crypto": engine.liq_charge_terms(db)[1],
             "commission_pct_crypto": (lambda v: float(v) if v not in (None, "") else engine.commission_pct(db))(get_setting(db, "commission_pct_CRYPTO")),
             "liquidity_check": on, "max_spread_pct": spread, "stale_minutes": stale,
@@ -3156,7 +3157,7 @@ def admin_settings(admin: User = Depends(current_admin), db: Session = Depends(g
             "underlyings": [u for u in config.ALLOWED_UNDERLYINGS if u != "STOCKS"], "stock_fno": config.ALLOW_STOCK_FNO}
 
 
-_SETTING_NAMES = {"commission_pct": "futures commission %", "commission_pct_forex": "forex commission %", "commission_pct_options": "options commission %",
+_SETTING_NAMES = {"commission_pct": "futures commission %", "commission_pct_mcx": "MCX futures commission %", "commission_pct_forex": "forex commission %", "commission_pct_options": "options commission %",
                   "commission_flat": "flat fee per order", "liq_charge_flat": "auto square-off charge", "liq_charge_pct_crypto": "auto square-off charge on crypto %",
                   "commission_pct_crypto": "crypto commission %", "mcx_option_factor": "MCX option margin factor", "liquidity_check": "reject illiquid trades",
                   "max_spread_pct": "max bid-ask spread %", "stale_minutes": "stale price minutes"}
@@ -3178,6 +3179,7 @@ class SettingsIn(BaseModel):
     commission_pct_forex: Optional[float] = None
     commission_pct_options: Optional[float] = None
     commission_flat: Optional[float] = None
+    commission_pct_mcx: Optional[float] = None
     liq_charge_flat: Optional[float] = None
     liq_charge_pct_crypto: Optional[float] = None
     commission_pct_crypto: Optional[float] = None
@@ -3198,6 +3200,8 @@ def admin_set_settings(body: SettingsIn, admin: User = Depends(current_admin), d
         set_setting(db, "commission_pct", str(max(0.0, float(body.commission_pct))))
     if body.commission_pct_forex is not None:
         set_setting(db, "commission_pct_FOREX", str(max(0.0, float(body.commission_pct_forex))))
+    if body.commission_pct_mcx is not None:
+        set_setting(db, "commission_pct_MCX", str(max(0.0, min(5.0, float(body.commission_pct_mcx)))))
     if body.commission_pct_options is not None:
         set_setting(db, "commission_pct_options", str(max(0.0, min(5.0, float(body.commission_pct_options)))))
     if body.liq_charge_flat is not None:

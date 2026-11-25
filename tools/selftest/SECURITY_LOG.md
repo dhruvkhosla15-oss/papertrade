@@ -2301,3 +2301,7 @@ passed on the next fresh run: officers, look at that check for a timing flake.)
 ## 24 Nov 2026 (owner) — a Pulse row opens the future
 Tapping a Pulse row opens that name's nearest future (it opened the option chain). The order sheet has "Other
 months" and "Options ›"; with no options it says so, with Back / Futures page / Options page. Owner approved the preview.
+
+## Owner's decisions, 25 Nov 2026 (08:48 IST)
+- HELD 2, 3, 4, 5, 6 of security-fix/2026-11-25: approved and put live.
+- HELD 1 REFUSED: a trade or cut-off must never book at the closing price. The closing price is only the base for the day's change (and the mark shown until the first price); every execution uses the live price of the moment. Do not offer this again.

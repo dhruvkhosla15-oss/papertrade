@@ -487,8 +487,8 @@ async function boot(){
     const go=async()=>{try{await api('/admin/2fa/confirm',{method:'POST',body:{code:$('#gCode').value}});location.reload();}catch(e){$('#gErr').textContent=e.message;}};
     $('#gConfirm').onclick=go;$('#gCode').addEventListener('keydown',e=>{if(e.key==='Enter')go();});return;}
   $('#appView').classList.remove('hidden');
-  // idle for 30 minutes -> log out (the panel is too powerful to leave open on a shared screen)
-  {let last=Date.now();['mousemove','keydown','click','touchstart','scroll'].forEach(ev=>addEventListener(ev,()=>last=Date.now(),{passive:true}));setInterval(async()=>{if(Date.now()-last>30*60*1000){try{await api('/logout',{method:'POST'});}catch(e){}location.reload();}},30000);}
+  // No idle log-out on the owner's page (owner's decision, 26 Nov 2026: "admin has to log out to log out"). It was 30 minutes
+  // without a click until then. A master under the owner keeps the 30-minute rule on his own page.
   const q=new URLSearchParams(location.search);if(q.get('kite')==='ok')toast('Zerodha connected');if(q.get('kite')==='failed')toast('Zerodha login failed: '+(q.get('msg')||''),1);
   pdBars();
   await Promise.all([loadUsers(),loadSettings(),loadToday(),loadAdmins()]);loadBackups();loadMaint();

@@ -2679,3 +2679,7 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   the lots left (engine._fill -> _trim_exits). An order of his that ADDS to the position is never touched.
 - Master's limit: the audit's suggested rule ("users' margin together within his coins") does nothing in practice:
   a user's margin can never exceed his own coins, which come from the master's. Not built; put to the owner again.
+- Owner, 26 Nov 09:24: (1) no limit on a master's exposure: the auto square-off below margin is enough ("let it be").
+  Do not offer it again. (2) The owner's page no longer logs out after 30 idle minutes; he was told what that gives
+  up (an unlocked device with the page open can move coins without password or code) and chose it. The login still
+  ends after 30 days, on Log out, and on a password change. A master's own page keeps the 30-minute rule.

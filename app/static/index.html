@@ -880,7 +880,7 @@ function renderLeverage(ins){const w=$('#levWrap');const opts=ins.leverage_optio
   $$('#levSeg button').forEach(b=>b.onclick=()=>{state.lev=+b.dataset.lev;$('#levCustom').value='';$$('#levSeg button').forEach(x=>x.classList.toggle('active',x===b));lv();updateMargin();});}
 function openSheetPrices(ins){const pr=dispTick(state.prices[ins.token]);$('#oLtp').textContent=pr?fmt(pr.ltp):'—';renderBook(pr);
   const c=$('#oCcy');if(c){c.classList.toggle('hidden',ins.exchange!=='CRYPTO');c.innerHTML=ins.exchange==='CRYPTO'?`<span class="small mut" style="margin-right:auto">${inrOn()?'Shown in ₹ at '+fmt(state.usdinr)+' / $':'Quoted in USD'}</span>`+ccyToggleHtml():'';bindCcyToggles();}}
-function openSheet(ins,side,lots){{const h=$('#sltHint');if(h)h.classList.add('hidden');}state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');{const h=state.positions.find(x=>x.token===ins.token&&x.qty);const h24=ins.exchange==='CRYPTO'||ins.exchange==='FOREX';$('#prodWrap').classList.toggle('hidden',h24);setProd(h24?'NRML':(h?h.product||'NRML':'NRML'));setVal('DAY');}
+function openSheet(ins,side,lots){{const h=$('#sltHint');if(h)h.classList.add('hidden');}state.slt=false;state.sel=ins;state.side=side||'BUY';setSide(state.side);setOT('MARKET');{const h=state.positions.find(x=>x.token===ins.token&&x.qty);const h24=ins.exchange==='CRYPTO'||ins.exchange==='FOREX';$('#prodWrap').classList.toggle('hidden',h24);setProd(h24?'NRML':(h?h.product||'NRML':'NRML'));setVal('DAY');}
   $('#oSym').textContent=dsym(ins.exchange,ins.symbol);$('#oMeta').textContent=ins.exchange==='CRYPTO'?`Crypto · ${ins.expiry?'exp '+ins.expiry+' · 5:30 pm IST':'perpetual · 24×7'}`:ins.exchange==='FOREX'?(GNAME[ins.symbol]?GNAME[ins.symbol]+' · Global · P&L converted to ₹':'Forex spot · 24×5 · P&L converted to ₹'):`${ins.exchange} · exp ${ins.expiry}`;
   $('#oLot').innerHTML=`<b>Lot size ${ins.lot_size}</b>${ins.lot_label?' <span class="mut">· 1 lot = '+ins.lot_label+'</span>':' <span class="mut">· 1 lot = '+ins.lot_size+' units</span>'}`;
   $('#oWatch').onclick=()=>addWatch(ins.token);sheetLinks(ins);
@@ -915,7 +915,9 @@ function setVal(v){state.validity=v;$$('[data-val]').forEach(b=>b.classList.togg
 $$('[data-prod]').forEach(b=>b.onclick=()=>setProd(b.dataset.prod));$$('[data-val]').forEach(b=>b.onclick=()=>setVal(b.dataset.val));
 function setOT(t){state.otype=t;$('#valWrap').classList.toggle('hidden',['CRYPTO','FOREX'].includes(state.sel?.exchange));if(state.validity)setVal(state.validity);$$('[data-ot]').forEach(b=>b.classList.toggle('active',b.dataset.ot===t));
   $('#limitWrap').classList.toggle('hidden',t!=='LIMIT');$('#trigWrap').classList.toggle('hidden',t!=='SL');
-  const pr=dispTick(state.prices[state.sel?.token])?.ltp;if(t==='LIMIT'&&!$('#oLimit').value&&pr)$('#oLimit').value=+pr.toFixed(4);if(t==='SL'&&!$('#oTrig').value&&pr)$('#oTrig').value=+pr.toFixed(4);updateMargin();}
+  const pr=dispTick(state.prices[state.sel?.token])?.ltp;
+  /* A stop-loss trigger is never filled in for the user (26 Nov 2026): it used to start at the current price, and confirming it as it stood closed the position at once. The price now is shown as a hint only. On the SL / Target sheet the Limit price starts empty too, for the same reason. */
+  if(t==='LIMIT'&&!$('#oLimit').value&&pr&&!state.slt)$('#oLimit').value=+pr.toFixed(4);$('#oTrig').placeholder=pr?('Price now '+(+pr.toFixed(4))):'';$('#oLimit').placeholder=state.slt&&pr?('Price now '+(+pr.toFixed(4))):'';updateMargin();}
 $('#sideBuy').onclick=()=>setSide('BUY');$('#sideSell').onclick=()=>setSide('SELL');
 $$('[data-ot]').forEach(b=>b.onclick=()=>setOT(b.dataset.ot));
 $('#oLots').oninput=()=>{$('#oQty').value=(+$('#oLots').value||0)*state.sel.lot_size;accPaint();updateMargin();};
@@ -931,6 +933,8 @@ $('#oSubmit').onclick=async()=>{
   if(state.sel&&state.sel.segment==='INDICES'){toast((state.sel.name||state.sel.symbol)+' itself cannot be bought or sold here. Go to Market and choose one of its futures or options.',1);return;}
   {const m=accBlocked(state.sel,state.side);if(m){accPop(m);return;}}
   const b={token:state.sel.token,side:state.side,lots:+$('#oLots').value,order_type:state.otype,validity:state.otype==='MARKET'?'DAY':(state.validity||'DAY'),product:state.product||'NRML'};if(state.lev&&state.sel.leverage_options?.length)b.leverage=state.lev;
+  if(state.otype==='SL'&&!(+$('#oTrig').value>0)){toast('Enter the trigger price for your stop-loss',1);$('#oTrig').focus();return;}
+  if(state.otype==='LIMIT'&&!(+$('#oLimit').value>0)){toast('Enter the limit price',1);$('#oLimit').focus();return;}
   if(state.otype==='LIMIT')b.limit_price=toUsd(+$('#oLimit').value);if(state.otype==='SL')b.trigger_price=toUsd(+$('#oTrig').value);
   $('#oSubmit').disabled=true;
   try{const j=await api('/orders',{method:'POST',body:b});renderFunds(j.funds);$('#sheet').classList.add('hidden');
@@ -1022,7 +1026,7 @@ function renderPositions(){$('#posEmpty').classList.toggle('hidden',state.positi
   $$('[data-close]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.close);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));});
   $$('[data-add]').forEach(b=>b.onclick=async()=>{const i=await api('/instrument/'+b.dataset.add);openSheet(i);});
   // Stop-loss / Target straight from the position: the same order sheet, on the exit side, for the whole position, opened on Stop-loss
-  $$('[data-slt]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.slt);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));setOT('SL');$('#sltHint').classList.remove('hidden');});}
+  $$('[data-slt]').forEach(b=>b.onclick=async()=>{const p=state.positions.find(x=>String(x.id)===b.dataset.slt);if(!p)return;const i=await api('/instrument/'+p.token);openSheet(i,p.qty>0?'SELL':'BUY',Math.abs(p.lots));state.slt=true;setOT('SL');$('#sltHint').classList.remove('hidden');});}
 function ordWhen(o,full){const c=new Date(o.created_at),u=new Date(o.updated_at||o.created_at);const f=d=>full?d.toLocaleString('en-IN'):d.toLocaleTimeString('en-IN');const sameDay=c.toDateString()===u.toDateString();const lbl={FILLED:'filled',CANCELLED:'cancelled',REJECTED:'rejected'}[o.status];if(lbl&&u-c>2000)return `placed ${f(c)}<br>${lbl} ${(full||!sameDay)?u.toLocaleString('en-IN'):f(u)}`;return f(c);}
 const ofF={st:''};
 function ofApply(list){const s=$('#ofSide').value,t=$('#ofType').value,m=$('#ofMkt').value,q=$('#ofQ').value.trim().toUpperCase().replace(/\s+/g,'');

@@ -1216,9 +1216,20 @@ def main():
             sh = page.evaluate("""() => ({open: !document.querySelector('#sheet').classList.contains('hidden'), side: document.querySelector('#sideBuy').classList.contains('active') ? 'BUY' : 'SELL', ot: (document.querySelector('[data-ot].active') || {dataset: {}}).dataset.ot,
                 lots: +document.querySelector('#oLots').value, hint: !document.querySelector('#sltHint').classList.contains('hidden') && document.querySelector('#sltHint').offsetParent ? document.querySelector('#sltHint').innerText : '', trig: +document.querySelector('#oTrig').value, sym: document.querySelector('#oSym').innerText})""")
             ok("User Positions: Stop-loss / Target opens the order sheet on the exit side, for the whole position, on Stop-loss, with its hint",
-               sh["open"] and sh["side"] == want_side and sh["ot"] == "SL" and near(sh["lots"], abs(hp["lots"]), 1e-6) and "Stop-loss" in sh["hint"] and "Target" in sh["hint"] and sh["trig"] > 0, sh)
+               sh["open"] and sh["side"] == want_side and sh["ot"] == "SL" and near(sh["lots"], abs(hp["lots"]), 1e-6) and "Stop-loss" in sh["hint"] and "Target" in sh["hint"], sh)
+            # 26 Nov 2026 (owner's yes): the trigger starts EMPTY. It used to start at the current price, and a user who
+            # confirmed the sheet as it stood closed his position at once. The price now is only a hint in the box.
+            ph = page.evaluate("document.querySelector('#oTrig').placeholder")
+            ok("Stop-loss sheet: the trigger price starts empty, with the price now as a hint", sh["trig"] == 0 and ph.startswith("Price now "), f"{sh['trig']} {ph!r}")
+            _n0 = len(uget("/api/orders"))
+            page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1200)
+            ok("Stop-loss sheet: confirming without a price sends nothing and says what is missing",
+               len(uget("/api/orders")) == _n0 and "Enter the trigger price" in page.inner_text("body") and page.evaluate("!document.querySelector('#sheet').classList.contains('hidden')"))
+            page.click("[data-ot='LIMIT']"); page.wait_for_timeout(300)
+            ok("Stop-loss sheet: the Target (Limit) price starts empty too", page.evaluate("document.querySelector('#oLimit').value") == "")
+            page.click("[data-ot='SL']"); page.wait_for_timeout(300)
             n_open = lambda kind: len([o for o in uget("/api/orders") if o["status"] == "OPEN" and o["token"] == hp["token"] and o["order_type"] == kind and o["side"] == want_side])
-            s0, l0 = n_open("SL"), n_open("LIMIT"); ref = sh["trig"] or hp.get("ltp") or hp["avg_price"]
+            s0, l0 = n_open("SL"), n_open("LIMIT"); ref = float(ph.replace("Price now ", "") or 0) or hp.get("ltp") or hp["avg_price"]
             page.fill("#oTrig", str(round(ref * away, 1))); page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1800)
             page.click(f"[data-slt='{hp['id']}']"); page.wait_for_timeout(1200)
             page.click("[data-ot='LIMIT']"); page.fill("#oLimit", str(round(ref * (2 - away), 1))); page.evaluate("document.querySelector('#oSubmit').click()"); page.wait_for_timeout(1800)

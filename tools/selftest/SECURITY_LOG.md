@@ -2696,3 +2696,5 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   closing trade, "as normal brokers do" (a broker charges brokerage when the exchange closes a future or an
   in-the-money option at expiry; a worthless option costs nothing). NOT the auto square-off charge. Before this an
   expiry cost nothing. First real expiry on live: anshulji's short SILVER 160000 PE, 27 Nov at MCX close.
+- Owner, 26 Nov 21:51, made it plainer: an expiry IS a square-off and carries the ordinary exit commission on every
+  position, a worthless option too (its flat fee per order; the percentage of zero is zero).

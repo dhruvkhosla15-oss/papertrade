@@ -1806,12 +1806,12 @@ class Engine:
                         user = db.get(User, p.user_id)
                         realised = (ltp - p.avg_price) * p.qty * self.vf(ins)
                         p.realised_pnl = round(p.realised_pnl + realised, 2)
-                        # Commission on the closing trade of an expiry (owner's decision, 26 Nov 2026: "as normal
-                        # brokers do"). A broker charges its brokerage when a future, or an option that ends with a
-                        # value, is closed by the exchange at expiry; an option that expires worthless costs nothing.
-                        # It is the ordinary commission of that market, never the auto square-off charge.
+                        # Commission on the closing trade of an expiry (owner's decision, 26 Nov 2026): an expiring
+                        # contract is simply squared off, so it carries the ordinary exit commission of its market
+                        # like any other closing order, also an option that expires worthless (there the percentage
+                        # of nothing is nothing and the flat fee per order remains). Never the auto square-off charge.
                         _side = "SELL" if p.qty > 0 else "BUY"
-                        comm = self.commission(db, ins, ltp, abs(p.qty)) if (ins is not None and ltp and ltp > 0) else 0.0
+                        comm = self.commission(db, ins, max(0.0, ltp or 0.0), abs(p.qty)) if ins is not None else 0.0
                         db.add(Trade(user_id=user.id, token=p.token, symbol=p.symbol, exchange=p.exchange,
                                      side=_side, qty=abs(p.qty), price=ltp,
                                      realised_pnl=round(realised, 2), commission=comm))

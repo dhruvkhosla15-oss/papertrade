@@ -1204,8 +1204,10 @@ finally:
 feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
 _lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
 ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
-ok("expiry: an option that expires worthless is charged no commission", not (_lt.commission or 0)
-   and "expiry settlement" not in (db.query(Ledger).filter_by(user_id=users["nound"].id, kind="COMMISSION").order_by(Ledger.id.desc()).first().note or ""))
+_wl = db.query(Ledger).filter_by(user_id=users["nound"].id, kind="COMMISSION").order_by(Ledger.id.desc()).first()
+_wflat = engine.commission_terms(db, feed.instruments[_lt.token])[1]
+ok("expiry: an option that expires worthless still carries the exit commission of a square-off: the flat fee per order, nothing on the value",
+   near(_lt.commission or 0, _wflat, 0.011) and ((_wflat == 0) or ("on expiry settlement" in _wl.note and near(_wl.amount, -_wflat, 0.011))), f"{_lt.commission} vs flat {_wflat}")
 
 # ---- a contract that expires while its price feed is down waits for the feed (21 Nov 2026) ----------------------
 # With the feed down since 3:20 pm a NIFTY future was settled at 3:40 pm against the index of 3:20 pm, although
@@ -1922,6 +1924,9 @@ ok("commission: an MCX future bought and sold at 10 lakh costs 240 (0.01% + 20 a
    f"MCX {_c('MCX', 'FUT')} NFO {_c('NFO', 'FUT')} BFO {_c('BFO', 'FUT')} CDS {_c('CDS', 'FUT')}")
 ok("commission: MCX options keep the options percentage on premium (the MCX futures rate is for futures only)",
    near(_c("MCX", "CE"), 2 * (1000 + 20), 0.01) and near(_c("NFO", "PE"), 2 * (1000 + 20), 0.01), f"{_c('MCX', 'CE')} {_c('NFO', 'PE')}")
+ok("commission: an option settled at nothing (expired worthless) carries the flat fee of the order and no more: 20",
+   near(engine.commission(db, _NS(exchange="NFO", instrument_type="PE", token=0, lot_size=75, name="X", symbol="X"), 0.0, 75), 20, 0.001)
+   and near(engine.commission(db, _NS(exchange="MCX", instrument_type="CE", token=0, lot_size=30, name="X", symbol="X"), 0.0, 30), 20, 0.001))
 D.set_setting(db, "commission_pct_MCX", "0.02"); db.commit()
 ok("commission: the Master's own MCX figure from Settings is used", near(_c("MCX", "FUT"), 2 * (200 + 20), 0.01) and near(_c("NFO", "FUT"), 640, 0.01), str(_c("MCX", "FUT")))
 for _k, _v in _ck.items():

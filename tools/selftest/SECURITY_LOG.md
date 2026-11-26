@@ -2666,3 +2666,10 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
 - Owner's decision 25 Nov 20:33: MCX futures commission is its own figure, 0.01% of value + the flat fee per order
   (a 10 lakh contract bought and sold: 240 on MCX, 640 on NSE / BSE / Currency). Setting commission_pct_MCX, on the
   Settings page; MCX options keep the options percentage. Applies to fills from the release on, never to past trades.
+
+## Owner's decisions, 26 Nov 2026 (08:27 IST)
+- HELD 1, 2, 3 of security-fix/2026-11-26: approved ("do now") and put live before the open.
+- Not answered yet, so NOT done: starting the Stop-loss sheet empty; a limit tying a master's users' margin to his coins.
+- Live ledgers read line by line for the "lost entry" worry of last night's report: all 10 accounts' ledgers are
+  unbroken chains and end at the balance; master1's stock + users' coins = coins given. The one 1-paisa step
+  (anshulji, 20 Nov, a closed-trade line) is from before coins were booked in whole paise (21 Nov), not a lost line.

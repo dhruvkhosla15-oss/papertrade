@@ -2692,3 +2692,7 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   trick was even sent; the next step (12 orders at once, at most 3 lots held) passed after the clean-up ran again.
 - No loophole, no real account touched. Corrected in app/probe.py: the clean-up looks again until the account is
   empty (4 passes), the trick is judged on positions in its own contract only, and step 5 starts from a clean account.
+- Owner's decision 26 Nov 21:46: an expiry settlement is charged the ordinary commission of its market on the
+  closing trade, "as normal brokers do" (a broker charges brokerage when the exchange closes a future or an
+  in-the-money option at expiry; a worthless option costs nothing). NOT the auto square-off charge. Before this an
+  expiry cost nothing. First real expiry on live: anshulji's short SILVER 160000 PE, 27 Nov at MCX close.

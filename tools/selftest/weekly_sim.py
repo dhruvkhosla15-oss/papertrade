@@ -680,6 +680,12 @@ W.remember_marks(engine, db)
 at(day(W10, 3, 15, 41)); feed.set(I_NIFTY, 30110); run(engine._settle_expired()); db.expire_all()
 for n in ("idle", "hold"):
     ok(f"expiry {n}: an index future settles at the index's closing value", flat(n, F_NIFTY_X) and near(last_trade(n, F_NIFTY_X).price, 30110, 0.001), str(last_trade(n, F_NIFTY_X).price))
+    # Commission on the closing trade of an expiry (owner's decision, 26 Nov 2026: as a broker charges it).
+    _et = last_trade(n, F_NIFTY_X); _ec = engine.commission(db, feed.instruments[F_NIFTY_X], 30110, _et.qty)
+    _el = db.query(Ledger).filter_by(user_id=users[n].id, kind="COMMISSION").order_by(Ledger.id.desc()).first()
+    ok(f"expiry {n}: the ordinary commission of the market is charged on the settled future, once, with a line that says so",
+       _ec > 0 and near(_et.commission, _ec, 0.011) and near(_el.amount, -_ec, 0.011) and "on expiry settlement" in _el.note
+       and near(users[n].balance, _el.balance_after, 0.011), f"trade {_et.commission}, expected {_ec}, line {_el.amount} {_el.note}")
 ok("expiry: the commodity future is still open until its own session ends", not flat("idle", F_THIN))
 # One side of the book empty (loophole of 21 Nov 2026): sellers only and an old last trade above their offer. A buy
 # at the offer was settled at the old trade; the same the other way round with buyers only. Third contract: the
@@ -1198,6 +1204,8 @@ finally:
 feed.set(F_CRUDE, 5900); run(engine._settle_expired()); db.expire_all()
 _lt = db.query(Trade).filter_by(user_id=users["nound"].id).order_by(Trade.id.desc()).first()
 ok("no underlying price: once the underlying has a price the option settles against it (worthless: 0)", _nq() == 0 and _lt.price == 0.0, f"open {_nq()}, @ {_lt.price}")
+ok("expiry: an option that expires worthless is charged no commission", not (_lt.commission or 0)
+   and "expiry settlement" not in (db.query(Ledger).filter_by(user_id=users["nound"].id, kind="COMMISSION").order_by(Ledger.id.desc()).first().note or ""))
 
 # ---- a contract that expires while its price feed is down waits for the feed (21 Nov 2026) ----------------------
 # With the feed down since 3:20 pm a NIFTY future was settled at 3:40 pm against the index of 3:20 pm, although
@@ -1896,6 +1904,10 @@ at(_iday.replace(hour=15, minute=41)); feed.set(I_NIFTY, 26142.35); run(engine._
 _il = db.query(Ledger).filter_by(user_id=users["itm"].id, kind="EXPIRY_SETTLEMENT").first()
 ok("expiry: the ledger line of a settled option gives its value as a plain number (42.35, not 42.349999999998545)",
    _il is not None and _il.note.endswith("settled @ 42.35") and near(_il.amount, (26142.35 - 26100 - 45.05) * 75, 0.011), str(_il.note if _il else None))
+_ic = db.query(Ledger).filter_by(user_id=users["itm"].id, kind="COMMISSION").order_by(Ledger.id.desc()).first()
+_iexp = engine.commission(db, feed.instruments[O_ITM], 42.35, 75)
+ok("expiry: an option that ends in the money is charged the options commission on its settlement value",
+   _iexp > 0 and "on expiry settlement" in _ic.note and near(_ic.amount, -_iexp, 0.011) and near(users["itm"].balance, _ic.balance_after, 0.011), f"{_ic.amount} vs {_iexp}: {_ic.note}")
 # ==== end of the Risk officer's block, 25 Nov 2026 ==================================================================
 
 # ==== MCX futures have their own commission percentage (owner's decision, 25 Nov 2026) ==============================

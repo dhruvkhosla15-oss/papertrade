@@ -135,11 +135,19 @@ class Probe:
         return [p for p in r.json() if p["qty"]] if r.status_code == 200 else None
 
     async def _flatten(self, c):
-        for o in (await self._orders(c)) or []:
-            if o["status"] == "OPEN":
-                await c.delete(f"/api/orders/{o['id']}")
-        for p in (await self._positions(c)) or []:
-            await c.post(f"/api/positions/{p['id']}/close")
+        """Cancel the test account's waiting orders and close its positions, and look again: an order can fill
+        in the instant between reading the list and cancelling it, and a close can be refused for a moment (no
+        tick yet). One pass left a Forex test position open on 26 Nov 2026, which the next market's test then
+        reported as its own fault."""
+        for attempt in range(4):
+            for o in (await self._orders(c)) or []:
+                if o["status"] == "OPEN":
+                    await c.delete(f"/api/orders/{o['id']}")
+            for p in (await self._positions(c)) or []:
+                await c.post(f"/api/positions/{p['id']}/close")
+            if not [o for o in (await self._orders(c)) or [] if o["status"] == "OPEN"] and not ((await self._positions(c)) or []):
+                return
+            await asyncio.sleep(0.7)
 
     async def _wait_order(self, c, oid, secs=7.0):
         t0 = time.time()
@@ -1475,6 +1483,10 @@ class Probe:
             await self._flatten(ca)
 
             # 5. cheap margin: tiny limit price, position far bigger than the account ----------
+            await self._flatten(cb)                                   # nothing left over from an earlier test may be on this account
+            _left = [p["symbol"] for p in (await self._positions(cb)) or []]
+            if _left:
+                self.note("a test position from an earlier test could not be closed", ", ".join(_left))
             max_lots = max(500, ins.pos_limit // max(ins.lot_size, 1)) if ins.pos_limit else 500
             if ins.pos_limit:
                 max_lots = min(max_lots, ins.pos_limit // max(ins.lot_size, 1))
@@ -1486,8 +1498,12 @@ class Probe:
             st, o, d = await self._order(cb, token=T, side="SELL", lots=lots, order_type="LIMIT", limit_price=round(lo, 6))
             if st == 200:
                 o = await self._wait_order(cb, o["id"])
-            pos = await self._positions(cb)
-            self.ok("cheap-margin trick (tiny limit price, oversized position) opens nothing", not pos, (o or {}).get("reason") or d)
+            # Only a position in THIS contract counts: on 26 Nov 2026 the daily check reported this trick as open in
+            # Global when the order had been refused ("Insufficient coins") and what the account held was a Forex
+            # position left over from the test before.
+            pos = [p for p in (await self._positions(cb)) or [] if p["token"] == T]
+            self.ok("cheap-margin trick (tiny limit price, oversized position) opens nothing", not pos,
+                    (f"holding {pos[0]['qty']} of {pos[0]['symbol']}; " if pos else "") + ((o or {}).get("reason") or d or ""))
             await self._flatten(cb)
 
             # 6. many orders at the same instant ----------------------------------------------

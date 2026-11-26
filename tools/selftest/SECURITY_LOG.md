@@ -2683,3 +2683,12 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   Do not offer it again. (2) The owner's page no longer logs out after 30 idle minutes; he was told what that gives
   up (an unlocked device with the page open can move coins without password or code) and chose it. The login still
   ends after 30 days, on Log out, and on a password change. A master's own page keeps the 30-minute rule.
+
+## Daily check alarm, 26 Nov 2026 10:09 (false alarm, check corrected)
+- "Global: cheap-margin trick ... opens nothing" FAILED with the order's own reason "Insufficient coins": the trick
+  order had been REFUSED. What the test account held was a Forex position left over from the Forex test just before
+  ("frozen-account order inconclusive": its limit order filled in the instant around the clean-up, and one clean-up
+  pass missed it). Signs: the account's available balance was ~4,060 short and moving with the price before the
+  trick was even sent; the next step (12 orders at once, at most 3 lots held) passed after the clean-up ran again.
+- No loophole, no real account touched. Corrected in app/probe.py: the clean-up looks again until the account is
+  empty (4 passes), the trick is judged on positions in its own contract only, and step 5 starts from a clean account.

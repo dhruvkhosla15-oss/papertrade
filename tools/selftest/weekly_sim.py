@@ -1858,7 +1858,8 @@ for _n in ("stopper", "targeter", "ownbig"):
 _so = {"stopper": trade("stopper", F_NIFTY, "SELL", 3, order_type="SL", trigger_price=28500.0, validity="GTT"),
        "targeter": trade("targeter", F_NIFTY, "SELL", 3, order_type="LIMIT", limit_price=30300.0, validity="GTT"),
        "ownbig": trade("ownbig", F_NIFTY, "SELL", 3, order_type="SL", trigger_price=28500.0, validity="GTT")}
-trade("ownbig", F_NIFTY, "SELL", 1)                       # he reduces to 2 lots himself and leaves his stop at 3: his own choice
+trade("ownbig", F_NIFTY, "SELL", 1)                       # he reduces to 2 lots himself: since 26 Nov 2026 his stop follows him down to 2 (owner: never short without asking)
+ok("no short: when the user reduces his position himself, his stop for the whole of it comes down with it", db.get(Order, _so["ownbig"].id).qty == 150, str(db.get(Order, _so["ownbig"].id).qty))
 coins("ownbig", -350_000, "coins taken out")
 px(nifty=29000)                                           # 3.3% lower: each account is short of margin by less than one lot
 engine._consumed.clear(); run(engine._check_liquidations()); db.expire_all()
@@ -1868,7 +1869,7 @@ _o = {n: db.get(Order, o.id) for n, o in _so.items()}
 ok("square-off and a resting stop: the stop-loss is cut down to the lots that are left and goes on resting",
    _o["stopper"].status == "OPEN" and _o["stopper"].qty == 150 and _o["stopper"].lots == 2 and not _o["stopper"].margin_blocked, f"{_o['stopper'].status} qty {_o['stopper'].qty}")
 ok("square-off and a resting stop: so is a target", _o["targeter"].status == "OPEN" and _o["targeter"].qty == 150 and _o["targeter"].lots == 2, f"{_o['targeter'].status} qty {_o['targeter'].qty}")
-ok("square-off and a resting stop: an order the user himself had made bigger than his position is left as it is", _o["ownbig"].status == "OPEN" and _o["ownbig"].qty == 225, f"{_o['ownbig'].status} qty {_o['ownbig'].qty}")
+ok("square-off and a resting stop: ... and after the square-off it is cut to the one lot left", _o["ownbig"].status == "OPEN" and _o["ownbig"].qty == 75, f"{_o['ownbig'].status} qty {_o['ownbig'].qty}")
 trade("ownbig", F_NIFTY, "SELL", 1)                       # out of the way (closing his last lot cancels his stop)
 px(nifty=28400)                                           # the stop's price is reached
 engine._consumed.clear(); run(engine._process_pending(F_NIFTY, 28400)); db.expire_all()
@@ -2148,6 +2149,27 @@ for _n in ("two_exits",):
     _ll = db.query(Ledger).filter_by(user_id=users[_n].id).order_by(Ledger.id.desc()).first()
     ok(f"stop and target: {_n}'s coins equal the last ledger line", near(users[_n].balance, _ll.balance_after, 0.011), f"{users[_n].balance} vs {_ll.balance_after}")
 # ==== end of the Risk officer's block, 26 Nov 2026 ==================================================================
+
+# ==== An account never ends short without asking (owner, 26 Nov 2026) ===============================================
+# The user closes PART of a position himself while a stop-loss and a target rest for all of it. Before, they kept
+# their full size: the target later sold 5 with 3 held and left the account 2 lots short.
+at(datetime(2026, 12, 9, 10, 0)); feed.set(F_NIFTY, 26000)
+mk_user("noshort", 5_000_000)
+trade("noshort", F_NIFTY, "BUY", 5)
+_ns = users["noshort"]
+_sl = engine.place_order(db, _ns, F_NIFTY, "SELL", 5, "SL", trigger_price=25800)
+_tg = engine.place_order(db, _ns, F_NIFTY, "SELL", 5, "LIMIT", limit_price=26300)
+_own = engine.place_order(db, _ns, F_NIFTY, "BUY", 2, "LIMIT", limit_price=25500)          # his own order to ADD: never touched
+trade("noshort", F_NIFTY, "SELL", 2); db.expire_all()
+_sl, _tg, _own = db.get(Order, _sl.id), db.get(Order, _tg.id), db.get(Order, _own.id)
+ok("no short: after the user sells 2 of his 5 lots, his stop-loss and his target are cut to the 3 lots left, with the reason",
+   (_sl.lots, _tg.lots) == (3, 3) and _sl.status == _tg.status == "OPEN" and "you closed part of the position" in (_tg.reason or ""), f"{_sl.lots} {_tg.lots} {_tg.reason}")
+ok("no short: an order of his that adds to the position is left as it was", _own.lots == 2 and _own.status == "OPEN")
+feed.set(F_NIFTY, 26320); engine._consumed.clear(); run(engine._process_pending(F_NIFTY, 26320)); db.expire_all()
+_np = engine._position(db, _ns.id, F_NIFTY)
+ok("no short: the target then closes exactly what is held; the account is flat, not short, and the stop is cancelled",
+   (_np is None or _np.qty == 0) and db.get(Order, _sl.id).status == "CANCELLED" and db.get(Order, _tg.id).status == "FILLED",
+   f"qty {_np.qty if _np else 0}, stop {db.get(Order, _sl.id).status}, target {db.get(Order, _tg.id).status}")
 
 if __name__ == "__main__":
     print(f"\nWEEKLY SIMULATION: {checks['pass']} passed, {checks['fail']} failed")

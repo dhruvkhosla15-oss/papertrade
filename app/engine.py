@@ -953,6 +953,12 @@ class Engine:
                 db.add(npos)
             else:
                 pos.qty = new
+                # The user has closed PART of his position himself. A stop-loss or target he had resting for the
+                # whole of it would later sell more than he holds and leave him short without having asked for it
+                # (owner, 26 Nov 2026: "account should not hold a short position it never asked for"). It is cut
+                # down to the lots left, as after a partial auto square-off.
+                self._trim_exits(db, user, pos, abs(cur), skip=order.id, why=getattr(order, "_trim_why", None) or (
+                    "you closed part of the position" if order.order_type == "MARKET" else "part of the position was closed by your other exit order"))
             if realised:
                 self._ledger(db, user, realised, "REALISED_PNL", f"{order.side} {closing} {ins.symbol} @ {price}")
 
@@ -1542,6 +1548,7 @@ class Engine:
                           order_type="MARKET", lots=filled // ins.lot_size, qty=filled, status="OPEN")
             db.add(order); db.flush()
             held = abs(p.qty)
+            order._trim_why = "part of the position was squared off (margin shortfall)"
             self._fill(db, user, order, px)
             if order.status == "FILLED":
                 order.reason = f"{note} · {bnote}"; order.fill_price = px
@@ -1568,7 +1575,7 @@ class Engine:
             db.commit()
 
     def _trim_exits(self, db: Session, user: User, p: Position, held: int,
-                    why: str = "part of the position was squared off (margin shortfall)"):
+                    why: str = "part of the position was squared off (margin shortfall)", skip: int = None):
         """The auto square-off has just closed PART of a position (held = its size before). A stop-loss or
         target the user had resting for that position is now bigger than what is left of it. Left as it
         was, the stop was refused at the very moment its price was reached ("Insufficient coins": selling
@@ -1585,7 +1592,7 @@ class Engine:
         exit_side = "SELL" if p.qty > 0 else "BUY"
         lot = max(p.lot_size or 1, 1)
         for o in db.query(Order).filter_by(user_id=user.id, token=p.token, status="OPEN", side=exit_side).all():
-            if left < (o.qty or 0) <= held and not (o.margin_blocked or 0):
+            if o.id != skip and left < (o.qty or 0) <= held and not (o.margin_blocked or 0):
                 o.qty = left; o.lots = left // lot
                 o.reason = f"Reduced to {o.lots} lot{'s' if o.lots != 1 else ''} — {why}"
                 self._emit(user.id, {"type": "order", "order": self.order_dict(o)})

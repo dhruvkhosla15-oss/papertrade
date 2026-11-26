@@ -2673,3 +2673,9 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
 - Live ledgers read line by line for the "lost entry" worry of last night's report: all 10 accounts' ledgers are
   unbroken chains and end at the balance; master1's stock + users' coins = coins given. The one 1-paisa step
   (anshulji, 20 Nov, a closed-trade line) is from before coins were booked in whole paise (21 Nov), not a lost line.
+- Owner, 26 Nov 09:13: "account should not hold a short position it never asked for". The rule of 25 Nov ("an order
+  the user himself made bigger than his position is his own choice") is replaced: whenever a position gets smaller,
+  by the user's own sale, by his other exit order or by the square-off, his resting stop / target for it is cut to
+  the lots left (engine._fill -> _trim_exits). An order of his that ADDS to the position is never touched.
+- Master's limit: the audit's suggested rule ("users' margin together within his coins") does nothing in practice:
+  a user's margin can never exceed his own coins, which come from the master's. Not built; put to the owner again.

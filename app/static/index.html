@@ -18,9 +18,11 @@
 :root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
 @keyframes flashUp{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}
 @keyframes flashDn{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
-.fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}
+.fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}.fu2{animation:flashUp2 .9s ease-out;border-radius:4px}.fd2{animation:flashDn2 .9s ease-out;border-radius:4px}
+@keyframes flashUp2{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}@keyframes flashDn2{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
+@keyframes flashUpL2{0%{background:rgba(34,197,94,.4)}100%{background:transparent}}@keyframes flashDnL2{0%{background:rgba(239,68,68,.35)}100%{background:transparent}}
 @keyframes flashUpL{0%{background:rgba(34,197,94,.4)}100%{background:transparent}}@keyframes flashDnL{0%{background:rgba(239,68,68,.35)}100%{background:transparent}}
-:root[data-theme="light"] .fu{animation-name:flashUpL}:root[data-theme="light"] .fd{animation-name:flashDnL}
+:root[data-theme="light"] .fu{animation-name:flashUpL}:root[data-theme="light"] .fd{animation-name:flashDnL}:root[data-theme="light"] .fu2{animation-name:flashUpL2}:root[data-theme="light"] .fd2{animation-name:flashDnL2}
 .ticker{display:flex;gap:14px;overflow-x:auto;white-space:nowrap;font-size:12px;padding:6px 14px;background:var(--card);border-bottom:1px solid var(--line);scrollbar-width:none}
 .ticker::-webkit-scrollbar{display:none}.ticker b{margin-left:4px}.ticker span{flex:0 0 auto}
 .thbtn{background:none;border:1px solid var(--line);color:var(--mut);width:26px;height:26px;padding:0;border-radius:999px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
@@ -677,8 +679,34 @@ function marketChips(f,ms){const t12=d=>{const x=new Date(d);return (x.getHours(
     if(s.open)return `<span class="mchip on" title="${n} open${s.closes_at?' till '+t12(s.closes_at):''}">${n}</span>`;
     const o=s.opens_at?when(s.opens_at):'';const hol=s.holiday&&s.holiday!=='Weekend'?s.holiday:'';
     return `<span class="mchip off" title="${n} closed${hol?' — '+hol:''}${o?' · opens '+o:''}">${n}<small>${o?'opens '+o:'closed'}</small></span>`;}).join('');}
-function marquee(box,speed){let x=0,drag=null,last=0,hov=false;const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
-  function apply(){const t=tr();if(!t)return;const h=t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translate3d(${-Math.round(x)}px,0,0)`;}
+/* The running strips (prices at the top, markets row). Since 27 Nov 2026 they move as a browser animation of the
+   strip's position, which the browser runs on its own drawing thread: the strip keeps gliding while the page is busy
+   writing prices. It used to be moved by the page's script in every frame and froze, then jumped, whenever the page
+   was busy (owner's video, 27 Nov 2026). Dragging, hovering and the markets row's on/off work as before. */
+function marquee(box,speed){const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
+  let anim=null,half=0,seen=null,drag=null,hov=false;
+  const isOn=()=>box.id==='mkts'?box.classList.contains('run'):true;
+  const dur=()=>half/speed*1000;
+  function build(){const t=tr();if(!t||!t.animate)return;const w=t.scrollWidth/2;if(!(w>0))return;
+    let f=0;if(anim&&half>0){const d=dur();f=d>0?((anim.currentTime||0)%d)/d:0;}
+    half=w;if(anim)anim.cancel();
+    anim=t.animate([{transform:'translate3d(0,0,0)'},{transform:`translate3d(${-half}px,0,0)`}],{duration:dur(),iterations:Infinity,easing:'linear'});
+    anim.currentTime=f*dur();state_();}
+  function state_(){if(!anim)return;if(!isOn()){anim.pause();anim.currentTime=0;}else if(drag||hov)anim.pause();else anim.play();}
+  function watch(){const t=tr();if(!t||t===seen)return;seen=t;if(window.ResizeObserver){const ro=new ResizeObserver(()=>{const w=t.scrollWidth/2;if(Math.abs(w-half)>0.5)build();});ro.observe(t);}build();}
+  if(!(box.firstElementChild&&box.firstElementChild.animate)){return marqueeJs(box,speed);}
+  new MutationObserver(()=>{watch();if(!anim)build();state_();}).observe(box,{childList:true,subtree:false,attributes:true,attributeFilter:['class']});
+  watch();
+  box.addEventListener('pointerdown',e=>{if(e.button||!anim)return;drag={sx:e.clientX,t0:anim.currentTime||0,moved:false};anim.pause();box.classList.add('held');try{box.setPointerCapture(e.pointerId);}catch(_){}});
+  box.addEventListener('pointermove',e=>{if(!drag||!anim)return;const dx=e.clientX-drag.sx;if(Math.abs(dx)>4)drag.moved=true;const d=dur();if(d>0){let ct=drag.t0-dx/speed*1000;ct=((ct%d)+d)%d;anim.currentTime=ct;}});
+  const end=()=>{drag=null;box.classList.remove('held');state_();};box.addEventListener('pointerup',end);box.addEventListener('pointercancel',end);box.addEventListener('lostpointercapture',end);
+  box.addEventListener('click',e=>{if(drag&&drag.moved){e.preventDefault();e.stopPropagation();}},true);
+  if(canHover){box.addEventListener('mouseenter',()=>{hov=true;state_();});box.addEventListener('mouseleave',()=>{hov=false;state_();});}}
+function marqueeJs(box,speed){let x=0,drag=null,last=0,hov=false,half=0,seen=null;const tr=()=>box.firstElementChild;const canHover=matchMedia('(hover:hover)').matches;
+  /* The width of one copy of the strip is measured when it changes (ResizeObserver), never read in every frame: reading
+     scrollWidth 60 times a second forced a full layout each time a price had changed (owner's video, 27 Nov 2026). */
+  const ro=window.ResizeObserver?new ResizeObserver(()=>{const t=tr();half=t?t.scrollWidth/2:0;}):null;
+  function apply(){const t=tr();if(!t)return;if(t!==seen){seen=t;if(ro){ro.disconnect();ro.observe(t);}half=t.scrollWidth/2;}const h=ro?half:t.scrollWidth/2;if(h>0)x=((x%h)+h)%h;t.style.transform=`translate3d(${-Math.round(x)}px,0,0)`;}
   function tick(ts){if(!last)last=ts;const dt=Math.min((ts-last)/1000,.1);last=ts;const on=box.id==='mkts'?box.classList.contains('run'):true;if(on&&!drag&&!hov){x+=speed*dt;apply();}else if(!on){x=0;apply();}requestAnimationFrame(tick);}
   requestAnimationFrame(tick);
   box.addEventListener('pointerdown',e=>{if(e.button)return;drag={sx:e.clientX,x0:x,moved:false};box.classList.add('held');try{box.setPointerCapture(e.pointerId);}catch(_){}});
@@ -786,7 +814,10 @@ function highlightATM(){const sp=state.prices[state.spotToken]?.ltp;if(!sp)retur
     const s=+r.dataset.strike;r.children[0].classList.toggle('itm',s<sp);r.children[1].classList.toggle('itm',s<sp);r.children[3].classList.toggle('itm',s>sp);r.children[4].classList.toggle('itm',s>sp);});
   if(!state._scrolled&&best){const w=$('#chainWrap');w.scrollTop=best.offsetTop-w.clientHeight/2;state._scrolled=true;}}
 const lastPx={};
-function flash(el,dir){if(!el||!dir)return;el.classList.remove('fu','fd');void el.offsetWidth;el.classList.add(dir>0?'fu':'fd');}
+/* Restarting the flash used to read el.offsetWidth to force a layout, once per price per tick: with dozens of prices a
+   second that stalled the page and the running ticker for a quarter of a second at a time (owner's video, 27 Nov 2026).
+   Now it alternates between two identical animations: changing the animation's name restarts it, with no layout. */
+function flash(el,dir){if(!el||!dir)return;const c=el.classList,b=dir>0?'fu':'fd',n=c.contains(b)?b+'2':b;c.remove('fu','fd','fu2','fd2');c.add(n);}
 // ---------- option greeks (Black-Scholes, computed locally) ----------
 const RF=0.065;
 const nCdf=x=>{const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);let p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;};

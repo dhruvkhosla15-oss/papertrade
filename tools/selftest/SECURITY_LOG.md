@@ -2698,3 +2698,7 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   expiry cost nothing. First real expiry on live: anshulji's short SILVER 160000 PE, 27 Nov at MCX close.
 - Owner, 26 Nov 21:51, made it plainer: an expiry IS a square-off and carries the ordinary exit commission on every
   position, a worthless option too (its flat fee per order; the percentage of zero is zero).
+- 28 Nov 2026: new brand from the owner's agency put live (owner: "looks nice make it go live"): logo image from the
+  agency's PSD (lime + white X on dark, all navy on light), Midnight Navy #0b172e, Vibrant Lime #b7e44b, light theme
+  on Warm Ivory #f5ebdd, new app icons. Brand fonts (The Seasons, Mangold) not used: no web font files/licence.
+  Told the owner the PSD sets "lime" in a FONTSPRINGDEMO font: the agency should confirm the licence.

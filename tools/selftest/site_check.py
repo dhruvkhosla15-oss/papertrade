@@ -1285,7 +1285,7 @@ def main():
         page = lctx.new_page(); page.goto(f"{B}/admin"); page.wait_for_timeout(1200)
         lp = page.evaluate("""() => ({login: !!document.querySelector('#loginBtn') && !!document.querySelector('#lu'), nav: document.querySelectorAll('[data-nav]').length, size: document.documentElement.outerHTML.length, admin: document.documentElement.outerHTML.includes('api/admin'),
             theme: document.documentElement.getAttribute('data-theme'), bg: getComputedStyle(document.body).backgroundColor, page: document.documentElement.scrollWidth, W: window.innerWidth})""")
-        ok("Master login page: /admin without a login shows only the small login page (phone, light theme)", lp["login"] and lp["nav"] == 0 and lp["size"] < 12000 and not lp["admin"] and lp["theme"] == "light" and lp["bg"] == "rgb(243, 244, 246)" and lp["page"] <= lp["W"] + 2, lp)
+        ok("Master login page: /admin without a login shows only the small login page (phone, light theme)", lp["login"] and lp["nav"] == 0 and lp["size"] < 12000 and not lp["admin"] and lp["theme"] == "light" and lp["bg"] == "rgb(245, 235, 221)" and lp["page"] <= lp["W"] + 2, lp)
         page.fill("#lu", "sitecheck"); page.fill("#lp", "Site@67890"); page.click("#loginBtn"); page.wait_for_timeout(1500)
         ur = [page.evaluate("document.querySelector('#loginErr').textContent"), lctx.request.get(f"{B}/api/me").status, page.evaluate("!!document.querySelector('#loginBtn') && !document.querySelector('[data-nav]')")]
         ok("Master login page: a user's login is refused with its message and leaves no session", "master only" in ur[0] and ur[1] == 401 and ur[2], ur)
@@ -1304,7 +1304,7 @@ def main():
         page.evaluate("document.querySelector('#logoutBtn').click()"); page.wait_for_timeout(2500)
         ok("Master page: Log out ends on the login page, with no session left", page.evaluate("!!document.querySelector('#loginBtn') && !document.querySelector('[data-nav]')") and lctx.request.get(f"{B}/api/me").status == 401, page.url)
         page.evaluate("try { localStorage.setItem('lfx_theme', 'dark') } catch (e) {}"); page.reload(); page.wait_for_timeout(800)
-        ok("Master login page: dark theme", page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(11, 18, 32)", page.evaluate("getComputedStyle(document.body).backgroundColor"))
+        ok("Master login page: dark theme", page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(11, 23, 46)", page.evaluate("getComputedStyle(document.body).backgroundColor"))
         lctx.close()
         # (d) Master at laptop size: the Users, Live Positions and Performance tables fit their box (the last column needed a
         #     sideways scroll), and the user panel shows a forex price with its decimals and keeps the Status of Orders on the screen

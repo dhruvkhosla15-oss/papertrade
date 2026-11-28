@@ -6,7 +6,7 @@
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0b1220">
+<meta name="theme-color" content="#0b172e">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,8 +14,8 @@
 <link rel="apple-touch-icon" href="/static/pwa/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png">
 <style>
-:root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--buy:#65a30d;--sell:#dc2626;--strike:#182540;--itm:#14203a;--seg:#0b1220}
-:root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fafaf0;--seg:#e5e7eb}
+:root{--bg:#0b172e;--card:#13213d;--line:#23345a;--txt:#e6e8ee;--mut:#94a7c6;--up:#22c55e;--dn:#ef4444;--acc:#b7e44b;--buy:#65a30d;--sell:#dc2626;--strike:#192a4a;--itm:#152544;--seg:#0b172e}
+:root[data-theme="light"]{--bg:#f5ebdd;--card:#ffffff;--line:#e6d9c4;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--buy:#4d7c0f;--sell:#dc2626;--strike:#f1f5f9;--itm:#fbf6ec;--seg:#ece0cc}
 @keyframes flashUp{0%{background:rgba(34,197,94,.55);color:#fff}100%{background:transparent}}
 @keyframes flashDn{0%{background:rgba(239,68,68,.55);color:#fff}100%{background:transparent}}
 .fu{animation:flashUp .9s ease-out;border-radius:4px}.fd{animation:flashDn .9s ease-out;border-radius:4px}.fu2{animation:flashUp2 .9s ease-out;border-radius:4px}.fd2{animation:flashDn2 .9s ease-out;border-radius:4px}
@@ -177,9 +177,9 @@ h3{font-size:13px;color:var(--mut);font-weight:500;margin:4px 0 8px;text-transfo
 .banner{background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center}.banner.soft{background:#3f3a12;color:#fde68a}.banner b{color:#fff}
 
 .pwa{position:fixed;left:12px;right:12px;max-width:440px;margin:0 auto;bottom:calc(74px + env(safe-area-inset-bottom));z-index:15;background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
-.pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b1220 url(/static/pwa/icon-192.png) center/cover}
+.pwa.hidden{display:none}.pwa .ic{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#0b172e url(/static/pwa/icon-192.png) center/cover}
 .pwa .t{flex:1;font-size:12.5px;color:var(--txt);line-height:1.35;min-width:0}.pwa .t>b:first-child{display:block;font-size:14px}.pwa .t span b{font-weight:700}
-.pwa .go{background:var(--acc);color:#0b1220;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0;min-width:36px;min-height:36px;margin-right:-8px}
+.pwa .go{background:var(--acc);color:#0b172e;border:0;border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;white-space:nowrap}.pwa .x{color:var(--mut);font-size:18px;padding:0 2px;background:none;border:0;min-width:36px;min-height:36px;margin-right:-8px}
 .bk{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:22px;line-height:1;padding:0 2px 3px 0;margin-right:10px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}.bk.hidden{display:none}.bk:active{background:var(--line);color:var(--txt)}
 .fs3>div{min-width:0}.fs3 .big,.fs3.sub .num{white-space:nowrap;display:block;overflow:hidden}
 header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:env(safe-area-inset-top,0px)}.chartbox{padding-top:calc(12px + env(safe-area-inset-top,0px))!important}.login{padding-top:calc(20px + env(safe-area-inset-top,0px))}
@@ -205,13 +205,13 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 }
 /* Order Book as a table (wider than a phone): a long note under the status (a refusal reason, the matched prices) takes two or three lines instead of pushing Status and Cancel off the right edge */
 @media(min-width:641px){#ordTbl td:nth-child(6) .small{white-space:normal;min-width:110px;max-width:300px;margin-left:auto}}
-</style>
+.logo{height:1.08em;width:auto;vertical-align:-0.16em;display:inline-block}.logo.ll{display:none}:root[data-theme="light"] .logo.ld{display:none}:root[data-theme="light"] .logo.ll{display:inline-block}</style>
 </head>
 <body>
 
 <div id="pwForce" class="login hidden">
   <div class="box">
-    <h1><span class="lm">lime</span><span class="fx">fx</span></h1>
+    <h1><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"></h1>
     <div style="height:10px"></div>
     <p style="text-align:left;margin-bottom:4px"><b>Set your own password</b></p>
     <p class="small mut" style="text-align:left;margin-bottom:14px">Your trainer created this account with a temporary password. Choose a new one to continue (at least 6 characters).</p>
@@ -225,7 +225,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 </div>
 <div id="loginView" class="login hidden">
   <div class="box">
-    <h1><span class="lm">lime</span><span class="fx">fx</span></h1>
+    <h1><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"></h1>
     <div style="height:18px"></div>
     <div id="pwStep">
     <input id="lu" placeholder="Username" autocapitalize="none" autocomplete="username">
@@ -241,7 +241,7 @@ header{padding-top:calc(14px + env(safe-area-inset-top,0px))}.sheet{padding-top:
 
 <div id="appView">
 <header>
-  <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div style="min-width:0"><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><span class="lm">lime</span><span class="fx">fx</span></div><a id="hMaster" class="hidden" href="/admin" style="display:none;font-size:12px;font-weight:600;color:var(--acc);text-decoration:none;margin-top:3px">‹ Master panel</a></div></div>
+  <div style="display:flex;align-items:center;min-width:0"><button class="bk hidden" id="hBack" data-back title="Back" aria-label="Back">‹</button><div style="min-width:0"><div class="brand" id="brandHome" title="Home" style="cursor:pointer"><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"></div><a id="hMaster" class="hidden" href="/admin" style="display:none;font-size:12px;font-weight:600;color:var(--acc);text-decoration:none;margin-top:3px">‹ Master panel</a></div></div>
   <div style="display:flex;align-items:center;gap:10px">
   <button class="loginbtn hidden" id="hLogin">Log in</button>
   <button class="profile" id="hFunds" title="Account"><span class="avatar" id="hAvatar">·</span><span class="pf"><span class="plbl">Available Balance ›</span><b id="hAvail" class="num">—</b><span id="hPnl" class="num small">—</span></span></button></div>
@@ -1128,10 +1128,10 @@ function sheetLinks(ins){const L=$('#oLinks'),N=$('#oNoOpt');N.classList.add('hi
   if(!L)return;const ok=ins&&ins.name&&!['CE','PE'].includes(ins.instrument_type);L.classList.toggle('hidden',!ok);{const hb=$('#sheet .box > .row .bk');if(hb)hb.style.display=ok?'none':'';}if(!ok){L.innerHTML='';return;}
   // Options is the main way on from a future, so it is a full-colour button; Other months is outlined in the brand colour
   // one tidy row: Back (outlined) | Options (full colour, the main way on) | Other expiries (outlined)
-  L.innerHTML=`<button data-back aria-label="Back" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;background:transparent;color:var(--acc,#84cc16);border:1.5px solid var(--acc,#84cc16);font-weight:800"><span style="font-size:20px;line-height:1;margin-top:-2px">‹</span>Back</button><button id="oOpts" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;border:0;background:var(--acc,#84cc16);color:#0b1220;font-weight:800"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M12 4v16"/></svg>Options ›</button><button id="oMonths" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;background:transparent;color:var(--acc,#84cc16);border:1.5px solid var(--acc,#84cc16);font-weight:700">Other expiries</button>`;
+  L.innerHTML=`<button data-back aria-label="Back" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;background:transparent;color:var(--acc,#b7e44b);border:1.5px solid var(--acc,#b7e44b);font-weight:800"><span style="font-size:20px;line-height:1;margin-top:-2px">‹</span>Back</button><button id="oOpts" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;border:0;background:var(--acc,#b7e44b);color:#0b172e;font-weight:800"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M12 4v16"/></svg>Options ›</button><button id="oMonths" style="height:42px;border-radius:12px;font-size:clamp(12px,3.6vw,15px);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 0;min-width:0;padding:0 4px;background:transparent;color:var(--acc,#b7e44b);border:1.5px solid var(--acc,#b7e44b);font-weight:700">Other expiries</button>`;
   $('#oMonths').onclick=async()=>{let futs=[];try{futs=await api(`/futures?exchange=${encodeURIComponent(ins.exchange)}&name=${encodeURIComponent(ins.name)}`);}catch(e){}
     if(futs.length<2){toast('Only one contract is listed for '+(GNAME[ins.name]||ins.name));return;}
-    L.innerHTML=`<div style="width:100%;display:flex;align-items:center;gap:10px"><button id="oMBack" style="height:36px;padding:0 12px 0 8px;border-radius:10px;background:transparent;color:var(--acc,#84cc16);border:1.5px solid var(--acc,#84cc16);font-weight:800;display:flex;align-items:center;gap:4px"><span style="font-size:18px;line-height:1;margin-top:-2px">‹</span>Back</button><span class="small mut">Choose expiry:</span></div>`+futs.map(f=>`<button data-fm="${f.token}" style="min-height:40px;padding:8px 14px;border-radius:10px;font-weight:700;${f.token===ins.token?'background:var(--acc,#84cc16);color:#0b1220;border:0':'background:transparent;color:var(--acc,#84cc16);border:1.5px solid var(--acc,#84cc16)'}">${f.expiry?escH(f.expiry):escH(dsym(f.exchange,f.symbol))}</button>`).join('')+`<button id="oOpts2" style="min-height:40px;padding:8px 14px;border-radius:10px;border:0;background:var(--acc,#84cc16);color:#0b1220;font-weight:800">Options ›</button>`;
+    L.innerHTML=`<div style="width:100%;display:flex;align-items:center;gap:10px"><button id="oMBack" style="height:36px;padding:0 12px 0 8px;border-radius:10px;background:transparent;color:var(--acc,#b7e44b);border:1.5px solid var(--acc,#b7e44b);font-weight:800;display:flex;align-items:center;gap:4px"><span style="font-size:18px;line-height:1;margin-top:-2px">‹</span>Back</button><span class="small mut">Choose expiry:</span></div>`+futs.map(f=>`<button data-fm="${f.token}" style="min-height:40px;padding:8px 14px;border-radius:10px;font-weight:700;${f.token===ins.token?'background:var(--acc,#b7e44b);color:#0b172e;border:0':'background:transparent;color:var(--acc,#b7e44b);border:1.5px solid var(--acc,#b7e44b)'}">${f.expiry?escH(f.expiry):escH(dsym(f.exchange,f.symbol))}</button>`).join('')+`<button id="oOpts2" style="min-height:40px;padding:8px 14px;border-radius:10px;border:0;background:var(--acc,#b7e44b);color:#0b172e;font-weight:800">Options ›</button>`;
     $('#oMBack').onclick=()=>sheetLinks(ins);
     $('#oOpts2').onclick=()=>sheetLinks(ins)||$('#oOpts').click();
     $$('#oLinks [data-fm]').forEach(b=>b.onclick=()=>{const f=futs.find(x=>String(x.token)===b.dataset.fm);if(f){sub([f.token]);openSheet(f);}});};

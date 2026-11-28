@@ -7,21 +7,21 @@
 <script>try{const th=localStorage.getItem("lfx_theme");if(th)document.documentElement.setAttribute("data-theme",th);}catch(e){}</script>
 <title>limeFX — Master</title>
 <style>
-:root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--dn:#ef4444;--acc:#84cc16}
-:root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--dn:#dc2626;--acc:#65a30d}
+:root{--bg:#0b172e;--card:#13213d;--line:#23345a;--txt:#e6e8ee;--mut:#94a7c6;--dn:#ef4444;--acc:#b7e44b}
+:root[data-theme="light"]{--bg:#f5ebdd;--card:#ffffff;--line:#e6d9c4;--txt:#111827;--mut:#6b7280;--dn:#dc2626;--acc:#65a30d}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 .login{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px}
 .brand{font-weight:800;letter-spacing:-.02em;font-size:30px;margin-bottom:16px}.lm{color:var(--acc)}.mut{color:var(--mut)}.small{font-size:13px}.dn{color:var(--dn)}.hidden{display:none}
 input{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font-size:16px}
-button{width:100%;padding:12px 14px;border-radius:10px;border:0;background:var(--acc);color:#0b1220;font-weight:700;font-size:15px;cursor:pointer}
+button{width:100%;padding:12px 14px;border-radius:10px;border:0;background:var(--acc);color:#0b172e;font-weight:700;font-size:15px;cursor:pointer}
 button.ghost{background:transparent;color:var(--txt);border:1px solid var(--line);margin-top:8px}
-</style>
+.logo{height:1.08em;width:auto;vertical-align:-0.16em;display:inline-block}.logo.ll{display:none}:root[data-theme="light"] .logo.ld{display:none}:root[data-theme="light"] .logo.ll{display:inline-block}</style>
 </head>
 <body>
 <!-- The Master page itself is only sent to a logged-in Master (owner's decision, 20 Nov 2026). This page holds nothing but the login. -->
 <div id="loginView" class="login">
-  <h2 class="brand"><span class="lm">lime</span><span>fx</span> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
+  <h2 class="brand"><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
   <div id="pwStep"><input id="lu" placeholder="Username" autocapitalize="none" autocomplete="username"><input id="lp" type="password" placeholder="Password" autocomplete="current-password">
   <button id="loginBtn">Log in</button></div>
   <div id="otpStep" class="hidden"><p class="small mut" style="margin-bottom:8px">Enter the 6-digit code from your authenticator app</p><input id="lcode" inputmode="numeric" autocomplete="one-time-code" placeholder="123 456" style="font-size:22px;letter-spacing:.2em;text-align:center">

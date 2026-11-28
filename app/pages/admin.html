@@ -7,8 +7,8 @@
 <title>limeFX — Master</title>
 <script defer src="/static/lightweight-charts.js"></script>
 <style>
-:root{--bg:#0b1220;--card:#121c2e;--line:#1e2a44;--txt:#e6e8ee;--mut:#8da2c0;--up:#22c55e;--dn:#ef4444;--acc:#84cc16;--hover:#182540}
-:root[data-theme="light"]{--bg:#f3f4f6;--card:#ffffff;--line:#e5e7eb;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--hover:#f0fdf4}
+:root{--bg:#0b172e;--card:#13213d;--line:#23345a;--txt:#e6e8ee;--mut:#94a7c6;--up:#22c55e;--dn:#ef4444;--acc:#b7e44b;--hover:#1b2b4b}
+:root[data-theme="light"]{--bg:#f5ebdd;--card:#ffffff;--line:#e6d9c4;--txt:#111827;--mut:#6b7280;--up:#16a34a;--dn:#dc2626;--acc:#65a30d;--hover:#f0fdf4}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
 button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:9px 14px;background:var(--acc);color:#0f1115;font-weight:600}
@@ -91,15 +91,15 @@ a{color:var(--acc)}
 @media(max-width:760px){#nav-perf .bar{width:100%}#nav-perf #presets{flex-wrap:wrap;overflow:visible;border:0;gap:6px}#nav-perf #presets button{border:1px solid var(--line);border-radius:999px;flex:1 1 auto}#nav-perf #presets button.active{border-color:var(--acc)}#nav-perf #pUser{width:100%!important;min-width:0}#nav-perf #customRange{width:100%}#nav-perf #customRange input{flex:1 1 auto}}
 @media(max-width:700px){main{padding:12px 10px}th,td{padding:6px 5px;font-size:12px}}
 @media(max-width:760px){#detail .box>.row:first-child>div{flex:1 1 100%!important;min-width:0}}
-.accsw{position:relative;display:inline-block;width:44px;height:24px;vertical-align:middle;cursor:pointer}.accsw input{opacity:0;width:0;height:0;position:absolute}.accsw span{position:absolute;inset:0;border-radius:99px;background:#2a3856;transition:.15s}.accsw span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#8ea0bd;transition:.15s}.accsw input:checked+span{background:#84cc16}.accsw input:checked+span:after{left:23px;background:#0b1220}
+.accsw{position:relative;display:inline-block;width:44px;height:24px;vertical-align:middle;cursor:pointer}.accsw input{opacity:0;width:0;height:0;position:absolute}.accsw span{position:absolute;inset:0;border-radius:99px;background:#2a3856;transition:.15s}.accsw span:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#8ea0bd;transition:.15s}.accsw input:checked+span{background:#b7e44b}.accsw input:checked+span:after{left:23px;background:#0b172e}
 #accDefault td,#accDefault th,#dAccess td,#dAccess th,#accOne td,#accOne th{text-align:center}
 #hlBody .plrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:5px 2px;border-bottom:1px solid var(--line)}#hlBody .plrow:last-child{border-bottom:0}#hlBody .plrow span{color:var(--mut)}#hlBody .plrow b{text-align:right;font-weight:600;min-width:0;overflow-wrap:anywhere}
 #alBody .alrow{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:6px 2px;border-bottom:1px solid var(--line)}#alBody .alrow:last-child{border-bottom:0}#alBody .alrow>b{text-align:right;font-weight:600;white-space:nowrap}
-</style>
+.logo{height:1.08em;width:auto;vertical-align:-0.16em;display:inline-block}.logo.ll{display:none}:root[data-theme="light"] .logo.ld{display:none}:root[data-theme="light"] .logo.ll{display:inline-block}</style>
 </head>
 <body>
 <div id="loginView" class="login hidden">
-  <h2 class="brand" style="font-size:30px;margin-bottom:16px"><span class="lm">lime</span><span class="fx">fx</span> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
+  <h2 class="brand" style="font-size:30px;margin-bottom:16px"><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"> <span class="mut" style="font-size:16px;font-weight:500">Master</span></h2>
   <div id="pwStep"><input id="lu" placeholder="Username" autocapitalize="none"><input id="lp" type="password" placeholder="Password">
   <button id="loginBtn" style="width:100%">Log in</button></div>
   <div id="otpStep" class="hidden"><p class="small mut" style="margin-bottom:8px">Enter the 6-digit code from your authenticator app</p><input id="lcode" inputmode="numeric" autocomplete="one-time-code" placeholder="123 456" style="font-size:22px;letter-spacing:.2em;text-align:center">
@@ -128,7 +128,7 @@ a{color:var(--acc)}
 </div>
 <div id="appView" class="hidden">
 <header>
-  <div><div class="brand"><span class="lm">lime</span><span class="fx">fx</span> <span class="mut" style="font-weight:500;font-size:15px">Master</span></div><div id="mkts" class="mkts" style="margin-top:8px;padding:0;background:none;border:0"></div><div class="small mut hidden" style="margin-top:4px"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
+  <div><div class="brand"><img class="logo ld" src="/static/brand/limefx-logo-on-dark.png" alt="limeFX"><img class="logo ll" src="/static/brand/limefx-logo-on-light.png" alt="limeFX"> <span class="mut" style="font-weight:500;font-size:15px">Master</span></div><div id="mkts" class="mkts" style="margin-top:8px;padding:0;background:none;border:0"></div><div class="small mut hidden" style="margin-top:4px"><span id="feedLight" class="feedlight"></span><span id="feedMsg"></span></div></div>
   <div class="bar" style="flex:0 0 auto"><a href="/" class="small mut">Trader view</a><button class="ghost" id="themeBtn" title="Light / dark">☾</button><button class="ghost" id="logoutBtn">Log out</button></div>
 </header>
 <main>

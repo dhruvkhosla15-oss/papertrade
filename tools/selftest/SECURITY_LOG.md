@@ -2703,3 +2703,4 @@ months" and "Options ›"; with no options it says so, with Back / Futures page 
   on Warm Ivory #f5ebdd, new app icons. Brand fonts (The Seasons, Mangold) not used: no web font files/licence.
   Told the owner the PSD sets "lime" in a FONTSPRINGDEMO font: the agency should confirm the licence.
 - 28 Nov: released b04751d (limeFX wording, navy Excel headers, favicon + tab icons on master pages). Gate: run.sh 258/0 x2, masters 92/0 x2, weekly 6892/0, screens 28/0, site 325/0.
+- 28 Nov: released 45abba3 (iPhone home-screen name limeFX). run.sh 258/0, masters 92/0. Verified live.

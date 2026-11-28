@@ -517,6 +517,12 @@ def index():
     return FileResponse(STATIC / "index.html", headers=_NOCACHE)
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers ask for /favicon.ico on every page that names no icon (and for the Master's tab): the limeFX app icon."""
+    return FileResponse(STATIC / "pwa" / "icon-192.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/manifest.webmanifest")
 async def manifest():
     return FileResponse(STATIC / "pwa" / "manifest.webmanifest", media_type="application/manifest+json", headers=_NOCACHE)
@@ -3433,7 +3439,7 @@ def _weekly_sheet(wb, db, users, start, end, many: bool):
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     ws = wb.create_sheet("Weekly Settlement")
-    ws.append(["limefx — Weekly Settlement"]); ws["A1"].font = Font(bold=True, size=14, color="365314")
+    ws.append(["limeFX — Weekly Settlement"]); ws["A1"].font = Font(bold=True, size=14, color="0B172E")
     ws.append(["Week = Monday to Sunday. Cut-off: Sunday 11:59 pm. Week Result = Closed Trades + Open Positions At Week Close − Commission. "
                "Open positions are not squared off: they are valued at the week-close price and carried forward at it."]); ws["A2"].font = Font(color="6B7280")
     ws.append([])
@@ -3441,7 +3447,7 @@ def _weekly_sheet(wb, db, users, start, end, many: bool):
                                                                  "Of Which Crypto", "Of Which Other Markets", "Coins After Settlement", "Positions Carried Forward", "Note"]
     ws.append(heads)
     for c in ws[4]:
-        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="365314"); c.alignment = Alignment(horizontal="center")
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0B172E"); c.alignment = Alignment(horizontal="center")
     rows = _weekly_rows(db, users, start, end)
     money = '#,##0.00;[Red]-#,##0.00'
     cur = None; first = 5; tfill = PatternFill("solid", fgColor="ECFCCB")
@@ -3495,8 +3501,8 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
     who = users[0].display_name if len(users) == 1 else f"All Users ({len(users)})"
     gen = (datetime.utcnow() + IST).strftime("%d %b %Y, %H:%M IST")
     wb = Workbook()
-    hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="365314")
-    title_font = Font(bold=True, size=14, color="365314"); bold = Font(bold=True); grey = Font(color="6B7280")
+    hdr_font = Font(bold=True, color="FFFFFF"); hdr_fill = PatternFill("solid", fgColor="0B172E")
+    title_font = Font(bold=True, size=14, color="0B172E"); bold = Font(bold=True); grey = Font(color="6B7280")
     tot_fill = PatternFill("solid", fgColor="ECFCCB")
     MONEY = '#,##0.00;[Red]-#,##0.00'
 
@@ -3505,7 +3511,7 @@ def build_xlsx(db: Session, users: List[User], from_: Optional[str], to: Optiona
         Text is left-aligned, numbers right-aligned, column widths follow the content."""
         ws = wb.active if wb.active.title == "Sheet" else wb.create_sheet(title)
         ws.title = title
-        ws.append([f"limefx — {statement or title}"]); ws["A1"].font = title_font
+        ws.append([f"limeFX — {statement or title}"]); ws["A1"].font = title_font
         ws.append([f"User: {who}   ·   Period: {period}   ·   Generated: {gen}"]); ws["A2"].font = grey
         ws.append([summary or ""]); ws["A3"].font = bold
         ws.append([])
@@ -3707,7 +3713,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     wb = Workbook(); ws = wb.active; ws.title = "Master Summary"
     cols = ["User", "Username", "Status", "Allocated", "Available Balance", "Margin Used", "Unrealised", "Realised", "P&L",
             "Commission", "Net P&L", "Net Balance", "Open Pos", "Trades"]
-    hfont = Font(bold=True, color="FFFFFF"); hfill = PatternFill("solid", fgColor="365314"); bold = Font(bold=True)
+    hfont = Font(bold=True, color="FFFFFF"); hfill = PatternFill("solid", fgColor="0B172E"); bold = Font(bold=True)
     tfill = PatternFill("solid", fgColor="ECFCCB")
     money = '"₹"#,##0.00;[Red]-"₹"#,##0.00'
 
@@ -3716,7 +3722,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
             c = ws.cell(r, i, h); c.font = hfont; c.fill = hfill; c.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[r].height = 22
 
-    ws["A1"] = "limefx — Master Summary"; ws["A1"].font = Font(bold=True, size=14, color="365314")
+    ws["A1"] = "limeFX — Master Summary"; ws["A1"].font = Font(bold=True, size=14, color="0B172E")
     wk_end = _weekly.week_end_of(now.date())
     n_gone = len([r for r in rows if r["status"] == "deleted"])
     ws["A2"] = (f"Generated: {now.strftime('%d %b %Y, %I:%M %p')} IST   ·   This Week ({_weekly.week_label(wk_end)}, running)   ·   {len(rows) - n_gone} Users"
@@ -3767,7 +3773,7 @@ def admin_summary_xlsx(admin: User = Depends(current_admin), db: Session = Depen
     ws.freeze_panes = f"B{USERS_H + 1}"
     # ---- how to read it ----
     w2 = wb.create_sheet("How It Adds Up")
-    lines = [["limefx — How It Adds Up", ""], ["", ""],
+    lines = [["limeFX — How It Adds Up", ""], ["", ""],
              ["Allocated", "Coins given to the user (added minus removed)."],
              ["Available Balance", "What the user can still trade with."],
              ["Margin Used", "Margin blocked by open positions and pending orders."],
